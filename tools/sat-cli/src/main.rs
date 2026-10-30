@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence.
 //!
 //! ```text
-//! sat-cli analyze <instance> [--profile NAME] [--extra DIR]... [--all-folders] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> [--profile NAME] [--extra DIR]... [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
 
@@ -25,7 +25,7 @@ fn main() {
     let res = match args.first().map(String::as_str) {
         Some("analyze") => analyze(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> [--profile NAME] [--extra DIR]... [--all-folders] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
+        _ => Err("usage: sat-cli analyze <instance> [--profile NAME] [--extra DIR]... [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -87,7 +87,7 @@ struct InstanceInfo {
     /// Mod folders on disk (not separators) that the profile's modlist does not mention.
     unlisted_folders: usize,
     unlisted_sample: Vec<String>,
-    /// Scanned as inactive because of `--all-folders`.
+    /// Scanned as inactive (default; `--listed-only` skips them). See ADR 0006: the run covers every folder.
     unlisted_scanned: bool,
 }
 
@@ -166,7 +166,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         }
         inst.profile = p.to_string();
     }
-    let all_folders = has(args, "--all-folders");
+    let all_folders = !has(args, "--listed-only");
     let data =
         std::fs::read(inst.profile_dir().join("modlist.txt")).map_err(|e| format!("modlist.txt: {e}"))?;
     let (list, _style) = profile::parse_modlist(&data);
