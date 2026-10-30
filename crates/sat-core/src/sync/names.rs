@@ -9,6 +9,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::canon::SEPARATOR_SUFFIX;
+
 macro_rules! re {
     ($s:expr) => {
         LazyLock::new(|| Regex::new($s).expect("static regex"))
@@ -71,7 +73,6 @@ impl NameKeys {
     }
 }
 
-pub const SEPARATOR_SUFFIX: &str = "_separator";
 
 /// `*_separator`, case-insensitive (monolith `isExternalSeparatorFolderName`).
 pub fn is_separator_folder(name: &str) -> bool {

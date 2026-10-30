@@ -1,0 +1,77 @@
+# Семантическая карта кода NG
+
+Файл для агентов (Claude и других), чтобы не искать вслепую и не переопределять существующее.
+Правила — PHILOSOPHY §5 «Семантический слой». Обновляется **в том же коммите**, что и код. CI проверяет,
+что каждый файл `.rs` из `crates/` и `tools/` упомянут здесь (`tools/check-map.sh`).
+
+## Понятия → единственный владелец
+
+Перед тем как писать функцию, найди понятие здесь. Есть владелец — используй его или расширь.
+Нет — добавь строку в том же коммите.
+
+| Понятие | Владелец | Не путать с |
+|---|---|---|
+| Идентичность пути (регистр, сравнение) | `sat-core/src/interner.rs` (`fold`, `PathInterner`) | `sat_formats::normalize_path` — только приводит записи архивов к виду `a/b/c` |
+| Суффикс разделителя `_separator` | `sat-core/src/canon.rs` (`SEPARATOR_SUFFIX`) | `sat_mo2::profile::SEPARATOR_SUFFIX` — реэкспорт, не копия |
+| Папка-разделитель на диске | `sat-core/src/sync/names.rs` (`is_separator_folder`) | — |
+| Имя мода для сверки (`normalizeName` монолита) | `sat-core/src/sync/names.rs` (`normalize_name`) | ключи донора `raw/norm/loose_key` там же |
+| Порядок, вкл/выкл, разделители (канон) | `sat-core/src/canon.rs` (`Modlist`) | файл `modlist.txt` — только адаптер `sat-mo2/src/profile.rs` |
+| Приоритеты из порядка | `sat-core/src/canon.rs` (`Modlist::priorities`) → `overwrite::Priorities` | — |
+| Победитель пути, стеки, цепочки, контексты, W/L/M/X | `sat-core/src/overwrite.rs` (`OverwriteProjection`) | — |
+| Таблица провайдеров (тёплый ярус) | `sat-core/src/table.rs` (`ProviderTable`) | — |
+| Факты обхода мода | `sat-core/src/facts.rs` (`ModFacts`, `ModMetrics`) | — |
+| Разбор BSA/BA2 | `sat-formats/src/archive.rs` | — |
+| Заголовок DDS и VRAM | `sat-formats/src/dds.rs` | — |
+| Заголовок и записи плагина | `sat-formats/src/plugin.rs` | — |
+| Экземпляр MO2 (папки, профили, ini) | `sat-mo2/src/instance.rs` | — |
+| Разбор и запись `modlist.txt` / `plugins.txt` / `loadorder.txt` | `sat-mo2/src/profile.rs` | — |
+| `meta.ini` мода, цвет QColor | `sat-mo2/src/meta.rs`, `sat-mo2/src/ini.rs` | — |
+| Атомарная запись файла | `sat-mo2/src/lib.rs` (`write_atomic`) | — |
+| Сигнатура папки мода | `sat-scan/src/signature.rs` (`signature`; `signature_v1` — только перенос кеша) | сигнатура монолита (`buildAnalysisSignature`) — другая, см. `docs/parity/run/00-overview.md` |
+| Кеш сканов (холодный, на машине) | `sat-scan/src/cache.rs` | контейнер проекта (ADR 0007) — другое |
+| Пул ввода-вывода | `sat-scan/src/lib.rs` (`scan`, `ScanOptions::io_threads`) | пул `rayon` по умолчанию — для вычислений ядра |
+| Донор: соответствие, категории, оценка | `sat-core/src/sync/donor.rs` | — |
+
+## Файлы
+
+### `crates/sat-formats` — форматы файлов игры, без файловой системы
+- `crates/sat-formats/src/lib.rs` — `FormatError`, `normalize_path`; реэкспорт модулей.
+- `crates/sat-formats/src/read.rs` — чтение little-endian и z-строк (внутреннее).
+- `crates/sat-formats/src/plugin.rs` — `read_plugin_header` (TES4: HEDR, CNAM, SNAM, MAST; флаги master/light/localized),
+  `PluginHeader::kind`, `scan_records` → `RecordCounts` (`placed_references` = REFR + ACHR).
+- `crates/sat-formats/src/dds.rs` — `DdsInfo::parse` (заголовок до `DDS_HEADER_PROBE` байт), `texture_bytes`, `dxgi_name`.
+- `crates/sat-formats/src/archive.rs` — `read_archive` → `ArchiveManifest` (BSA 103–105, BA2 GNRL/DX10, VRAM записей);
+  `fixtures` для тестов.
+
+### `crates/sat-core` — ядро, без ввода-вывода
+- `crates/sat-core/src/lib.rs` — оглавление слоёв.
+- `crates/sat-core/src/ids.rs` — типизированные `u32`-идентификаторы (`ModId`, `PathId`, `DirId`, `NameId`, `ChainId`, `ContextId`, `ArchiveId`).
+- `crates/sat-core/src/interner.rs` — `PathInterner`: арена строк, свёртка регистра, каталоги, `file_key`.
+- `crates/sat-core/src/facts.rs` — факты сканера: `LooseFile`, `LooseDir`, `ArchiveFacts`, `PluginFacts`, `ModMetrics`, `ModFacts`.
+- `crates/sat-core/src/table.rs` — `ProviderTable::build`: колонки провайдеров, CSR по путям и модам.
+- `crates/sat-core/src/overwrite.rs` — `Priorities`, `OverwriteProjection::compute` (параллельно по путям), статистика.
+- `crates/sat-core/src/canon.rs` — `Modlist`, `Entry`, `EntryKind`, перемещение блоков, вкл/выкл, приоритеты, `SEPARATOR_SUFFIX`.
+- `crates/sat-core/src/sync/mod.rs` — оглавление синхронизации (ADR 0006).
+- `crates/sat-core/src/sync/names.rs` — правила имён монолита (сверено с JS на 1 128 именах).
+- `crates/sat-core/src/sync/donor.rs` — внешний донор: `FolderLookup`, `TargetIndex`, `validate`, `candidates`.
+
+### `crates/sat-mo2` — адаптер Mod Organizer 2
+- `crates/sat-mo2/src/lib.rs` — `Mo2Error`, `read`, `write_atomic`.
+- `crates/sat-mo2/src/ini.rs` — разбор ini MO2, `@ByteArray`, `@Variant` (QColor), экранирование.
+- `crates/sat-mo2/src/instance.rs` — `Instance::load` (ini или раскладка `mods` + `profiles`), `from_dirs`, `mod_dir`.
+- `crates/sat-mo2/src/profile.rs` — `parse_modlist` / `serialize_modlist` (байт в байт, BOM, CRLF), `plugins.txt`, `loadorder.txt`.
+- `crates/sat-mo2/src/meta.rs` — `ModMeta` из `meta.ini`.
+
+### `crates/sat-scan` — обход папок модов (холодный ярус)
+- `crates/sat-scan/src/lib.rs` — `ScanJob`, `ScanOptions`, `ScanProgress` (счётчики по фазам), `scan` на I/O-пуле.
+- `crates/sat-scan/src/walk.rs` — обход одного мода: файлы, DDS, корневые архивы и плагины, метрики.
+- `crates/sat-scan/src/signature.rs` — сигнатура v2 (листинг каталога), `signature_v1` для переноса старого кеша.
+- `crates/sat-scan/src/cache.rs` — кеш по моду (bincode, временный файл + rename).
+- `crates/sat-scan/tests/scan.rs` — интеграционный тест: DDS, плагин, архив, кеш.
+
+### `tools`
+- `tools/sat-cli/src/main.rs` — `analyze` (инвентарь, скан, таблица, проекция, отчёт), `donor`, `bench-synth`.
+
+## Документы
+- `PHILOSOPHY.md` — направление и правила. `docs/adr/` — решения. `docs/distances/` — текущая работа.
+- `docs/parity/` — что делает монолит (эталон поведения). `docs/semantic/monolith/` — конспект монолита.

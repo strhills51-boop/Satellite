@@ -189,7 +189,7 @@ fn donor_mods(list: &Modlist) -> Vec<(String, bool, String)> {
             EntryKind::Separator => {
                 sep = e
                     .name
-                    .strip_suffix(super::names::SEPARATOR_SUFFIX)
+                    .strip_suffix(crate::canon::SEPARATOR_SUFFIX)
                     .unwrap_or(&e.name)
                     .to_string();
             }

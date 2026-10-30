@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::ids::ModId;
 use crate::overwrite::Priorities;
 
+/// Suffix that marks a separator: MO2 stores separators as folders and modlist entries named `<name>_separator`,
+/// and canon keeps it in [`Entry::name`]. Single owner of this convention (docs/semantic/MAP.md).
+pub const SEPARATOR_SUFFIX: &str = "_separator";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EntryKind {
     /// A managed mod folder.
