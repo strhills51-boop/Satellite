@@ -55,7 +55,12 @@ fn visit(dir: &Path, depth: u32, h: &mut Fnv) {
     let mut ents: Vec<_> = rd.filter_map(Result::ok).collect();
     ents.sort_by_key(|e| e.file_name());
     for e in ents {
-        let Ok(md) = e.metadata() else { continue };
+        // Not `DirEntry::metadata()`: on Windows it comes from the parent directory's index, which NTFS updates
+        // lazily, so the same untouched folder could yield two different signatures. A handle-based query is exact;
+        // the cost is one extra call per entry, only down to depth 2.
+        let Ok(md) = std::fs::metadata(e.path()) else {
+            continue;
+        };
         h.write_u64(u64::from(depth));
         h.write(e.file_name().to_string_lossy().as_bytes());
         h.write_u64(md.len());
