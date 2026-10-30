@@ -26,7 +26,8 @@ impl Fnv {
     }
 }
 
-/// Names, sizes and modification times of entries up to depth 2, plus options that change the result.
+/// Names of entries up to depth 2, sizes and modification times of files among them, plus options that change
+/// the result.
 ///
 /// Installing/updating a mod through a manager replaces files, which changes mtimes of the touched
 /// top-level directories. Edits deep inside an otherwise untouched tree are not detected — the run
@@ -55,9 +56,60 @@ fn visit(dir: &Path, depth: u32, h: &mut Fnv) {
     let mut ents: Vec<_> = rd.filter_map(Result::ok).collect();
     ents.sort_by_key(|e| e.file_name());
     for e in ents {
-        // Not `DirEntry::metadata()`: on Windows it comes from the parent directory's index, which NTFS updates
-        // lazily, so the same untouched folder could yield two different signatures. A handle-based query is exact;
-        // the cost is one extra call per entry, only down to depth 2.
+        // Directory-entry metadata only: on Windows it comes with the listing (no file is opened), which is what
+        // makes a warm start cheap on 7 500 mods. Two caveats shape what goes into the hash:
+        // - directories: NTFS updates their timestamps in the parent index lazily, so the same untouched folder
+        //   could hash differently between runs → for directories only the name is hashed; their contents are
+        //   visited instead;
+        // - files: size and mtime in the index are refreshed when the writer closes the file, which is the case
+        //   for installed mods.
+        let Ok(ft) = e.file_type() else { continue };
+        h.write_u64(u64::from(depth));
+        h.write(e.file_name().to_string_lossy().as_bytes());
+        if ft.is_dir() {
+            h.write(b"/");
+            if depth < 2 {
+                visit(&e.path(), depth + 1, h);
+            }
+            continue;
+        }
+        let Ok(md) = e.metadata() else { continue };
+        h.write_u64(md.len());
+        let mtime = md
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos() as u64);
+        h.write_u64(mtime);
+    }
+}
+
+/// The first signature (handle-based metadata of every entry to depth 2). Kept only to adopt cache entries written
+/// by builds that used it, so updating does not force a cold rescan. Remove once caches have migrated.
+pub(crate) fn signature_v1(dir: &Path, opts: &ScanOptions) -> u64 {
+    let mut h = Fnv::new();
+    h.write_u64(u64::from(CACHE_VERSION));
+    for flag in [
+        opts.read_dds_headers,
+        opts.archives,
+        opts.plugins,
+        opts.record_scan,
+    ] {
+        h.write(&[u8::from(flag)]);
+    }
+    for name in &opts.ignore_root_files {
+        h.write(name.as_bytes());
+        h.write(b"|");
+    }
+    visit_v1(dir, 0, &mut h);
+    h.finish()
+}
+
+fn visit_v1(dir: &Path, depth: u32, h: &mut Fnv) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut ents: Vec<_> = rd.filter_map(Result::ok).collect();
+    ents.sort_by_key(|e| e.file_name());
+    for e in ents {
         let Ok(md) = std::fs::metadata(e.path()) else {
             continue;
         };
@@ -71,7 +123,7 @@ fn visit(dir: &Path, depth: u32, h: &mut Fnv) {
             .map_or(0, |d| d.as_nanos() as u64);
         h.write_u64(mtime);
         if md.is_dir() && depth < 2 {
-            visit(&e.path(), depth + 1, h);
+            visit_v1(&e.path(), depth + 1, h);
         }
     }
 }

@@ -22,6 +22,11 @@ use serde::Serialize;
 
 const OVERWRITE: &str = "Overwrite";
 
+/// Millions of small allocations (path strings, per-dir vectors) dominate table builds; the system allocator on
+/// Windows is markedly slower at that than mimalloc.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let res = match args.first().map(String::as_str) {

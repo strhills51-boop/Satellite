@@ -156,9 +156,14 @@ fn scan_one(job: &ScanJob, opts: &ScanOptions, progress: &ScanProgress) -> ScanO
     let cached = if opts.force {
         None
     } else {
-        opts.cache_dir
-            .as_ref()
-            .and_then(|dir| cache::load(dir, &job.name, sig))
+        opts.cache_dir.as_ref().and_then(|dir| {
+            cache::load(dir, &job.name, sig).or_else(|| {
+                // Adopt an entry written under the previous signature scheme, then re-key it.
+                let facts = cache::load(dir, &job.name, signature::signature_v1(&job.path, opts))?;
+                cache::store(dir, &facts, sig);
+                Some(facts)
+            })
+        })
     };
     add_ns(&progress.cache_load_ns, t);
     if let Some(facts) = cached {
@@ -186,5 +191,34 @@ fn scan_one(job: &ScanJob, opts: &ScanOptions, progress: &ScanProgress) -> ScanO
         from_cache: false,
         signature: sig,
         elapsed: started.elapsed(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adopts_cache_written_under_v1_signature() {
+        let tmp = tempfile::tempdir().unwrap();
+        let m = tmp.path().join("M");
+        std::fs::create_dir_all(m.join("textures")).unwrap();
+        std::fs::write(m.join("textures/a.txt"), b"x").unwrap();
+        let cache = tmp.path().join("cache");
+        let opts = ScanOptions {
+            cache_dir: Some(cache.clone()),
+            ..Default::default()
+        };
+        let job = ScanJob {
+            name: "M".into(),
+            path: m.clone(),
+        };
+        let first = scan_one(&job, &opts, &ScanProgress::default());
+        // Pretend an older build wrote the entry.
+        cache::store(&cache, &first.facts, signature::signature_v1(&m, &opts));
+        let adopted = scan_one(&job, &opts, &ScanProgress::default());
+        assert!(adopted.from_cache, "v1 entry adopted");
+        // Re-keyed: found directly under the current signature.
+        assert!(cache::load(&cache, "M", signature(&m, &opts)).is_some());
     }
 }

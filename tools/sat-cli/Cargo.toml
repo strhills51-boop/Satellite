@@ -14,6 +14,7 @@ sat-scan.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 rayon.workspace = true
+mimalloc.workspace = true
 
 [lints]
 workspace = true
