@@ -73,7 +73,6 @@ impl NameKeys {
     }
 }
 
-
 /// `*_separator`, case-insensitive (monolith `isExternalSeparatorFolderName`).
 pub fn is_separator_folder(name: &str) -> bool {
     name.trim().to_lowercase().ends_with(SEPARATOR_SUFFIX)
