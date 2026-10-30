@@ -66,12 +66,28 @@ pub struct ScanOutcome {
 }
 
 /// Live counters, readable from another thread while a scan runs.
+///
+/// The `*_ns` fields are thread time summed over all workers (not wall time): they show where the scan
+/// spends its effort, e.g. opening DDS files vs. reading archive indexes vs. computing signatures.
 #[derive(Debug, Default)]
 pub struct ScanProgress {
     pub total: AtomicUsize,
     pub done: AtomicUsize,
     pub cached: AtomicUsize,
     pub files: AtomicU64,
+    pub signature_ns: AtomicU64,
+    pub cache_load_ns: AtomicU64,
+    pub dds_reads: AtomicU64,
+    pub dds_ns: AtomicU64,
+    pub archive_reads: AtomicU64,
+    pub archive_ns: AtomicU64,
+    pub plugin_reads: AtomicU64,
+    pub plugin_ns: AtomicU64,
+    pub walk_ns: AtomicU64,
+}
+
+pub(crate) fn add_ns(counter: &AtomicU64, since: std::time::Instant) {
+    counter.fetch_add(since.elapsed().as_nanos() as u64, Ordering::Relaxed);
 }
 
 impl ScanProgress {
@@ -107,11 +123,19 @@ fn scan_one(job: &ScanJob, opts: &ScanOptions, progress: &ScanProgress) -> ScanO
             elapsed: started.elapsed(),
         };
     }
+    let t = std::time::Instant::now();
     let sig = signature(&job.path, opts);
-    if !opts.force
-        && let Some(dir) = &opts.cache_dir
-        && let Some(facts) = cache::load(dir, &job.name, sig)
-    {
+    add_ns(&progress.signature_ns, t);
+    let t = std::time::Instant::now();
+    let cached = if opts.force {
+        None
+    } else {
+        opts.cache_dir
+            .as_ref()
+            .and_then(|dir| cache::load(dir, &job.name, sig))
+    };
+    add_ns(&progress.cache_load_ns, t);
+    if let Some(facts) = cached {
         progress.cached.fetch_add(1, Ordering::Relaxed);
         progress
             .files
@@ -123,7 +147,9 @@ fn scan_one(job: &ScanJob, opts: &ScanOptions, progress: &ScanProgress) -> ScanO
             elapsed: started.elapsed(),
         };
     }
-    let facts = walk::walk_mod(&job.name, &job.path, opts, &progress.files);
+    let t = std::time::Instant::now();
+    let facts = walk::walk_mod(&job.name, &job.path, opts, progress);
+    add_ns(&progress.walk_ns, t);
     if let Some(dir) = &opts.cache_dir
         && facts.error.is_none()
     {

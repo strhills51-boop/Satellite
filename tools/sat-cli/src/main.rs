@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence.
 //!
 //! ```text
-//! sat-cli analyze <instance> [--extra DIR]... [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> [--profile NAME] [--extra DIR]... [--all-folders] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
 
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use sat_core::canon::Modlist;
+use sat_core::canon::{EntryKind, Modlist};
 use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::ids::ModId;
 use sat_core::overwrite::{OverwriteProjection, Priorities};
@@ -25,7 +25,7 @@ fn main() {
     let res = match args.first().map(String::as_str) {
         Some("analyze") => analyze(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> [--extra DIR]... [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
+        _ => Err("usage: sat-cli analyze <instance> [--profile NAME] [--extra DIR]... [--all-folders] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -67,7 +67,50 @@ fn rss_mib() -> Option<u64> {
 }
 
 #[derive(Serialize)]
+struct RootInfo {
+    path: String,
+    exists: bool,
+    /// Subfolders, separator folders included.
+    folders: usize,
+    separator_folders: usize,
+}
+
+#[derive(Serialize)]
+struct InstanceInfo {
+    profile: String,
+    profiles: Vec<String>,
+    roots: Vec<RootInfo>,
+    modlist_mods: usize,
+    modlist_enabled: usize,
+    modlist_separators: usize,
+    modlist_foreign: usize,
+    /// Mod folders on disk (not separators) that the profile's modlist does not mention.
+    unlisted_folders: usize,
+    unlisted_sample: Vec<String>,
+    /// Scanned as inactive because of `--all-folders`.
+    unlisted_scanned: bool,
+}
+
+#[derive(Serialize)]
+struct ScanBreakdown {
+    threads: usize,
+    /// Thread time summed over workers, ms. Divide by `threads` for a rough wall-time share.
+    signature_ms: u64,
+    cache_load_ms: u64,
+    walk_ms: u64,
+    dds_reads: u64,
+    dds_ms: u64,
+    archive_reads: u64,
+    archive_ms: u64,
+    plugin_reads: u64,
+    plugin_ms: u64,
+    /// Slowest mods: (name, ms, loose files, archive entries).
+    slowest: Vec<(String, u128, u32, u32)>,
+}
+
+#[derive(Serialize)]
 struct Report {
+    instance: InstanceInfo,
     mods_scanned: usize,
     from_cache: usize,
     missing: usize,
@@ -82,8 +125,26 @@ struct Report {
     /// name -> [win, lose, mid, unique]
     mods: BTreeMap<String, [u32; 4]>,
     timings_ms: BTreeMap<&'static str, u128>,
+    scan: ScanBreakdown,
     peak_rss_mib: Option<u64>,
     rss_after_mib: Option<u64>,
+}
+
+fn is_separator_folder(name: &str) -> bool {
+    name.to_lowercase().ends_with(profile::SEPARATOR_SUFFIX)
+}
+
+fn subfolders(dir: &std::path::Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(Result::ok)
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
 }
 
 fn analyze(args: &[String]) -> Result<(), String> {
@@ -96,9 +157,88 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .into_iter()
         .map(PathBuf::from)
         .collect();
+    if let Some(p) = flag_value(args, "--profile") {
+        if !inst.profiles.iter().any(|x| x == p) {
+            return Err(format!(
+                "profile {p:?} not found; available: {}",
+                inst.profiles.join(", ")
+            ));
+        }
+        inst.profile = p.to_string();
+    }
+    let all_folders = has(args, "--all-folders");
     let data =
         std::fs::read(inst.profile_dir().join("modlist.txt")).map_err(|e| format!("modlist.txt: {e}"))?;
     let (list, _style) = profile::parse_modlist(&data);
+
+    // Inventory: what the profile says vs. what is on disk.
+    let listed: std::collections::HashSet<String> =
+        list.entries.iter().map(|e| e.name.to_lowercase()).collect();
+    let mut roots = Vec::new();
+    let mut unlisted: Vec<(String, PathBuf)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for root in inst.mod_roots() {
+        let names = subfolders(root);
+        roots.push(RootInfo {
+            path: root.display().to_string(),
+            exists: root.is_dir(),
+            folders: names.len(),
+            separator_folders: names.iter().filter(|n| is_separator_folder(n)).count(),
+        });
+        for n in names {
+            let key = n.to_lowercase();
+            if !is_separator_folder(&n) && !listed.contains(&key) && seen.insert(key) {
+                unlisted.push((n.clone(), root.join(&n)));
+            }
+        }
+    }
+    let mods_in_list = list.entries.iter().filter(|e| e.is_mod()).count();
+    let enabled = list.entries.iter().filter(|e| e.is_mod() && e.enabled).count();
+    let info = InstanceInfo {
+        profile: inst.profile.clone(),
+        profiles: inst.profiles.clone(),
+        roots,
+        modlist_mods: mods_in_list,
+        modlist_enabled: enabled,
+        modlist_separators: list
+            .entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::Separator)
+            .count(),
+        modlist_foreign: list
+            .entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::Foreign)
+            .count(),
+        unlisted_folders: unlisted.len(),
+        unlisted_sample: unlisted.iter().take(20).map(|(n, _)| n.clone()).collect(),
+        unlisted_scanned: all_folders,
+    };
+    eprintln!(
+        "profile={:?} (available: {})",
+        info.profile,
+        info.profiles.join(", ")
+    );
+    for r in &info.roots {
+        eprintln!(
+            "root {} exists={} folders={} (separators {})",
+            r.path, r.exists, r.folders, r.separator_folders
+        );
+    }
+    eprintln!(
+        "modlist: mods={} enabled={} separators={} foreign={}; folders on disk not in modlist={}",
+        info.modlist_mods,
+        info.modlist_enabled,
+        info.modlist_separators,
+        info.modlist_foreign,
+        info.unlisted_folders
+    );
+    if enabled == 0 {
+        eprintln!(
+            "WARNING: no mod is enabled in profile {:?} — conflicts will be empty. Pick the profile with --profile NAME.",
+            info.profile
+        );
+    }
 
     let mut jobs: Vec<ScanJob> = list
         .entries
@@ -109,6 +249,9 @@ fn analyze(args: &[String]) -> Result<(), String> {
             path: inst.resolve_mod_dir(&e.name),
         })
         .collect();
+    if all_folders {
+        jobs.extend(unlisted.into_iter().map(|(name, path)| ScanJob { name, path }));
+    }
     jobs.push(ScanJob {
         name: OVERWRITE.into(),
         path: inst.overwrite_dir.clone(),
@@ -125,9 +268,72 @@ fn analyze(args: &[String]) -> Result<(), String> {
         ..Default::default()
     };
     let mut timings = BTreeMap::new();
+    let progress = ScanProgress::default();
     let t = Instant::now();
-    let outcomes = sat_scan::scan(&jobs, &opts, &ScanProgress::default());
+    let done = std::sync::atomic::AtomicBool::new(false);
+    let outcomes = std::thread::scope(|s| {
+        s.spawn(|| {
+            let mut last = Instant::now();
+            while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                if last.elapsed().as_secs() >= 5 {
+                    last = Instant::now();
+                    let (d, total, cached, files) = progress.snapshot();
+                    eprintln!(
+                        "  scan {d}/{total} mods, {cached} from cache, {files} files, {:.0} s",
+                        t.elapsed().as_secs_f64()
+                    );
+                }
+            }
+        });
+        let out = sat_scan::scan(&jobs, &opts, &progress);
+        done.store(true, std::sync::atomic::Ordering::Relaxed);
+        out
+    });
     timings.insert("scan", t.elapsed().as_millis());
+
+    let ms = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
+    let n = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
+    let mut slowest: Vec<(String, u128, u32, u32)> = outcomes
+        .iter()
+        .filter(|o| !o.from_cache)
+        .map(|o| {
+            (
+                o.facts.name.clone(),
+                o.elapsed.as_millis(),
+                o.facts.metrics.files,
+                o.facts.metrics.archive_files,
+            )
+        })
+        .collect();
+    slowest.sort_by_key(|b| std::cmp::Reverse(b.1));
+    slowest.truncate(20);
+    let breakdown = ScanBreakdown {
+        threads: rayon::current_num_threads(),
+        signature_ms: ms(&progress.signature_ns),
+        cache_load_ms: ms(&progress.cache_load_ns),
+        walk_ms: ms(&progress.walk_ns),
+        dds_reads: n(&progress.dds_reads),
+        dds_ms: ms(&progress.dds_ns),
+        archive_reads: n(&progress.archive_reads),
+        archive_ms: ms(&progress.archive_ns),
+        plugin_reads: n(&progress.plugin_reads),
+        plugin_ms: ms(&progress.plugin_ns),
+        slowest,
+    };
+    eprintln!(
+        "scan thread-time ms (threads={}): signature={} cache_load={} walk={} [dds {}x {} | archives {}x {} | plugins {}x {}]",
+        breakdown.threads,
+        breakdown.signature_ms,
+        breakdown.cache_load_ms,
+        breakdown.walk_ms,
+        breakdown.dds_reads,
+        breakdown.dds_ms,
+        breakdown.archive_reads,
+        breakdown.archive_ms,
+        breakdown.plugin_reads,
+        breakdown.plugin_ms
+    );
 
     let from_cache = outcomes.iter().filter(|o| o.from_cache).count();
     let missing = outcomes
@@ -174,6 +380,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         })
         .collect();
     let report = Report {
+        instance: info,
         mods_scanned: jobs.len(),
         from_cache,
         missing,
@@ -187,6 +394,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         fully_overridden: totals.fully_overridden,
         mods,
         timings_ms: timings,
+        scan: breakdown,
         peak_rss_mib: peak_rss_mib(),
         rss_after_mib: rss_mib(),
     };

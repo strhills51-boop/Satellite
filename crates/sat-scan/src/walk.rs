@@ -3,14 +3,15 @@
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use rayon::prelude::*;
 
 use sat_core::facts::{ArchiveFacts, LooseDir, LooseFile, ModFacts, ModMetrics, PluginFacts};
 use sat_formats::{DdsInfo, dds::DDS_HEADER_PROBE};
 
-use crate::ScanOptions;
+use crate::{ScanOptions, ScanProgress, add_ns};
 
 const NESTED: &[&str] = &["zip", "7z", "rar", "tar", "gz"];
 const SOURCES: &[&str] = &["psc", "psd", "xcf", "blend", "max", "fbx", "obj", "spp", "sbsar"];
@@ -25,12 +26,12 @@ struct Subtree {
     error: Option<String>,
 }
 
-pub(crate) fn walk_mod(name: &str, root: &Path, opts: &ScanOptions, files: &AtomicU64) -> ModFacts {
+pub(crate) fn walk_mod(name: &str, root: &Path, opts: &ScanOptions, progress: &ScanProgress) -> ModFacts {
     let mut facts = ModFacts {
         name: name.to_string(),
         ..Default::default()
     };
-    let tree = walk_dir(root, "", 0, opts, files);
+    let tree = walk_dir(root, "", 0, opts, progress);
     facts.dirs = tree.dirs;
     facts.metrics = tree.metrics;
     facts.error = tree.error;
@@ -43,13 +44,19 @@ pub(crate) fn walk_mod(name: &str, root: &Path, opts: &ScanOptions, files: &Atom
             if matches!(ext.as_str(), "esp" | "esm" | "esl") {
                 facts.metrics.plugins += 1;
                 if opts.plugins {
+                    let t = Instant::now();
                     facts.plugins.push(read_plugin(&path, &f.name, opts.record_scan));
+                    add_ns(&progress.plugin_ns, t);
+                    progress.plugin_reads.fetch_add(1, Ordering::Relaxed);
                 }
             }
             if matches!(ext.as_str(), "bsa" | "ba2") {
                 facts.metrics.archives += 1;
                 if opts.archives {
+                    let t = Instant::now();
                     let a = read_archive(&path, &f.name, f.size);
+                    add_ns(&progress.archive_ns, t);
+                    progress.archive_reads.fetch_add(1, Ordering::Relaxed);
                     if let Some(m) = &a.manifest {
                         facts.metrics.archive_files += m.entries.len() as u32;
                         for e in m.entries.iter().filter(|e| e.vram > 0) {
@@ -65,7 +72,7 @@ pub(crate) fn walk_mod(name: &str, root: &Path, opts: &ScanOptions, files: &Atom
     facts
 }
 
-fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, counter: &AtomicU64) -> Subtree {
+fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, progress: &ScanProgress) -> Subtree {
     let mut out = Subtree::default();
     let rd = match std::fs::read_dir(abs) {
         Ok(rd) => rd,
@@ -114,8 +121,14 @@ fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, counter: &Ato
         match ext.as_str() {
             "dds" => {
                 m.dds += 1;
-                if opts.read_dds_headers
-                    && let Some(info) = read_dds(&e.path())
+                let info = opts.read_dds_headers.then(|| {
+                    let t = Instant::now();
+                    let info = read_dds(&e.path());
+                    add_ns(&progress.dds_ns, t);
+                    progress.dds_reads.fetch_add(1, Ordering::Relaxed);
+                    info
+                });
+                if let Some(Some(info)) = info
                     && info.known()
                 {
                     file.vram = info.vram;
@@ -134,7 +147,9 @@ fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, counter: &Ato
         }
         here.files.push(file);
     }
-    counter.fetch_add(here.files.len() as u64, Ordering::Relaxed);
+    progress
+        .files
+        .fetch_add(here.files.len() as u64, Ordering::Relaxed);
     m.dirs += subdirs.len() as u32;
     if !here.files.is_empty() {
         out.dirs.push(here);
@@ -146,7 +161,7 @@ fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, counter: &Ato
         } else {
             format!("{rel}/{name}")
         };
-        walk_dir(&abs.join(name), &r, depth + 1, opts, counter)
+        walk_dir(&abs.join(name), &r, depth + 1, opts, progress)
     };
     let children: Vec<Subtree> = if depth < PARALLEL_DEPTH && subdirs.len() > 1 {
         subdirs.par_iter().map(child).collect()
