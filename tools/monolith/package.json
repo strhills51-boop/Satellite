@@ -1,0 +1,7 @@
+{
+  "name": "monolith-xref",
+  "private": true,
+  "description": "Cross-reference index of the monolith HTML for the conspectus cursors (docs/semantic/monolith/CURSORS.md)",
+  "type": "module",
+  "dependencies": { "acorn": "8.15.0", "acorn-walk": "8.3.4" }
+}
