@@ -31,9 +31,18 @@ impl Instance {
             p.clone()
         };
         if !ini_path.is_file() {
+            // Non-portable MO2 keeps its ini in %LOCALAPPDATA%; the folders themselves are enough (monolith model).
+            if p.is_dir() && p.join("mods").is_dir() && p.join("profiles").is_dir() {
+                return Ok(Self::from_dirs(
+                    p.join("mods"),
+                    p.join("profiles"),
+                    p.join("overwrite"),
+                    None,
+                ));
+            }
             return Err(Mo2Error::NotInstance(format!(
-                "ModOrganizer.ini not found at {}",
-                ini_path.display()
+                "neither ModOrganizer.ini nor mods/ + profiles/ found at {}",
+                p.display()
             )));
         }
         let ini = ini::parse(&read(&ini_path)?);
@@ -62,15 +71,7 @@ impl Instance {
         let mods_dir = resolve("mod_directory", "mods");
         let overwrite_dir = resolve("overwrite_directory", "overwrite");
         let profiles_dir = resolve("profiles_directory", "profiles");
-        let mut profiles: Vec<String> = std::fs::read_dir(&profiles_dir)
-            .map(|rd| {
-                rd.filter_map(|e| e.ok())
-                    .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-                    .map(|e| e.file_name().to_string_lossy().into_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
-        profiles.sort();
+        let profiles = list_dirs(&profiles_dir);
         let mut profile = get(general, "selected_profile");
         if profile.is_empty() {
             profile = profiles.first().cloned().unwrap_or_default();
@@ -88,6 +89,36 @@ impl Instance {
         })
     }
 
+    /// An instance from explicit folders, without `ModOrganizer.ini` — what the monolith asks the user for.
+    /// The profile defaults to `Default` when present, otherwise the first one.
+    pub fn from_dirs(
+        mods_dir: PathBuf,
+        profiles_dir: PathBuf,
+        overwrite_dir: PathBuf,
+        profile: Option<&str>,
+    ) -> Self {
+        let abs = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
+        let (mods_dir, profiles_dir, overwrite_dir) = (abs(mods_dir), abs(profiles_dir), abs(overwrite_dir));
+        let profiles = list_dirs(&profiles_dir);
+        let profile = profile
+            .map(str::to_string)
+            .or_else(|| profiles.iter().find(|p| p.as_str() == "Default").cloned())
+            .or_else(|| profiles.first().cloned())
+            .unwrap_or_default();
+        let base_dir = mods_dir.parent().map(Path::to_path_buf).unwrap_or_default();
+        Self {
+            ini_path: PathBuf::new(),
+            base_dir,
+            game_name: String::new(),
+            game_path: PathBuf::new(),
+            mods_dir,
+            overwrite_dir,
+            profiles_dir,
+            profile,
+            profiles,
+        }
+    }
+
     pub fn profile_dir(&self) -> PathBuf {
         self.profiles_dir.join(&self.profile)
     }
@@ -97,6 +128,19 @@ impl Instance {
     pub fn mod_dir(&self, name: &str) -> PathBuf {
         self.mods_dir.join(name)
     }
+}
+
+fn list_dirs(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
 }
 
 fn normalize(inst_dir: &Path, v: &str) -> PathBuf {
@@ -128,6 +172,20 @@ mod tests {
         assert_eq!(i.mods_dir, std::path::absolute(root.join("mods")).unwrap());
         assert!(i.overwrite_dir.ends_with("ow"));
         assert_eq!(i.mod_dir("A"), i.mods_dir.join("A"));
+    }
+
+    #[test]
+    fn folder_layout_without_ini() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("profiles/Alt")).unwrap();
+        std::fs::create_dir_all(root.join("profiles/Default")).unwrap();
+        std::fs::create_dir_all(root.join("mods/A")).unwrap();
+        let i = Instance::load(root).unwrap();
+        assert_eq!(i.profile, "Default");
+        assert_eq!(i.mods_dir, std::path::absolute(root.join("mods")).unwrap());
+        assert!(i.overwrite_dir.ends_with("overwrite"));
+        assert!(i.ini_path.as_os_str().is_empty());
     }
 
     #[test]

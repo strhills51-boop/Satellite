@@ -1,8 +1,8 @@
 //! `sat-cli` — developer tool for NG-D001 evidence.
 //!
 //! ```text
-//! sat-cli analyze <instance> [--profile NAME] [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]
-//! sat-cli donor <instance> --mods DIR [--modlist FILE] [--profile NAME] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
 
@@ -28,7 +28,7 @@ fn main() {
         Some("analyze") => analyze(&args[1..]),
         Some("donor") => donor(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> [--profile NAME] [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --mods DIR [--modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -149,11 +149,7 @@ fn subfolders(dir: &std::path::Path) -> Vec<String> {
 }
 
 fn analyze(args: &[String]) -> Result<(), String> {
-    let path = args
-        .first()
-        .filter(|a| !a.starts_with("--"))
-        .ok_or("missing <instance>")?;
-    let inst = open_instance(path, args)?;
+    let inst = open_instance(args)?;
     let all_folders = !has(args, "--listed-only");
     let list = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
 
@@ -412,8 +408,31 @@ fn analyze(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn open_instance(path: &str, args: &[String]) -> Result<Instance, String> {
-    let mut inst = Instance::load(path).map_err(|e| e.to_string())?;
+/// `<instance>` is an MO2 folder (with or without `ModOrganizer.ini`). `--mods DIR --profiles DIR
+/// [--overwrite DIR]` give the folders directly, like the monolith's folder pickers; then `<instance>` is optional.
+fn open_instance(args: &[String]) -> Result<Instance, String> {
+    let explicit = |flag: &str| flag_value(args, flag).map(PathBuf::from);
+    let path = args.first().filter(|a| !a.starts_with("--"));
+    let mut inst = match (explicit("--mods"), explicit("--profiles"), path) {
+        (Some(m), Some(p), _) => {
+            let ow = explicit("--overwrite").unwrap_or_else(|| {
+                m.parent()
+                    .map_or_else(|| PathBuf::from("overwrite"), |b| b.join("overwrite"))
+            });
+            Instance::from_dirs(m, p, ow, None)
+        }
+        (_, _, Some(path)) => {
+            let mut i = Instance::load(path).map_err(|e| e.to_string())?;
+            if let Some(m) = explicit("--mods") {
+                i.mods_dir = m;
+            }
+            if let Some(o) = explicit("--overwrite") {
+                i.overwrite_dir = o;
+            }
+            i
+        }
+        _ => return Err("missing <instance> (or --mods DIR --profiles DIR)".into()),
+    };
     if let Some(p) = flag_value(args, "--profile") {
         if !inst.profiles.iter().any(|x| x == p) {
             return Err(format!(
@@ -445,12 +464,8 @@ struct DonorReport {
 /// External donor (monolith `ExternalDonorSession`): matches another mods folder (and optionally its
 /// `modlist.txt`) against the instance's profile, which stands in for the project until NG-D002.
 fn donor(args: &[String]) -> Result<(), String> {
-    let path = args
-        .first()
-        .filter(|a| !a.starts_with("--"))
-        .ok_or("missing <instance>")?;
-    let inst = open_instance(path, args)?;
-    let mods_dir = PathBuf::from(flag_value(args, "--mods").ok_or("missing --mods DIR (donor mods folder)")?);
+    let inst = open_instance(args)?;
+    let mods_dir = PathBuf::from(flag_value(args, "--donor-mods").ok_or("missing --donor-mods DIR")?);
     if !mods_dir.is_dir() {
         return Err(format!("not a folder: {}", mods_dir.display()));
     }
@@ -471,11 +486,11 @@ fn donor(args: &[String]) -> Result<(), String> {
 
     let t = Instant::now();
     let folders = subfolders(&mods_dir);
-    let donor_list = match flag_value(args, "--modlist") {
+    let donor_list = match flag_value(args, "--donor-modlist") {
         Some(p) => read_modlist(std::path::Path::new(p))?,
         None => Modlist::default(),
     };
-    let validation = flag_value(args, "--modlist").map(|_| donor::validate(&donor_list, &folders));
+    let validation = flag_value(args, "--donor-modlist").map(|_| donor::validate(&donor_list, &folders));
     let candidates = donor::candidates(&donor_list, &folders, &target);
     let elapsed = t.elapsed();
 
@@ -509,7 +524,7 @@ fn donor(args: &[String]) -> Result<(), String> {
             target_profile: inst.profile.clone(),
             target_mods: target.targets.len(),
             donor_mods_dir: mods_dir.display().to_string(),
-            donor_modlist: flag_value(args, "--modlist").map(str::to_string),
+            donor_modlist: flag_value(args, "--donor-modlist").map(str::to_string),
             validation,
             counts,
             candidates,
