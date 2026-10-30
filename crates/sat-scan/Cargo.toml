@@ -1,0 +1,19 @@
+[package]
+name = "sat-scan"
+description = "Parallel mod-folder scanner producing sat-core facts, with a signature-keyed cold-tier cache."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sat-core.workspace = true
+sat-formats.workspace = true
+rayon.workspace = true
+serde.workspace = true
+bincode.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

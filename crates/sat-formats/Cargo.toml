@@ -1,0 +1,13 @@
+[package]
+name = "sat-formats"
+description = "Parsers for Bethesda game data formats (TES4 plugins, BSA, BA2, DDS). No filesystem access."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

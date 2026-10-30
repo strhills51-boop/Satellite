@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "tools/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MPL-2.0"
+repository = "https://github.com/strhills51-boop/satellite"
+
+[workspace.dependencies]
+sat-formats = { path = "crates/sat-formats" }
+sat-core = { path = "crates/sat-core" }
+sat-mo2 = { path = "crates/sat-mo2" }
+sat-scan = { path = "crates/sat-scan" }
+rayon = "1.11"
+rustc-hash = "2.1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = { version = "2", features = ["serde"] }
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+needless_range_loop = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+debug = "line-tables-only"
+
+[profile.bench]
+inherits = "release"

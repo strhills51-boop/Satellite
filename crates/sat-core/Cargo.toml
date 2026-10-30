@@ -1,0 +1,16 @@
+[package]
+name = "sat-core"
+description = "Satellite domain core: identities, path interning, provider table, overwrite projection, canon. No I/O."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sat-formats.workspace = true
+rayon.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "sat-mo2"
+description = "Mod Organizer 2 manager adapter: instance, profile files, meta.ini."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sat-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

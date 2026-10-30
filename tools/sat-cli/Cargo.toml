@@ -1,0 +1,19 @@
+[package]
+name = "sat-cli"
+description = "Developer CLI: analyze an MO2 instance, synthetic benchmarks, reports for parity checks."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+sat-core.workspace = true
+sat-formats.workspace = true
+sat-mo2.workspace = true
+sat-scan.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rayon.workspace = true
+
+[lints]
+workspace = true
