@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence.
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
@@ -28,7 +28,7 @@ fn main() {
         Some("analyze") => analyze(&args[1..]),
         Some("donor") => donor(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -247,6 +247,10 @@ fn analyze(args: &[String]) -> Result<(), String> {
         ),
         force: has(args, "--force"),
         record_scan: has(args, "--records"),
+        io_threads: flag_value(args, "--io-threads")
+            .map(|v| v.parse().map_err(|_| format!("--io-threads: not a number: {v}")))
+            .transpose()?
+            .unwrap_or(0),
         ..Default::default()
     };
     let mut timings = BTreeMap::new();
@@ -291,7 +295,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
     slowest.sort_by_key(|b| std::cmp::Reverse(b.1));
     slowest.truncate(20);
     let breakdown = ScanBreakdown {
-        threads: rayon::current_num_threads(),
+        threads: if opts.io_threads == 0 {
+            sat_scan::default_io_threads()
+        } else {
+            opts.io_threads
+        },
         signature_ms: ms(&progress.signature_ns),
         cache_load_ms: ms(&progress.cache_load_ns),
         walk_ms: ms(&progress.walk_ns),

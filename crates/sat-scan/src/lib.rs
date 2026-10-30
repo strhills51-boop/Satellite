@@ -40,6 +40,15 @@ pub struct ScanOptions {
     pub cache_dir: Option<PathBuf>,
     /// Ignore cached results.
     pub force: bool,
+    /// Worker threads for the scan. The scan waits on the disk, not the CPU: an SSD (especially over USB)
+    /// serves dozens of requests at once, so this is much larger than the core count. `0` = default.
+    pub io_threads: usize,
+}
+
+/// Default I/O concurrency: 8 per core, at least 32.
+pub fn default_io_threads() -> usize {
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    (cores * 8).max(32)
 }
 
 impl Default for ScanOptions {
@@ -52,6 +61,7 @@ impl Default for ScanOptions {
             ignore_root_files: vec!["meta.ini".into(), "desktop.ini".into(), "thumbs.db".into()],
             cache_dir: None,
             force: false,
+            io_threads: 0,
         }
     }
 }
@@ -101,8 +111,24 @@ impl ScanProgress {
     }
 }
 
-/// Scans all jobs on the current rayon pool. Results are returned in job order.
+/// Scans all jobs on a dedicated I/O pool ([`ScanOptions::io_threads`]). Results are returned in job order.
 pub fn scan(jobs: &[ScanJob], opts: &ScanOptions, progress: &ScanProgress) -> Vec<ScanOutcome> {
+    let threads = if opts.io_threads == 0 {
+        default_io_threads()
+    } else {
+        opts.io_threads
+    };
+    match rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .thread_name(|i| format!("sat-scan-{i}"))
+        .build()
+    {
+        Ok(pool) => pool.install(|| scan_on_current_pool(jobs, opts, progress)),
+        Err(_) => scan_on_current_pool(jobs, opts, progress),
+    }
+}
+
+fn scan_on_current_pool(jobs: &[ScanJob], opts: &ScanOptions, progress: &ScanProgress) -> Vec<ScanOutcome> {
     progress.total.store(jobs.len(), Ordering::Relaxed);
     jobs.par_iter()
         .map(|job| {
