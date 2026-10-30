@@ -1,7 +1,8 @@
 //! `sat-cli` — developer tool for NG-D001 evidence.
 //!
 //! ```text
-//! sat-cli analyze <instance> [--profile NAME] [--extra DIR]... [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> [--profile NAME] [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli donor <instance> --mods DIR [--modlist FILE] [--profile NAME] [--report FILE]
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
 
@@ -13,6 +14,7 @@ use sat_core::canon::{EntryKind, Modlist};
 use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::ids::ModId;
 use sat_core::overwrite::{OverwriteProjection, Priorities};
+use sat_core::sync::donor;
 use sat_core::table::ProviderTable;
 use sat_mo2::{Instance, profile};
 use sat_scan::{ScanJob, ScanOptions, ScanProgress};
@@ -24,8 +26,9 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let res = match args.first().map(String::as_str) {
         Some("analyze") => analyze(&args[1..]),
+        Some("donor") => donor(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> [--profile NAME] [--extra DIR]... [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
+        _ => Err("usage: sat-cli analyze <instance> [--profile NAME] [--listed-only] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --mods DIR [--modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -130,9 +133,7 @@ struct Report {
     rss_after_mib: Option<u64>,
 }
 
-fn is_separator_folder(name: &str) -> bool {
-    name.to_lowercase().ends_with(profile::SEPARATOR_SUFFIX)
-}
+use sat_core::sync::names::is_separator_folder;
 
 fn subfolders(dir: &std::path::Path) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(dir)
@@ -152,24 +153,9 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .first()
         .filter(|a| !a.starts_with("--"))
         .ok_or("missing <instance>")?;
-    let mut inst = Instance::load(path).map_err(|e| e.to_string())?;
-    inst.extra_mod_dirs = flag_values(args, "--extra")
-        .into_iter()
-        .map(PathBuf::from)
-        .collect();
-    if let Some(p) = flag_value(args, "--profile") {
-        if !inst.profiles.iter().any(|x| x == p) {
-            return Err(format!(
-                "profile {p:?} not found; available: {}",
-                inst.profiles.join(", ")
-            ));
-        }
-        inst.profile = p.to_string();
-    }
+    let inst = open_instance(path, args)?;
     let all_folders = !has(args, "--listed-only");
-    let data =
-        std::fs::read(inst.profile_dir().join("modlist.txt")).map_err(|e| format!("modlist.txt: {e}"))?;
-    let (list, _style) = profile::parse_modlist(&data);
+    let list = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
 
     // Inventory: what the profile says vs. what is on disk.
     let listed: std::collections::HashSet<String> =
@@ -177,7 +163,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let mut roots = Vec::new();
     let mut unlisted: Vec<(String, PathBuf)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for root in inst.mod_roots() {
+    for root in [inst.mods_dir.as_path()] {
         let names = subfolders(root);
         roots.push(RootInfo {
             path: root.display().to_string(),
@@ -246,7 +232,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .filter(|e| e.is_mod())
         .map(|e| ScanJob {
             name: e.name.clone(),
-            path: inst.resolve_mod_dir(&e.name),
+            path: inst.mod_dir(&e.name),
         })
         .collect();
     if all_folders {
@@ -417,6 +403,117 @@ fn analyze(args: &[String]) -> Result<(), String> {
         report.timings_ms, report.peak_rss_mib, report.rss_after_mib
     );
     if let Some(out) = flag_value(args, "--report") {
+        std::fs::write(
+            out,
+            serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn open_instance(path: &str, args: &[String]) -> Result<Instance, String> {
+    let mut inst = Instance::load(path).map_err(|e| e.to_string())?;
+    if let Some(p) = flag_value(args, "--profile") {
+        if !inst.profiles.iter().any(|x| x == p) {
+            return Err(format!(
+                "profile {p:?} not found; available: {}",
+                inst.profiles.join(", ")
+            ));
+        }
+        inst.profile = p.to_string();
+    }
+    Ok(inst)
+}
+
+fn read_modlist(path: &std::path::Path) -> Result<Modlist, String> {
+    let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(profile::parse_modlist(&data).0)
+}
+
+#[derive(Serialize)]
+struct DonorReport {
+    target_profile: String,
+    target_mods: usize,
+    donor_mods_dir: String,
+    donor_modlist: Option<String>,
+    validation: Option<donor::Validation>,
+    counts: BTreeMap<String, usize>,
+    candidates: Vec<donor::Candidate>,
+}
+
+/// External donor (monolith `ExternalDonorSession`): matches another mods folder (and optionally its
+/// `modlist.txt`) against the instance's profile, which stands in for the project until NG-D002.
+fn donor(args: &[String]) -> Result<(), String> {
+    let path = args
+        .first()
+        .filter(|a| !a.starts_with("--"))
+        .ok_or("missing <instance>")?;
+    let inst = open_instance(path, args)?;
+    let mods_dir = PathBuf::from(flag_value(args, "--mods").ok_or("missing --mods DIR (donor mods folder)")?);
+    if !mods_dir.is_dir() {
+        return Err(format!("not a folder: {}", mods_dir.display()));
+    }
+    let target_list = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
+    let mut sep = String::new();
+    let mut targets = Vec::new();
+    for e in &target_list.entries {
+        match e.kind {
+            EntryKind::Separator => sep = e.name.trim_end_matches(profile::SEPARATOR_SUFFIX).to_string(),
+            EntryKind::Mod => targets.push(donor::TargetMod {
+                name: e.name.clone(),
+                separator: sep.clone(),
+            }),
+            EntryKind::Foreign => {}
+        }
+    }
+    let target = donor::TargetIndex::new(targets);
+
+    let t = Instant::now();
+    let folders = subfolders(&mods_dir);
+    let donor_list = match flag_value(args, "--modlist") {
+        Some(p) => read_modlist(std::path::Path::new(p))?,
+        None => Modlist::default(),
+    };
+    let validation = flag_value(args, "--modlist").map(|_| donor::validate(&donor_list, &folders));
+    let candidates = donor::candidates(&donor_list, &folders, &target);
+    let elapsed = t.elapsed();
+
+    let mut counts = BTreeMap::new();
+    for c in &candidates {
+        *counts.entry(format!("{:?}", c.kind).to_lowercase()).or_insert(0) += 1;
+    }
+    eprintln!(
+        "target profile={:?} mods={}; donor folder {} : folders={} (separators {})",
+        inst.profile,
+        target.targets.len(),
+        mods_dir.display(),
+        folders.len(),
+        folders.iter().filter(|f| is_separator_folder(f)).count()
+    );
+    if let Some(v) = &validation {
+        eprintln!(
+            "donor modlist fit: {}% ({}) matched={}/{} folders={} modlist_only={} folder_only={}",
+            v.score,
+            v.tone(),
+            v.matched,
+            v.modlist_total,
+            v.folder_total,
+            v.modlist_only.len(),
+            v.folder_only.len()
+        );
+    }
+    eprintln!("candidates: {counts:?} in {} ms", elapsed.as_millis());
+    if let Some(out) = flag_value(args, "--report") {
+        let report = DonorReport {
+            target_profile: inst.profile.clone(),
+            target_mods: target.targets.len(),
+            donor_mods_dir: mods_dir.display().to_string(),
+            donor_modlist: flag_value(args, "--modlist").map(str::to_string),
+            validation,
+            counts,
+            candidates,
+        };
         std::fs::write(
             out,
             serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,

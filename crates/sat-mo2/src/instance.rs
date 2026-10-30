@@ -14,8 +14,6 @@ pub struct Instance {
     pub game_name: String,
     pub game_path: PathBuf,
     pub mods_dir: PathBuf,
-    /// Additional folders searched for mods after `mods_dir` (user setting, not part of MO2).
-    pub extra_mod_dirs: Vec<PathBuf>,
     pub overwrite_dir: PathBuf,
     pub profiles_dir: PathBuf,
     pub profile: String,
@@ -83,7 +81,6 @@ impl Instance {
             game_name: get(general, "gamename"),
             game_path: PathBuf::from(get(general, "gamepath").replace('/', std::path::MAIN_SEPARATOR_STR)),
             mods_dir,
-            extra_mod_dirs: Vec::new(),
             overwrite_dir,
             profiles_dir,
             profile,
@@ -95,17 +92,10 @@ impl Instance {
         self.profiles_dir.join(&self.profile)
     }
 
-    /// Mod roots in lookup order: `mods_dir` first, then extra roots.
-    pub fn mod_roots(&self) -> impl Iterator<Item = &Path> {
-        std::iter::once(self.mods_dir.as_path()).chain(self.extra_mod_dirs.iter().map(PathBuf::as_path))
-    }
-
-    /// Folder of a mod: the first root that has it, otherwise where MO2 would create it.
-    pub fn resolve_mod_dir(&self, name: &str) -> PathBuf {
-        self.mod_roots()
-            .map(|r| r.join(name))
-            .find(|p| p.is_dir())
-            .unwrap_or_else(|| self.mods_dir.join(name))
+    /// Folder of a mod. An instance has exactly one mods folder, as in MO2 and the monolith; other folders
+    /// with mods are external donors (ADR 0006), never extra roots of the build.
+    pub fn mod_dir(&self, name: &str) -> PathBuf {
+        self.mods_dir.join(name)
     }
 }
 
@@ -126,21 +116,18 @@ mod tests {
         std::fs::create_dir_all(root.join("profiles/Default")).unwrap();
         std::fs::create_dir_all(root.join("profiles/Alt")).unwrap();
         std::fs::create_dir_all(root.join("mods/A")).unwrap();
-        std::fs::create_dir_all(root.join("more/B")).unwrap();
         std::fs::write(
             root.join("ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\n[Settings]\r\noverwrite_directory=%BASE_DIR%/ow\r\n",
         )
         .unwrap();
-        let mut i = Instance::load(root).unwrap();
+        let i = Instance::load(root).unwrap();
         assert_eq!(i.game_name, "Skyrim Special Edition");
         assert_eq!(i.profile, "Default");
         assert_eq!(i.profiles, ["Alt", "Default"]);
         assert_eq!(i.mods_dir, std::path::absolute(root.join("mods")).unwrap());
         assert!(i.overwrite_dir.ends_with("ow"));
-        i.extra_mod_dirs.push(root.join("more"));
-        assert_eq!(i.resolve_mod_dir("B"), root.join("more/B"));
-        assert_eq!(i.resolve_mod_dir("Nope"), i.mods_dir.join("Nope"));
+        assert_eq!(i.mod_dir("A"), i.mods_dir.join("A"));
     }
 
     #[test]
