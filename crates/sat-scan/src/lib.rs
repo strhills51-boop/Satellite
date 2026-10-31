@@ -3,9 +3,13 @@
 //! - Work is parallel across mods **and** inside large mods (subdirectories are walked in parallel),
 //!   so one 200k-file mod does not serialize the tail of a run.
 //! - Output is deterministic: entries are sorted by name and subtree results are joined in order.
-//! - Cold tier: results are cached per mod, keyed by a cheap signature (names/sizes/mtimes to depth 2 +
-//!   scan options + cache version). Unchanged mods are not walked again.
+//! - Every file is an observation for the registered analyzers ([`analyzer`]): metrics, DDS VRAM, plugins,
+//!   archives (a source expander whose entries are observed too).
+//! - Cold tier: results are cached per mod with a content signature (names/sizes/mtimes to depth 2) and the
+//!   analyzer stamps. Unchanged mods are reused; when only some analyzers changed, the mod is re-analyzed from its
+//!   cached index by those analyzers (route `indexed`, no walk); otherwise it is walked (route `scan`).
 
+pub mod analyzer;
 mod cache;
 mod signature;
 mod walk;
@@ -18,7 +22,8 @@ use rayon::prelude::*;
 
 use sat_core::facts::ModFacts;
 
-pub use cache::CACHE_VERSION;
+pub use analyzer::{Registry, Route, Stamp};
+pub use cache::CACHE_FORMAT;
 pub use signature::signature;
 
 /// One folder to scan.
@@ -70,7 +75,11 @@ impl Default for ScanOptions {
 #[derive(Debug)]
 pub struct ScanOutcome {
     pub facts: ModFacts,
+    /// Not walked this run (`reuse` or `indexed`).
     pub from_cache: bool,
+    pub route: Route,
+    /// Failures of optional and degraded analyzers in this run (mandatory ones are `facts.error`).
+    pub issues: Vec<String>,
     pub signature: u64,
     pub elapsed: Duration,
 }
@@ -83,7 +92,10 @@ pub struct ScanOutcome {
 pub struct ScanProgress {
     pub total: AtomicUsize,
     pub done: AtomicUsize,
+    /// Mods not walked (reuse + indexed).
     pub cached: AtomicUsize,
+    /// Mods re-analyzed from their cached index.
+    pub indexed: AtomicUsize,
     pub files: AtomicU64,
     pub signature_ns: AtomicU64,
     pub cache_load_ns: AtomicU64,
@@ -145,10 +157,23 @@ pub fn scan_batched(
     opts: &ScanOptions,
     progress: &ScanProgress,
     batch: usize,
+    sink: impl FnMut(usize, ScanOutcome),
+) {
+    scan_batched_with(&Registry::builtin(opts), jobs, opts, progress, batch, sink);
+}
+
+/// [`scan_batched`] with an explicit analyzer registry (extensions, tests).
+pub fn scan_batched_with(
+    reg: &Registry,
+    jobs: &[ScanJob],
+    opts: &ScanOptions,
+    progress: &ScanProgress,
+    batch: usize,
     mut sink: impl FnMut(usize, ScanOutcome),
 ) {
     progress.total.store(jobs.len(), Ordering::Relaxed);
-    let run = |chunk: &[ScanJob]| scan_on_current_pool(chunk, opts, progress);
+    let ctx = walk::Ctx { reg, opts, progress };
+    let run = |chunk: &[ScanJob]| scan_on_current_pool(chunk, &ctx);
     let pool = pool(opts);
     for (ci, chunk) in jobs.chunks(batch.max(1)).enumerate() {
         let outcomes = match &pool {
@@ -161,66 +186,115 @@ pub fn scan_batched(
     }
 }
 
-fn scan_on_current_pool(jobs: &[ScanJob], opts: &ScanOptions, progress: &ScanProgress) -> Vec<ScanOutcome> {
+fn scan_on_current_pool(jobs: &[ScanJob], ctx: &walk::Ctx<'_>) -> Vec<ScanOutcome> {
     jobs.par_iter()
         .map(|job| {
-            let out = scan_one(job, opts, progress);
-            progress.done.fetch_add(1, Ordering::Relaxed);
+            let out = scan_one(job, ctx);
+            ctx.progress.done.fetch_add(1, Ordering::Relaxed);
             out
         })
         .collect()
 }
 
-fn scan_one(job: &ScanJob, opts: &ScanOptions, progress: &ScanProgress) -> ScanOutcome {
+/// Cached facts and the stamps they were computed with, if the content did not change.
+fn cached_for(job: &ScanJob, sig: u64, ctx: &walk::Ctx<'_>) -> Option<(ModFacts, Vec<Stamp>, bool)> {
+    let dir = ctx.opts.cache_dir.as_ref()?;
+    match cache::load(dir, &job.name)? {
+        cache::Cached::Current {
+            signature,
+            stamps,
+            facts,
+        } => (signature == sig).then_some((facts, stamps, false)),
+        cache::Cached::Legacy { signature, facts } => {
+            // The first format folded the options into the signature and had every analyzer at version 1.
+            let legacy = [signature::signature_v2, signature::signature_v1];
+            legacy
+                .iter()
+                .any(|f| f(&job.path, ctx.opts) == signature)
+                .then(|| {
+                    let stamps = ctx
+                        .reg
+                        .stamps()
+                        .into_iter()
+                        .map(|s| Stamp { version: 1, ..s })
+                        .collect();
+                    (facts, stamps, true)
+                })
+        }
+    }
+}
+
+fn scan_one(job: &ScanJob, ctx: &walk::Ctx<'_>) -> ScanOutcome {
+    let (opts, progress) = (ctx.opts, ctx.progress);
     let started = std::time::Instant::now();
     if !job.path.is_dir() {
         return ScanOutcome {
             facts: ModFacts::missing(&job.name),
             from_cache: false,
+            route: Route::Scan,
+            issues: Vec::new(),
             signature: 0,
             elapsed: started.elapsed(),
         };
     }
     let t = std::time::Instant::now();
-    let sig = signature(&job.path, opts);
+    let sig = signature(&job.path);
     add_ns(&progress.signature_ns, t);
     let t = std::time::Instant::now();
     let cached = if opts.force {
         None
     } else {
-        opts.cache_dir.as_ref().and_then(|dir| {
-            cache::load(dir, &job.name, sig).or_else(|| {
-                // Adopt an entry written under the previous signature scheme, then re-key it.
-                let facts = cache::load(dir, &job.name, signature::signature_v1(&job.path, opts))?;
-                cache::store(dir, &facts, sig);
-                Some(facts)
-            })
-        })
+        cached_for(job, sig, ctx)
     };
     add_ns(&progress.cache_load_ns, t);
-    if let Some(facts) = cached {
+    let stamps = ctx.reg.stamps();
+    let store = |facts: &ModFacts| {
+        if let Some(dir) = &opts.cache_dir
+            && facts.error.is_none()
+        {
+            cache::store(dir, facts, sig, &stamps);
+        }
+    };
+    let route = cached
+        .as_ref()
+        .map_or(Route::Scan, |(_, s, _)| analyzer::plan(ctx.reg, s));
+    let (facts, issues) = match (route.clone(), cached) {
+        (Route::Reuse, Some((facts, _, legacy))) => {
+            if legacy {
+                store(&facts); // adopted from the first format: re-key
+            }
+            (facts, Vec::new())
+        }
+        (Route::Indexed { rerun, cleared }, Some((mut facts, _, _))) => {
+            let t = std::time::Instant::now();
+            let issues = walk::reanalyze(&mut facts, &job.path, &rerun, &cleared, ctx);
+            add_ns(&progress.walk_ns, t);
+            progress.indexed.fetch_add(1, Ordering::Relaxed);
+            store(&facts);
+            (facts, issues.other)
+        }
+        _ => {
+            let t = std::time::Instant::now();
+            let (facts, issues) = walk::walk_mod(&job.name, &job.path, ctx);
+            add_ns(&progress.walk_ns, t);
+            store(&facts);
+            (facts, issues.other)
+        }
+    };
+    let from_cache = route != Route::Scan;
+    if from_cache {
         progress.cached.fetch_add(1, Ordering::Relaxed);
-        progress
-            .files
-            .fetch_add(u64::from(facts.metrics.files), Ordering::Relaxed);
-        return ScanOutcome {
-            facts,
-            from_cache: true,
-            signature: sig,
-            elapsed: started.elapsed(),
-        };
-    }
-    let t = std::time::Instant::now();
-    let facts = walk::walk_mod(&job.name, &job.path, opts, progress);
-    add_ns(&progress.walk_ns, t);
-    if let Some(dir) = &opts.cache_dir
-        && facts.error.is_none()
-    {
-        cache::store(dir, &facts, sig);
+        if route == Route::Reuse {
+            progress
+                .files
+                .fetch_add(u64::from(facts.metrics.files), Ordering::Relaxed);
+        }
     }
     ScanOutcome {
         facts,
-        from_cache: false,
+        from_cache,
+        route,
+        issues,
         signature: sig,
         elapsed: started.elapsed(),
     }
@@ -230,27 +304,169 @@ fn scan_one(job: &ScanJob, opts: &ScanOptions, progress: &ScanProgress) -> ScanO
 mod tests {
     use super::*;
 
-    #[test]
-    fn adopts_cache_written_under_v1_signature() {
+    fn dds(w: u32, h: u32) -> Vec<u8> {
+        let mut b = vec![0u8; 128];
+        b[0..4].copy_from_slice(b"DDS ");
+        b[12..16].copy_from_slice(&h.to_le_bytes());
+        b[16..20].copy_from_slice(&w.to_le_bytes());
+        b[28..32].copy_from_slice(&1u32.to_le_bytes());
+        b[80..84].copy_from_slice(&4u32.to_le_bytes());
+        b[84..88].copy_from_slice(b"DXT1");
+        b
+    }
+
+    fn fixture() -> (tempfile::TempDir, ScanJob) {
         let tmp = tempfile::tempdir().unwrap();
         let m = tmp.path().join("M");
-        std::fs::create_dir_all(m.join("textures")).unwrap();
-        std::fs::write(m.join("textures/a.txt"), b"x").unwrap();
+        std::fs::create_dir_all(m.join("textures/sky")).unwrap();
+        std::fs::write(m.join("textures/sky/a.dds"), dds(256, 256)).unwrap();
+        std::fs::write(m.join("textures/b.txt"), b"x").unwrap();
+        std::fs::write(m.join("meta.ini"), b"[General]").unwrap();
+        let job = ScanJob {
+            name: "M".into(),
+            path: m,
+        };
+        (tmp, job)
+    }
+
+    fn run(job: &ScanJob, opts: &ScanOptions) -> (ScanOutcome, ScanProgress) {
+        let progress = ScanProgress::default();
+        let reg = Registry::builtin(opts);
+        let ctx = walk::Ctx {
+            reg: &reg,
+            opts,
+            progress: &progress,
+        };
+        (scan_one(job, &ctx), progress)
+    }
+
+    #[test]
+    fn routes_reuse_indexed_scan() {
+        let (tmp, job) = fixture();
+        let cache = tmp.path().join("cache");
+        let base = ScanOptions {
+            cache_dir: Some(cache),
+            read_dds_headers: false,
+            ..Default::default()
+        };
+        let (first, _) = run(&job, &base);
+        assert_eq!(first.route, Route::Scan);
+        assert_eq!(first.facts.metrics.vram_bytes, 0);
+        let (again, p) = run(&job, &base);
+        assert_eq!(again.route, Route::Reuse);
+        assert_eq!(p.dds_reads.load(Ordering::Relaxed), 0);
+
+        // enabling DDS headers re-analyzes the cached index: no walk, only that analyzer
+        let with_dds = ScanOptions {
+            read_dds_headers: true,
+            ..base.clone()
+        };
+        let (idx, p) = run(&job, &with_dds);
+        assert_eq!(
+            idx.route,
+            Route::Indexed {
+                rerun: vec!["dds-vram".into()],
+                cleared: vec![]
+            }
+        );
+        assert_eq!(p.files.load(Ordering::Relaxed), 0, "nothing walked");
+        assert_eq!(p.dds_reads.load(Ordering::Relaxed), 1);
+        let fresh = run(
+            &job,
+            &ScanOptions {
+                force: true,
+                ..with_dds.clone()
+            },
+        )
+        .0;
+        assert_eq!(idx.facts, fresh.facts, "indexed result equals a fresh walk");
+        assert!(idx.facts.metrics.vram_bytes > 0);
+
+        // disabling it again clears its facts without a walk
+        let (back, _) = run(&job, &base);
+        assert_eq!(
+            back.route,
+            Route::Indexed {
+                rerun: vec![],
+                cleared: vec!["dds-vram".into()]
+            }
+        );
+        assert_eq!(back.facts, first.facts);
+
+        // the ignore list belongs to the structural analyzer: a change walks again
+        let ignore = ScanOptions {
+            ignore_root_files: vec![],
+            ..base.clone()
+        };
+        assert_eq!(run(&job, &ignore).0.route, Route::Scan);
+    }
+
+    #[test]
+    fn adopts_entries_of_the_first_cache_format() {
+        let (tmp, job) = fixture();
         let cache = tmp.path().join("cache");
         let opts = ScanOptions {
             cache_dir: Some(cache.clone()),
             ..Default::default()
         };
-        let job = ScanJob {
-            name: "M".into(),
-            path: m.clone(),
-        };
-        let first = scan_one(&job, &opts, &ScanProgress::default());
-        // Pretend an older build wrote the entry.
-        cache::store(&cache, &first.facts, signature::signature_v1(&m, &opts));
-        let adopted = scan_one(&job, &opts, &ScanProgress::default());
-        assert!(adopted.from_cache, "v1 entry adopted");
-        // Re-keyed: found directly under the current signature.
-        assert!(cache::load(&cache, "M", signature(&m, &opts)).is_some());
+        let fresh = run(
+            &job,
+            &ScanOptions {
+                cache_dir: None,
+                ..opts.clone()
+            },
+        )
+        .0;
+        for legacy_sig in [
+            signature::signature_v2(&job.path, &opts),
+            signature::signature_v1(&job.path, &opts),
+        ] {
+            cache::store_legacy(&cache, &fresh.facts, legacy_sig);
+            let (adopted, p) = run(&job, &opts);
+            assert_eq!(adopted.route, Route::Reuse, "legacy entry adopted");
+            assert_eq!(
+                p.files.load(Ordering::Relaxed),
+                adopted.facts.metrics.files as u64
+            );
+            assert_eq!(adopted.facts, fresh.facts);
+            // re-keyed into the current format
+            assert!(matches!(
+                cache::load(&cache, "M"),
+                Some(cache::Cached::Current { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn registry_rejects_bad_contracts() {
+        let mut r = Registry::builtin(&ScanOptions::default());
+        let ids: Vec<&str> = r.contracts().iter().map(|c| c.id).collect();
+        assert_eq!(ids, ["metrics", "dds-vram", "plugins", "archives"]);
+        struct Dup;
+        impl analyzer::Analyzer for Dup {
+            fn contract(&self) -> analyzer::Contract {
+                analyzer::Contract {
+                    id: "plugins",
+                    version: 1,
+                    class: analyzer::ExecutionClass::StreamConsumer,
+                    failure: analyzer::FailurePolicy::Optional,
+                    structural: false,
+                    reads_virtual: false,
+                }
+            }
+            fn accepts(&self, _: &analyzer::Observation<'_>) -> bool {
+                false
+            }
+            fn consume(
+                &self,
+                _: &analyzer::Observation<'_>,
+                _: &mut analyzer::Part<'_>,
+                _: &ScanProgress,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+            fn clear(&self, _: &mut ModFacts) {}
+        }
+        assert!(r.register(Box::new(Dup)).is_err());
     }
 }

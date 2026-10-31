@@ -1,78 +1,117 @@
-//! Directory walk of one mod, parallel across subdirectories.
+//! Directory walk of one mod, parallel across subdirectories; every file becomes an observation for the
+//! registered analyzers ([`crate::analyzer`]).
 
-use std::fs::File;
-use std::io::{BufReader, Read};
 use std::path::Path;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
 
 use rayon::prelude::*;
 
 use sat_core::facts::{ArchiveFacts, LooseDir, LooseFile, ModFacts, ModMetrics, PluginFacts};
-use sat_formats::{DdsInfo, dds::DDS_HEADER_PROBE};
 
-use crate::{ScanOptions, ScanProgress, add_ns};
+use crate::analyzer::{Issues, Observation, Origin, Part, Registry, dispatch, dispatch_virtual};
+use crate::{ScanOptions, ScanProgress};
 
-const NESTED: &[&str] = &["zip", "7z", "rar", "tar", "gz"];
-const SOURCES: &[&str] = &["psc", "psd", "xcf", "blend", "max", "fbx", "obj", "spp", "sbsar"];
 /// Subdirectories walked in parallel only near the root; deeper levels are cheap and stay sequential.
 const PARALLEL_DEPTH: u32 = 3;
+
+pub(crate) struct Ctx<'a> {
+    pub reg: &'a Registry,
+    pub opts: &'a ScanOptions,
+    pub progress: &'a ScanProgress,
+}
 
 /// Partial result of one subtree; merged in order.
 #[derive(Default)]
 struct Subtree {
     dirs: Vec<LooseDir>,
     metrics: ModMetrics,
+    plugins: Vec<PluginFacts>,
+    archives: Vec<ArchiveFacts>,
+    issues: Issues,
     error: Option<String>,
 }
 
-pub(crate) fn walk_mod(name: &str, root: &Path, opts: &ScanOptions, progress: &ScanProgress) -> ModFacts {
+/// Walks a mod folder and runs every analyzer.
+pub(crate) fn walk_mod(name: &str, root: &Path, ctx: &Ctx<'_>) -> (ModFacts, Issues) {
+    let tree = walk_dir(root, "", 0, ctx);
     let mut facts = ModFacts {
         name: name.to_string(),
-        ..Default::default()
+        dirs: tree.dirs,
+        archives: tree.archives,
+        plugins: tree.plugins,
+        metrics: tree.metrics,
+        missing: false,
+        error: tree.error,
     };
-    let tree = walk_dir(root, "", 0, opts, progress);
-    facts.dirs = tree.dirs;
-    facts.metrics = tree.metrics;
-    facts.error = tree.error;
+    let mut issues = tree.issues;
+    dispatch_virtual(ctx.reg, None, &mut facts, ctx.progress, &mut issues);
+    if facts.error.is_none() {
+        facts.error = issues.fatal.take();
+    }
+    (facts, issues)
+}
 
-    // Root-level plugins and archives.
-    if let Some(root_dir) = facts.dirs.iter().find(|d| d.rel.is_empty()) {
-        for f in &root_dir.files {
-            let ext = ext_of(&f.name);
-            let path = root.join(&f.name);
-            if matches!(ext.as_str(), "esp" | "esm" | "esl") {
-                facts.metrics.plugins += 1;
-                if opts.plugins {
-                    let t = Instant::now();
-                    facts.plugins.push(read_plugin(&path, &f.name, opts.record_scan));
-                    add_ns(&progress.plugin_ns, t);
-                    progress.plugin_reads.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-            if matches!(ext.as_str(), "bsa" | "ba2") {
-                facts.metrics.archives += 1;
-                if opts.archives {
-                    let t = Instant::now();
-                    let a = read_archive(&path, &f.name, f.size);
-                    add_ns(&progress.archive_ns, t);
-                    progress.archive_reads.fetch_add(1, Ordering::Relaxed);
-                    if let Some(m) = &a.manifest {
-                        facts.metrics.archive_files += m.entries.len() as u32;
-                        for e in m.entries.iter().filter(|e| e.vram > 0) {
-                            facts.metrics.vram_bytes += e.vram;
-                            facts.metrics.dds_known += 1;
-                        }
-                    }
-                    facts.archives.push(a);
-                }
+/// Re-runs some analyzers on a cached path index (route `indexed`): no directory walk.
+pub(crate) fn reanalyze(
+    facts: &mut ModFacts,
+    root: &Path,
+    rerun: &[String],
+    cleared: &[String],
+    ctx: &Ctx<'_>,
+) -> Issues {
+    let mut issues = Issues::default();
+    for id in rerun.iter().chain(cleared) {
+        if let Some(a) = ctx.reg.get(id) {
+            a.clear(facts);
+        }
+    }
+    {
+        let ModFacts {
+            dirs,
+            metrics,
+            plugins,
+            archives,
+            ..
+        } = facts;
+        for LooseDir { rel, files } in dirs.iter_mut() {
+            let depth = if rel.is_empty() {
+                0
+            } else {
+                rel.matches('/').count() as u32 + 1
+            };
+            let dir_abs = root.join(rel.as_str());
+            for f in files.iter_mut() {
+                let name = f.name.clone();
+                let lower = name.to_lowercase();
+                let path = dir_abs.join(&name);
+                let o = Observation {
+                    origin: Origin::Loose,
+                    dir: rel,
+                    name: &name,
+                    ext: ext_of(&lower),
+                    size: f.size,
+                    depth,
+                    path: Some(&path),
+                    vram: 0,
+                };
+                let mut part = Part {
+                    metrics,
+                    file: Some(f),
+                    plugins,
+                    archives,
+                };
+                dispatch(ctx.reg, Some(rerun), &o, &mut part, ctx.progress, &mut issues);
             }
         }
     }
-    facts
+    dispatch_virtual(ctx.reg, Some(rerun), facts, ctx.progress, &mut issues);
+    if facts.error.is_none() {
+        facts.error = issues.fatal.take();
+    }
+    issues
 }
 
-fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, progress: &ScanProgress) -> Subtree {
+fn walk_dir(abs: &Path, rel: &str, depth: u32, ctx: &Ctx<'_>) -> Subtree {
     let mut out = Subtree::default();
     let rd = match std::fs::read_dir(abs) {
         Ok(rd) => rd,
@@ -89,7 +128,6 @@ fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, progress: &Sc
         files: Vec::new(),
     };
     let mut subdirs = Vec::new();
-    let m = &mut out.metrics;
     for e in ents {
         let Ok(ft) = e.file_type() else { continue };
         let name = e.file_name().to_string_lossy().into_owned();
@@ -98,59 +136,39 @@ fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, progress: &Sc
             continue;
         }
         let lower = name.to_lowercase();
-        if depth == 0 && opts.ignore_root_files.contains(&lower) {
+        if depth == 0 && ctx.opts.ignore_root_files.contains(&lower) {
             continue;
         }
         let Ok(md) = e.metadata() else { continue };
-        let ext = ext_of(&lower);
+        let path = e.path();
         let mut file = LooseFile {
-            name,
+            name: name.clone(),
             size: md.len(),
             vram: 0,
         };
-        m.files += 1;
-        m.bytes += file.size;
-        *m.by_extension.entry(ext.clone()).or_insert(0) += 1;
-        if depth == 0 {
-            m.root_files += 1;
-        } else {
-            let top = rel.split('/').next().unwrap_or(rel).to_lowercase();
-            *m.by_top_dir.entry(top).or_insert(0) += 1;
-        }
-        m.max_depth = m.max_depth.max(depth);
-        match ext.as_str() {
-            "dds" => {
-                m.dds += 1;
-                let info = opts.read_dds_headers.then(|| {
-                    let t = Instant::now();
-                    let info = read_dds(&e.path());
-                    add_ns(&progress.dds_ns, t);
-                    progress.dds_reads.fetch_add(1, Ordering::Relaxed);
-                    info
-                });
-                if let Some(Some(info)) = info
-                    && info.known()
-                {
-                    file.vram = info.vram;
-                    m.dds_known += 1;
-                    m.vram_bytes += info.vram;
-                    *m.dds_formats.entry(info.format).or_insert(0) += 1;
-                }
-            }
-            "nif" => m.nif += 1,
-            "pex" => m.pex += 1,
-            "hkx" => m.hkx += 1,
-            "dll" => m.dll += 1,
-            x if NESTED.contains(&x) => m.nested_archives += 1,
-            x if SOURCES.contains(&x) => m.source_files += 1,
-            _ => {}
-        }
+        let o = Observation {
+            origin: Origin::Loose,
+            dir: rel,
+            name: &name,
+            ext: ext_of(&lower),
+            size: file.size,
+            depth,
+            path: Some(&path),
+            vram: 0,
+        };
+        let mut part = Part {
+            metrics: &mut out.metrics,
+            file: Some(&mut file),
+            plugins: &mut out.plugins,
+            archives: &mut out.archives,
+        };
+        dispatch(ctx.reg, None, &o, &mut part, ctx.progress, &mut out.issues);
         here.files.push(file);
     }
-    progress
+    ctx.progress
         .files
         .fetch_add(here.files.len() as u64, Ordering::Relaxed);
-    m.dirs += subdirs.len() as u32;
+    out.metrics.dirs += subdirs.len() as u32;
     if !here.files.is_empty() {
         out.dirs.push(here);
     }
@@ -161,7 +179,7 @@ fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, progress: &Sc
         } else {
             format!("{rel}/{name}")
         };
-        walk_dir(&abs.join(name), &r, depth + 1, opts, progress)
+        walk_dir(&abs.join(name), &r, depth + 1, ctx)
     };
     let children: Vec<Subtree> = if depth < PARALLEL_DEPTH && subdirs.len() > 1 {
         subdirs.par_iter().map(child).collect()
@@ -171,6 +189,9 @@ fn walk_dir(abs: &Path, rel: &str, depth: u32, opts: &ScanOptions, progress: &Sc
     for c in children {
         out.dirs.extend(c.dirs);
         merge(&mut out.metrics, c.metrics);
+        out.plugins.extend(c.plugins);
+        out.archives.extend(c.archives);
+        out.issues.merge(c.issues);
         if out.error.is_none() {
             out.error = c.error;
         }
@@ -191,6 +212,9 @@ fn merge(a: &mut ModMetrics, b: ModMetrics) {
     a.pex += b.pex;
     a.hkx += b.hkx;
     a.dll += b.dll;
+    a.plugins += b.plugins;
+    a.archives += b.archives;
+    a.archive_files += b.archive_files;
     a.nested_archives += b.nested_archives;
     a.source_files += b.source_files;
     for (k, v) in b.by_extension {
@@ -204,71 +228,6 @@ fn merge(a: &mut ModMetrics, b: ModMetrics) {
     }
 }
 
-fn ext_of(name: &str) -> String {
-    name.rsplit_once('.')
-        .map(|(_, e)| e.to_lowercase())
-        .unwrap_or_default()
-}
-
-fn read_dds(path: &Path) -> Option<DdsInfo> {
-    let mut f = File::open(path).ok()?;
-    let mut buf = [0u8; DDS_HEADER_PROBE];
-    let mut n = 0;
-    while n < buf.len() {
-        match f.read(&mut buf[n..]) {
-            Ok(0) => break,
-            Ok(k) => n += k,
-            Err(_) => return None,
-        }
-    }
-    DdsInfo::parse(&buf[..n])
-}
-
-fn read_plugin(path: &Path, name: &str, records: bool) -> PluginFacts {
-    let mut p = PluginFacts {
-        file_name: name.to_string(),
-        header: None,
-        records: None,
-        error: None,
-    };
-    match File::open(path)
-        .map_err(sat_formats::FormatError::from)
-        .and_then(|f| sat_formats::read_plugin_header(BufReader::new(f)))
-    {
-        Ok(h) => p.header = Some(h),
-        Err(e) => {
-            p.error = Some(e.to_string());
-            return p;
-        }
-    }
-    if records {
-        match File::open(path)
-            .map_err(sat_formats::FormatError::from)
-            .and_then(|f| sat_formats::scan_records(BufReader::with_capacity(1 << 20, f)))
-        {
-            Ok(r) => p.records = Some(r),
-            Err(e) => p.error = Some(e.to_string()),
-        }
-    }
-    p
-}
-
-fn read_archive(path: &Path, name: &str, size: u64) -> ArchiveFacts {
-    match File::open(path)
-        .map_err(sat_formats::FormatError::from)
-        .and_then(sat_formats::read_archive)
-    {
-        Ok(m) => ArchiveFacts {
-            file_name: name.to_string(),
-            size,
-            manifest: Some(m),
-            error: None,
-        },
-        Err(e) => ArchiveFacts {
-            file_name: name.to_string(),
-            size,
-            manifest: None,
-            error: Some(e.to_string()),
-        },
-    }
+fn ext_of(lower: &str) -> &str {
+    lower.rsplit_once('.').map_or("", |(_, e)| e)
 }

@@ -3,7 +3,10 @@
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
-use crate::{CACHE_VERSION, ScanOptions};
+use crate::ScanOptions;
+
+/// The global cache version of the first cache format; legacy signatures hashed it.
+const LEGACY_CACHE_VERSION: u32 = 1;
 
 /// Stable FNV-1a (must not change between builds: signatures are persisted).
 pub(crate) struct Fnv(u64);
@@ -26,15 +29,24 @@ impl Fnv {
     }
 }
 
-/// Names of entries up to depth 2, sizes and modification times of files among them, plus options that change
-/// the result.
+/// Names of entries up to depth 2, sizes and modification times of files among them. Content only: what the
+/// analyzers did with it is recorded by their stamps in the cache ([`crate::analyzer::Stamp`]).
 ///
 /// Installing/updating a mod through a manager replaces files, which changes mtimes of the touched
 /// top-level directories. Edits deep inside an otherwise untouched tree are not detected — the run
 /// offers a forced rescan for that (`ScanOptions::force`).
-pub fn signature(dir: &Path, opts: &ScanOptions) -> u64 {
+pub fn signature(dir: &Path) -> u64 {
     let mut h = Fnv::new();
-    h.write_u64(u64::from(CACHE_VERSION));
+    h.write(b"sat-signature-v3");
+    visit(dir, 0, &mut h);
+    h.finish()
+}
+
+/// The second signature: the same listing plus the options of the first cache format. Kept only to adopt entries
+/// of that format (no cold rescan after an update). Remove once caches have migrated.
+pub(crate) fn signature_v2(dir: &Path, opts: &ScanOptions) -> u64 {
+    let mut h = Fnv::new();
+    h.write_u64(u64::from(LEGACY_CACHE_VERSION));
     for flag in [
         opts.read_dds_headers,
         opts.archives,
@@ -88,7 +100,7 @@ fn visit(dir: &Path, depth: u32, h: &mut Fnv) {
 /// by builds that used it, so updating does not force a cold rescan. Remove once caches have migrated.
 pub(crate) fn signature_v1(dir: &Path, opts: &ScanOptions) -> u64 {
     let mut h = Fnv::new();
-    h.write_u64(u64::from(CACHE_VERSION));
+    h.write_u64(u64::from(LEGACY_CACHE_VERSION));
     for flag in [
         opts.read_dds_headers,
         opts.archives,

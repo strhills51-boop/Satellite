@@ -130,6 +130,13 @@ struct ScanBreakdown {
     plugin_ms: u64,
     /// Slowest mods: (name, ms, loose files, archive entries).
     slowest: Vec<(String, u128, u32, u32)>,
+    /// Mods re-analyzed from their cached index (only stale analyzers ran).
+    indexed: usize,
+    /// Analyzers of this run: id@version.
+    analyzers: Vec<String>,
+    /// Failures of optional/degraded analyzers (first 200) and their total.
+    issues: Vec<String>,
+    issue_count: usize,
 }
 
 #[derive(Serialize)]
@@ -345,6 +352,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let progress = ScanProgress::default();
     let t = Instant::now();
     let done = std::sync::atomic::AtomicBool::new(false);
+    let (mut issues, mut issue_count) = (Vec::<String>::new(), 0usize);
     let outcomes = std::thread::scope(|s| {
         s.spawn(|| {
             let mut last = Instant::now();
@@ -365,6 +373,12 @@ fn analyze(args: &[String]) -> Result<(), String> {
         let mut seen = Vec::with_capacity(jobs.len());
         sat_scan::scan_batched(&jobs, &opts, &progress, SCAN_BATCH, |_, o| {
             builder.add(&o.facts);
+            issue_count += o.issues.len();
+            for i in &o.issues {
+                if issues.len() < 200 {
+                    issues.push(format!("{}: {i}", o.facts.name));
+                }
+            }
             seen.push(Seen {
                 name: o.facts.name.clone(),
                 missing: o.facts.missing,
@@ -407,7 +421,21 @@ fn analyze(args: &[String]) -> Result<(), String> {
         plugin_reads: n(&progress.plugin_reads),
         plugin_ms: ms(&progress.plugin_ns),
         slowest,
+        indexed: progress.indexed.load(std::sync::atomic::Ordering::Relaxed),
+        analyzers: sat_scan::Registry::builtin(&opts)
+            .stamps()
+            .iter()
+            .map(|s| format!("{}@{}", s.id, s.version))
+            .collect(),
+        issues,
+        issue_count,
     };
+    eprintln!(
+        "analyzers: {}; indexed={} analyzer issues={}",
+        breakdown.analyzers.join(" "),
+        breakdown.indexed,
+        breakdown.issue_count
+    );
     eprintln!(
         "scan thread-time ms (threads={}): signature={} cache_load={} walk={} [dds {}x {} | archives {}x {} | plugins {}x {}]",
         breakdown.threads,

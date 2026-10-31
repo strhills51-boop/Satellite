@@ -34,8 +34,9 @@
 | Разбор и запись `modlist.txt` / `plugins.txt` / `loadorder.txt` | `sat-mo2/src/profile.rs` | — |
 | `meta.ini` мода, цвет QColor | `sat-mo2/src/meta.rs`, `sat-mo2/src/ini.rs` | — |
 | Атомарная запись файла | `sat-mo2/src/lib.rs` (`write_atomic`) | — |
-| Сигнатура папки мода | `sat-scan/src/signature.rs` (`signature`; `signature_v1` — только перенос кеша) | сигнатура монолита (`buildAnalysisSignature`) — другая, см. `docs/parity/run/00-overview.md` |
-| Кеш сканов (холодный, на машине) | `sat-scan/src/cache.rs` | контейнер проекта (ADR 0007) — другое |
+| Сигнатура папки мода | `sat-scan/src/signature.rs` (`signature` v3 — только содержимое; `signature_v2`/`signature_v1` — только перенос кеша первого формата) | сигнатура монолита (`buildAnalysisSignature`) — другая, см. `docs/parity/run/00-overview.md` |
+| Контракт анализатора, реестр, штампы версий, маршруты reuse / indexed / scan | `sat-scan/src/analyzer.rs` (`Analyzer`, `Contract`, `Registry`, `Stamp`, `Route`, `plan`) | версия формата файла кеша — `cache::CACHE_FORMAT`, не версия анализаторов |
+| Кеш сканов (холодный, на машине) | `sat-scan/src/cache.rs` (конверт: сигнатура + штампы анализаторов + факты; читает и первый формат) | контейнер проекта (ADR 0007) — другое |
 | Пул ввода-вывода | `sat-scan/src/lib.rs` (`scan`, `ScanOptions::io_threads`) | пул `rayon` по умолчанию — для вычислений ядра |
 | Донор: соответствие, категории, оценка | `sat-core/src/sync/donor.rs` | — |
 | Записи SYNC и сверка диска с проектом | `sat-core/src/sync/records.rs` (`reconcile`, `SyncRecord`, `Status`) | ключ сопоставления — `normalize_name`, ключ отпечатка — точное имя в нижнем регистре |
@@ -79,9 +80,10 @@
 
 ### `crates/sat-scan` — обход папок модов (холодный ярус)
 - `crates/sat-scan/src/lib.rs` — `ScanJob`, `ScanOptions`, `ScanProgress` (счётчики по фазам), `scan` / `scan_batched` на I/O-пуле (стек потоков 32 МиБ).
-- `crates/sat-scan/src/walk.rs` — обход одного мода: файлы, DDS, корневые архивы и плагины, метрики.
-- `crates/sat-scan/src/signature.rs` — сигнатура v2 (листинг каталога), `signature_v1` для переноса старого кеша.
-- `crates/sat-scan/src/cache.rs` — кеш по моду (bincode, временный файл + rename).
+- `crates/sat-scan/src/walk.rs` — обход одного мода: каждое наблюдение — анализаторам реестра; `reanalyze` — маршрут indexed (кешированный индекс, без обхода).
+- `crates/sat-scan/src/signature.rs` — сигнатура v3 (листинг каталога, без опций), `signature_v2` / `signature_v1` для переноса кеша первого формата.
+- `crates/sat-scan/src/analyzer.rs` — контракт анализатора (монолит v503), реестр, встроенные `metrics` (структурный), `dds-vram`, `plugins`, `archives` (порождает виртуальные наблюдения), выбор маршрута по штампам.
+- `crates/sat-scan/src/cache.rs` — кеш по моду (bincode, временный файл + rename): формат 2 со штампами, чтение формата 1.
 - `crates/sat-scan/tests/scan.rs` — интеграционный тест: DDS, плагин, архив, кеш.
 
 ### `tools`
