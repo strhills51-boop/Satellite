@@ -1,4 +1,4 @@
-//! Load order engine (ADR 0008): the live canon of a list of any size and its rows, changed only by operations
+//! Load order engine (ADR 0008): the live canon of a list of any size and its rows, changed only by operations @sat:order
 //! that return row patches.
 //!
 //! - [`seq`] — chunked sequence with Fenwick aggregates: O(log n) position, row and block queries;
@@ -9,6 +9,8 @@
 //!
 //! [`crate::canon::Modlist`] stays the serialized snapshot of the canon; the book is built from it and exported
 //! back to it.
+//!
+//! Owns: the layout of the load order engine (ADR 0008).
 
 pub mod book;
 pub mod cursor;

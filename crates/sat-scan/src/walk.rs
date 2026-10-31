@@ -1,5 +1,7 @@
-//! Directory walk of one mod, parallel across subdirectories; every file becomes an observation for the
+//! Directory walk of one mod, parallel across subdirectories; every file becomes an observation for the @sat:scan.walk
 //! registered analyzers ([`crate::analyzer`]).
+//!
+//! Owns: walking one mod and re-analyzing a cached index.
 
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -51,6 +53,7 @@ pub(crate) fn walk_mod(name: &str, root: &Path, ctx: &Ctx<'_>) -> (ModFacts, Iss
     (facts, issues)
 }
 
+// @sat:scan.walk.reanalyze
 /// Re-runs some analyzers on a cached path index (route `indexed`): no directory walk.
 pub(crate) fn reanalyze(
     facts: &mut ModFacts,

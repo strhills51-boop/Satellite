@@ -1,10 +1,12 @@
-//! Decoration that travels with the project (ADR 0008): colours, logical groups, collapsed separators — keyed by
+//! Decoration that travels with the project (ADR 0008): colours, logical groups, collapsed separators — keyed by @sat:order.decor
 //! entry **name**, so it survives a rebuild of the book — and the monolith's logical-group marker codec for
 //! `modlist.txt` exports (`name ⟦MLT-LG:v1:<id>:<k>/<n>⟧`, v559/v566).
 //!
 //! Markers are only for explicit exports and imports of a project-flavoured list: MO2's own `modlist.txt` must
 //! keep plain folder names. Import is strict, as in the monolith: any structural problem is an issue, nothing is
 //! repaired silently.
+//!
+//! Owns: decoration as stored data (by name) and the monolith logical-group marker codec.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -12,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::canon::{EntryKind, Modlist};
 
+// @sat:order.decor.data
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Decor {
     /// Entry name → colour.
@@ -163,6 +166,7 @@ pub enum MarkerIssue {
     OrdinalOrderMismatch { group: String },
 }
 
+// @sat:order.decor.markers
 /// Strips markers from a list; returns the clean list and the groups they describe, or every issue found.
 pub fn strip_markers(list: &Modlist) -> Result<(Modlist, Vec<GroupDef>), Vec<MarkerIssue>> {
     let mut clean = list.clone();

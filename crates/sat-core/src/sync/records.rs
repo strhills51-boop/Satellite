@@ -1,4 +1,4 @@
-//! Sync records and the disk ↔ project reconcile (ADR 0006).
+//! Sync records and the disk ↔ project reconcile (ADR 0006). @sat:sync.records
 //!
 //! A pure function: the caller supplies what the project says and what the mods folder holds; the result is the
 //! set of mismatches as records. Nothing here touches the disk or the project — resolving a record and committing
@@ -13,6 +13,8 @@
 //! - fingerprints use the exact case-folded name, not the normalized one, so distinct folders never merge;
 //! - an exact (case-insensitive) name match wins before the normalized one, so `Mod-A` and `Mod A` on disk stay
 //!   two folders instead of one silently shadowing the other.
+//!
+//! Owns: sync records and the pure disk ↔ project reconcile.
 
 use std::collections::{HashMap, HashSet};
 
@@ -153,6 +155,7 @@ impl Reconcile {
     }
 }
 
+// @sat:sync.records.reconcile
 /// Compares the project with the mods folder.
 ///
 /// `previous` are the records from the last reconcile: a record whose mismatch still exists keeps its status and

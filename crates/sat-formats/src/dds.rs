@@ -1,4 +1,6 @@
-//! DDS header decoding and GPU memory estimation.
+//! DDS header decoding and GPU memory estimation. @sat:formats.dds
+//!
+//! Owns: DDS header decoding and texture memory estimation.
 
 use serde::{Deserialize, Serialize};
 

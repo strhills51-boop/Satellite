@@ -1,6 +1,8 @@
-//! Facts: what scanners observed about one mod folder. Input to the warm tier.
+//! Facts: what scanners observed about one mod folder. Input to the warm tier. @sat:facts
 //!
 //! These types are produced only by scanners (`sat-scan`) and are serializable for the cold-tier scan cache.
+//!
+//! Owns: the shape of scanner observations (`ModFacts`, `ModMetrics`, loose/archive/plugin facts).
 
 use std::collections::BTreeMap;
 

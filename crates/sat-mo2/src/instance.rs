@@ -1,4 +1,6 @@
-//! MO2 instance resolution.
+//! MO2 instance resolution. @sat:mo2.instance
+//!
+//! Owns: MO2 instance resolution: folders, profiles, ini or layout fallback.
 
 use std::path::{Path, PathBuf};
 

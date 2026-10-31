@@ -1,4 +1,6 @@
-//! Integer identities. Entities are addressed by id, never by name (Satellite rule `stable-id-only`).
+//! Integer identities. Entities are addressed by id, never by name (Satellite rule `stable-id-only`). @sat:ids
+//!
+//! Owns: typed integer ids of the warm and hot tiers.
 
 use serde::{Deserialize, Serialize};
 

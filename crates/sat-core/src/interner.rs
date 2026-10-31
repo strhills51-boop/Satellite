@@ -1,8 +1,10 @@
-//! Path interning: every directory and every name segment is stored once.
+//! Path interning: every directory and every name segment is stored once. @sat:interner
 //!
 //! A file path is encoded as a [`FileKey`] = `(DirId << 32) | NameId`, so a virtual file system with
 //! millions of paths needs one `u64` per path plus the shared segment strings.
 //! Matching is case-insensitive (Windows semantics); the first-seen spelling is kept for display.
+//!
+//! Owns: path identity: case folding, directory and name interning, `FileKey`.
 
 use rustc_hash::FxHashMap;
 
@@ -26,6 +28,7 @@ pub fn key_name(k: FileKey) -> NameId {
     NameId(k as u32)
 }
 
+// @sat:interner.fold
 /// Lowercases for case-insensitive matching; ASCII fast path avoids allocation when already lowercase.
 fn fold(s: &str) -> std::borrow::Cow<'_, str> {
     if s.bytes().all(|b| !b.is_ascii_uppercase() && b.is_ascii()) {

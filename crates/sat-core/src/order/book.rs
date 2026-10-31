@@ -1,4 +1,4 @@
-//! [`OrderBook`] — the live canon of a list (any size) and its visible projection, changed only by operations
+//! [`OrderBook`] — the live canon of a list (any size) and its visible projection, changed only by operations @sat:order.book
 //! that return **row patches**. A UI never re-renders the list: it keeps the row count and its visible window
 //! and applies [`Patch`]es (ADR 0008).
 //!
@@ -6,6 +6,8 @@
 //! - **canon** — order and enabled flags (what goes to `modlist.txt`);
 //! - **decoration** — colour, logical groups: stored next to the canon, never reorder it;
 //! - **view** — collapsed separators and groups, filter: decide which entries are rows.
+//!
+//! Owns: the live canon and decoration of a list, its operations, undo/redo, rows and row patches.
 
 use std::collections::HashSet;
 
@@ -19,6 +21,7 @@ use crate::canon::{Entry, EntryKind, Modlist};
 
 pub type GroupId = u32;
 
+// @sat:order.book.patch
 /// A change of the visible rows. Patches of one [`Change`] apply in order; each index refers to the rows as
 /// they are after the previous patch. A UI fetches row contents with [`OrderBook::rows`] when it needs them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -421,6 +424,7 @@ impl OrderBook {
 
     // ---------------------------------------------------------------- canon operations (undoable)
 
+    // @sat:order.book.move
     /// Moves entries right before `before` (`None` = end), keeping their relative order. A separator moves with
     /// its block; a collapsed group row moves with its members. A target inside a group snaps to the group's
     /// start unless the moved entries include its members. `Ok(None)` = nothing changed.
@@ -458,6 +462,7 @@ impl OrderBook {
         self.apply_recorded(Op::Color(keys.iter().map(|&k| (k, color)).collect()))
     }
 
+    // @sat:order.book.muted
     /// Mutes (hides unless the filter shows muted entries) or unmutes entries. Separators cannot be muted.
     pub fn set_muted(&mut self, keys: &[Key], muted: bool) -> Result<Option<Change>, OrderError> {
         for &k in keys {
@@ -466,6 +471,7 @@ impl OrderBook {
         self.apply_recorded(Op::Muted(keys.iter().map(|&k| (k, muted)).collect()))
     }
 
+    // @sat:order.book.group
     /// Joins contiguous mods of one block into a logical group (shown collapsed as one row).
     pub fn create_group(&mut self, name: &str, keys: &[Key]) -> Result<(GroupId, Change), OrderError> {
         for &k in keys {
@@ -517,6 +523,7 @@ impl OrderBook {
         self.apply_recorded(Op::Dissolve(g))
     }
 
+    // @sat:order.book.insert
     /// Adds new entries right before `before` (`None` = end), e.g. folders found by SYNC. Names must be new.
     pub fn insert_entries(
         &mut self,
@@ -560,6 +567,7 @@ impl OrderBook {
         Ok((keys, change))
     }
 
+    // @sat:order.book.remove
     /// Takes entries out of the list (undoable). A separator goes alone: its block joins the block above.
     /// Members of a logical group must leave the group first.
     pub fn remove_entries(&mut self, keys: &[Key]) -> Result<Option<Change>, OrderError> {
@@ -582,6 +590,7 @@ impl OrderBook {
         self.apply_recorded(Op::Take(uniq))
     }
 
+    // @sat:order.book.rename
     /// Renames an entry (e.g. accepting a folder renamed on disk). The new name must be free; a separator keeps
     /// its `_separator` suffix only if the caller passes it.
     pub fn rename(&mut self, k: Key, name: &str) -> Result<Option<Change>, OrderError> {
@@ -920,6 +929,7 @@ impl OrderBook {
 
     // ---------------------------------------------------------------- decoration as data (project file)
 
+    // @sat:order.book.decor
     /// Current decoration keyed by names (for the project file).
     pub fn decor(&self) -> Decor {
         let mut d = Decor::default();
@@ -1054,6 +1064,7 @@ impl OrderBook {
         Ok(Some(self.finish(p)))
     }
 
+    // @sat:order.book.filter
     /// Replaces the filter: one pass over the list, then a [`Patch::Reset`].
     pub fn set_filter(&mut self, mut filter: Filter) -> Change {
         filter.text = filter.text.to_lowercase();
@@ -1079,6 +1090,7 @@ impl OrderBook {
 
     // ---------------------------------------------------------------- reading
 
+    // @sat:order.book.rows
     /// Rows `[start, start + count)` of the current view.
     pub fn rows(&self, start: usize, count: usize) -> Vec<Row<'_>> {
         self.seq

@@ -1,4 +1,6 @@
-//! Cheap change signature of a mod folder.
+//! Cheap change signature of a mod folder. @sat:scan.signature
+//!
+//! Owns: content signatures of mod folders (v3, legacy v2/v1 for cache adoption).
 
 use std::path::Path;
 use std::time::UNIX_EPOCH;
@@ -29,6 +31,7 @@ impl Fnv {
     }
 }
 
+// @sat:scan.signature.v3
 /// Names of entries up to depth 2, sizes and modification times of files among them. Content only: what the
 /// analyzers did with it is recorded by their stamps in the cache ([`crate::analyzer::Stamp`]).
 ///

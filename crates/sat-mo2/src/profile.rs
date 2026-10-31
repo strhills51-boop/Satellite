@@ -1,6 +1,8 @@
-//! Profile files: `modlist.txt`, `plugins.txt`, `loadorder.txt`.
+//! Profile files: `modlist.txt`, `plugins.txt`, `loadorder.txt`. @sat:mo2.profile
 //!
 //! `modlist.txt` is written highest priority first; [`Modlist`] keeps MO2 display order (lowest first).
+//!
+//! Owns: byte-exact `modlist.txt`, `plugins.txt`, `loadorder.txt` parsing and writing.
 
 use serde::{Deserialize, Serialize};
 

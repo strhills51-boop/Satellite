@@ -1,10 +1,12 @@
-//! Run lifecycle and result generations (NG-D002 p.1c; monolith Run Contract CP2 174165 and generations CP4 168499).
+//! Run lifecycle and result generations (NG-D002 p.1c; monolith Run Contract CP2 174165 and generations CP4 168499). @sat:run
 //!
 //! - [`RunStatus`] and [`RunStatus::can_go`] — the monolith's transition table (12 statuses).
 //! - [`Authority`] holds the authoritative result; a run builds a [`Staging`] generation and either **promotes** it
 //!   (seals pass, the authority did not move meanwhile) or drops it (aborted). Readers never see a half-built result.
 //! - [`seal`] — invariants checked before promotion (monolith seals v507/v513/v517/v518 and conflict invariants),
 //!   done **before** publication; the monolith sealed the metric summary after promoting (05-run §5 p.9).
+//!
+//! Owns: run statuses and transitions, generations (staging/authoritative/aborted), seals.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -29,6 +31,7 @@ pub enum RunStatus {
     Cancelled,
 }
 
+// @sat:run.status
 impl RunStatus {
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
@@ -129,6 +132,7 @@ impl<T> Staging<T> {
     }
 }
 
+// @sat:run.authority
 /// The authoritative result of some kind (e.g. an analysis snapshot), replaced atomically.
 #[derive(Debug)]
 pub struct Authority<T> {
@@ -221,6 +225,7 @@ pub struct RunSummary {
     pub conflict_paths: usize,
 }
 
+// @sat:run.seal
 /// Invariants before promotion; returns the violations (empty = sealed).
 ///
 /// 1. Staged mods are exactly the expected ones, each once (v507 ledger).

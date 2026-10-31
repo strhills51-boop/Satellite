@@ -1,3 +1,7 @@
+//! Byte reading helpers. @sat:formats.read
+//!
+//! Owns: little-endian and zstring reading helpers (internal).
+
 use std::io::Read;
 
 pub(crate) fn u16le(b: &[u8], o: usize) -> u16 {

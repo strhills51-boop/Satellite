@@ -1,9 +1,11 @@
-//! Warm tier: the provider table.
+//! Warm tier: the provider table. @sat:table
 //!
 //! A *provider* is one `(path, mod, source)` triple: a loose file of a mod, or an entry of one of its archives.
 //! The table is column-oriented, sorted by [`FileKey`], immutable after build, and addressed only by integers:
 //! - path groups: providers `[path_offsets[p], path_offsets[p+1])` share one virtual path ([`PathId`] `p`);
 //! - mod index (CSR): providers of each mod, in path order.
+//!
+//! Owns: the provider table (warm tier) and its builder.
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -29,6 +31,7 @@ pub enum Source {
 
 const LOOSE: u32 = u32::MAX;
 
+// @sat:table.provider-table
 /// Immutable, column-oriented provider table.
 #[derive(Debug)]
 pub struct ProviderTable {
@@ -63,6 +66,7 @@ pub struct TableStats {
     pub archives: usize,
 }
 
+// @sat:table.builder
 /// Incremental builder: mods are added one by one (in [`ModId`] order) and their facts can be dropped right away,
 /// so peak memory is the table plus one batch of facts, not all facts of the build at once.
 #[derive(Debug, Default)]

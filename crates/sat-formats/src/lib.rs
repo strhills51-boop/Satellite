@@ -1,7 +1,9 @@
-//! Parsers for Bethesda game data formats.
+//! Parsers for Bethesda game data formats. @sat:formats
 //!
 //! Every parser works on `Read`/`Read + Seek` sources and never touches the filesystem,
 //! so the crate compiles to WebAssembly unchanged (ADR 0001, ADR 0002).
+//!
+//! Owns: the format crate layout and path normalization of archive entries.
 
 pub mod archive;
 pub mod dds;

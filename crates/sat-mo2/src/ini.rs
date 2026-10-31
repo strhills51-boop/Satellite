@@ -1,4 +1,6 @@
-//! Qt `QSettings` INI as written by MO2.
+//! Qt `QSettings` INI as written by MO2. @sat:mo2.ini
+//!
+//! Owns: Qt INI reading/escaping as MO2 writes it.
 
 use std::collections::BTreeMap;
 

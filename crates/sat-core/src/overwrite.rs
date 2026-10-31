@@ -1,4 +1,4 @@
-//! Hot tier: the overwrite projection of a [`ProviderTable`] under given priorities.
+//! Hot tier: the overwrite projection of a [`ProviderTable`] under given priorities. @sat:overwrite
 //!
 //! For every virtual path the active providers are ordered into a **stack**:
 //! loose files beat archive entries (game rule for Bethesda titles), then higher priority wins.
@@ -9,6 +9,8 @@
 //! - **W/L/M/X/+n** per mod — wins, losses, middle-of-stack, fully overridden, unique paths.
 //!
 //! The projection is a pure function of `(table, priorities)`; recomputing after a reorder costs no I/O.
+//!
+//! Owns: the overwrite projection: stacks, chains, contexts, W/L/M/X statistics.
 
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -91,6 +93,7 @@ pub struct OverwriteStats {
 
 const NONE: u32 = u32::MAX;
 
+// @sat:overwrite.projection
 /// The overwrite projection.
 #[derive(Debug)]
 pub struct OverwriteProjection {

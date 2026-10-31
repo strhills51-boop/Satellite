@@ -1,5 +1,7 @@
-//! Model tests: the patch stream must reproduce the view exactly, the view must equal a from-scratch scan,
+//! Model tests: the patch stream must reproduce the view exactly, the view must equal a from-scratch scan, @sat:order.tests
 //! and undo must restore the canon.
+//!
+//! Owns: model tests of the order engine (patch stream = view = full scan; undo restores canon).
 
 use super::book::Row;
 use super::*;
@@ -385,23 +387,54 @@ fn errors() {
 
 #[test]
 fn keyboard_moves_blocks_whole_and_mods_by_row() {
-    let names = ["A_separator", "a1", "a2", "B_separator", "b1", "b2", "C_separator", "c1"];
+    let names = [
+        "A_separator",
+        "a1",
+        "a2",
+        "B_separator",
+        "b1",
+        "b2",
+        "C_separator",
+        "c1",
+    ];
     let list = Modlist::new(
         names
             .iter()
             .map(|n| Entry {
                 name: n.to_string(),
-                kind: if n.ends_with("_separator") { EntryKind::Separator } else { EntryKind::Mod },
+                kind: if n.ends_with("_separator") {
+                    EntryKind::Separator
+                } else {
+                    EntryKind::Mod
+                },
                 enabled: true,
             })
             .collect(),
     );
     let mut b = OrderBook::from_modlist(&list);
-    let order = |b: &OrderBook| b.to_modlist().entries.into_iter().map(|e| e.name).collect::<Vec<_>>();
+    let order = |b: &OrderBook| {
+        b.to_modlist()
+            .entries
+            .into_iter()
+            .map(|e| e.name)
+            .collect::<Vec<_>>()
+    };
     // focus A_separator, Alt+↓: block A goes below block B (not into it)
     b.navigate(Nav::Home, Select::Replace);
     b.shift_selection(Shift::Down).unwrap().unwrap();
-    assert_eq!(order(&b), ["B_separator", "b1", "b2", "A_separator", "a1", "a2", "C_separator", "c1"]);
+    assert_eq!(
+        order(&b),
+        [
+            "B_separator",
+            "b1",
+            "b2",
+            "A_separator",
+            "a1",
+            "a2",
+            "C_separator",
+            "c1"
+        ]
+    );
     // Alt+↑ brings it back
     b.shift_selection(Shift::Up).unwrap().unwrap();
     assert_eq!(order(&b)[..3], ["A_separator", "a1", "a2"]);
@@ -415,5 +448,8 @@ fn keyboard_moves_blocks_whole_and_mods_by_row() {
     assert!(b.rows(3, 1)[0].focused);
     // Alt+Shift+↓: end of its block
     b.shift_selection(Shift::BlockEnd).unwrap().unwrap();
-    assert_eq!(order(&b)[..6], ["A_separator", "a1", "B_separator", "b1", "b2", "a2"]);
+    assert_eq!(
+        order(&b)[..6],
+        ["A_separator", "a1", "B_separator", "b1", "b2", "a2"]
+    );
 }

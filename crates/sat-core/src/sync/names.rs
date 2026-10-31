@@ -1,9 +1,11 @@
-//! Name identity rules, ported 1:1 from the monolith so that matches agree on the same data.
+//! Name identity rules, ported 1:1 from the monolith so that matches agree on the same data. @sat:sync.names
 //!
 //! - [`normalize_name`] — `normalizeName`: project ↔ folder identity during reconcile.
 //! - [`NameKeys`] — `getExternalNameKeys`: raw / normalized / loose keys for donor matching.
 //!
 //! JavaScript regex semantics are kept: `\b` is ASCII-word based, `\d` is ASCII.
+//!
+//! Owns: name identity rules of the monolith (normalize, keys, separator folders).
 
 use std::sync::LazyLock;
 
@@ -25,6 +27,7 @@ static EDITION: LazyLock<Regex> = re!(r"(?-u:\b)(special edition|anniversary edi
 static VERSION: LazyLock<Regex> = re!(r"(?-u:\b)(v|ver|version)\s*[0-9]+(?:\s+[0-9]+)*(?-u:\b)");
 static NUMBERS: LazyLock<Regex> = re!(r"(?-u:\b)[0-9]+(?:\s+[0-9]+){1,}(?-u:\b)");
 
+// @sat:sync.names.normalize
 /// Monolith `normalizeName`: lowercase, collapse whitespace, `._-` runs become a space.
 ///
 /// Whitespace is collapsed *before* punctuation is replaced, exactly like the original, so `"a - b"`
@@ -73,6 +76,7 @@ impl NameKeys {
     }
 }
 
+// @sat:sync.names.separator-folder
 /// `*_separator`, case-insensitive (monolith `isExternalSeparatorFolderName`).
 pub fn is_separator_folder(name: &str) -> bool {
     name.trim().to_lowercase().ends_with(SEPARATOR_SUFFIX)

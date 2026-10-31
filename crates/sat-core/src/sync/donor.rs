@@ -1,8 +1,10 @@
-//! External donor sessions (monolith `ExternalDonorSession`): another build's `modlist.txt` + mods folder,
+//! External donor sessions (monolith `ExternalDonorSession`): another build's `modlist.txt` + mods folder, @sat:sync.donor
 //! matched against the project to prepare a migration.
 //!
 //! Pure functions: the caller supplies the donor modlist, the donor folder names and the project's mods.
 //! Nothing here moves files — moving is a commit-plan operation behind `external_migration_pending` records.
+//!
+//! Owns: external donor matching: lookup, target index, validation score, candidates.
 
 use std::collections::{HashMap, HashSet};
 

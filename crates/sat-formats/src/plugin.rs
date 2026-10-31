@@ -1,7 +1,9 @@
-//! TES4 plugin header (`.esp` / `.esm` / `.esl`) and record-signature counting.
+//! TES4 plugin header (`.esp` / `.esm` / `.esl`) and record-signature counting. @sat:formats.plugin
 //!
 //! Layout reference: UESP "Skyrim Mod:Mod File Format". Records and groups use 24-byte headers
 //! in Skyrim/Fallout 4 (TES4 header record included).
+//!
+//! Owns: TES4 header, record counting, plugin kind and the monolith plugin type.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, Read};
@@ -39,6 +41,7 @@ pub struct PluginHeader {
 }
 
 impl PluginHeader {
+    // @sat:formats.plugin.kind
     /// Kind derived from flags and file extension (`.esl` is always light, `.esm` always master).
     pub fn kind(&self, file_name: &str) -> PluginKind {
         let lower = file_name.to_ascii_lowercase();
@@ -52,6 +55,7 @@ impl PluginHeader {
     }
 }
 
+// @sat:formats.plugin.monolith-type
 /// The monolith's plugin type (`resolvePluginType` 100529 / `resolvePluginTypeV503` 172032), for parity views and
 /// imports: ESL flag → `espfe` on `.esp`, else `esl`; then the extension; then the ESM flag; else `unknown`.
 ///

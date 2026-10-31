@@ -1,4 +1,4 @@
-//! Parallel scanner: mod folders → [`sat_core::facts::ModFacts`].
+//! Parallel scanner: mod folders → [`sat_core::facts::ModFacts`]. @sat:scan
 //!
 //! - Work is parallel across mods **and** inside large mods (subdirectories are walked in parallel),
 //!   so one 200k-file mod does not serialize the tail of a run.
@@ -8,6 +8,8 @@
 //! - Cold tier: results are cached per mod with a content signature (names/sizes/mtimes to depth 2) and the
 //!   analyzer stamps. Unchanged mods are reused; when only some analyzers changed, the mod is re-analyzed from its
 //!   cached index by those analyzers (route `indexed`, no walk); otherwise it is walked (route `scan`).
+//!
+//! Owns: the scan entry points, options, progress, the I/O pool and route selection per mod.
 
 pub mod analyzer;
 mod cache;
@@ -127,6 +129,7 @@ impl ScanProgress {
 /// another's; on deep trees the 2 MiB default overflowed on the owner's build. Reserved, not committed, memory.
 const SCAN_STACK_BYTES: usize = 32 << 20;
 
+// @sat:scan.io-pool
 fn pool(opts: &ScanOptions) -> Option<rayon::ThreadPool> {
     let threads = if opts.io_threads == 0 {
         default_io_threads()
@@ -150,6 +153,7 @@ pub fn scan(jobs: &[ScanJob], opts: &ScanOptions, progress: &ScanProgress) -> Ve
     out
 }
 
+// @sat:scan.batched
 /// Scans in batches of `batch` jobs (parallel inside a batch) and hands every outcome to `sink` **in job order**.
 /// Only one batch of facts is alive at a time, so the caller can fold outcomes into a table and drop them.
 pub fn scan_batched(

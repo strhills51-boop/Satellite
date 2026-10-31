@@ -1,8 +1,10 @@
-//! Cold tier: per-mod scan cache (bincode files keyed by a hash of the mod name).
+//! Cold tier: per-mod scan cache (bincode files keyed by a hash of the mod name). @sat:scan.cache
 //!
 //! An entry records the content signature and the analyzer stamps the facts were computed with
 //! ([`crate::analyzer::Stamp`]); the route (`reuse` / `indexed` / `scan`) is decided from them. Entries of the
 //! first format (one global version, options folded into the signature) are still read and adopted.
+//!
+//! Owns: the per-mod cache file format (current and first) .
 
 use std::path::{Path, PathBuf};
 
@@ -13,6 +15,7 @@ use sat_core::facts::ModFacts;
 use crate::analyzer::Stamp;
 use crate::signature::Fnv;
 
+// @sat:scan.cache.format
 /// Layout of a cache file. Analyzer changes do **not** bump it: their stamps do.
 pub const CACHE_FORMAT: u32 = 2;
 /// The first format's only version.

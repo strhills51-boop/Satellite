@@ -1,9 +1,11 @@
-//! Chunked order sequence: the canon order of a list of any size, with O(log n) position queries.
+//! Chunked order sequence: the canon order of a list of any size, with O(log n) position queries. @sat:order.seq
 //!
 //! Keys (dense `u32`) live in chunks of a few hundred. Per chunk three aggregates are kept — entries, visible
 //! rows, separators — and Fenwick trees over the chunk order answer "position of key", "key at position",
 //! "key at visible row", "nearest separator" in O(log chunks + chunk size). Removing a key never moves other
 //! chunks; empty and small chunks are folded by [`Seq::compact`] at the end of an operation.
+//!
+//! Owns: the chunked sequence with Fenwick aggregates (positions, rows, blocks).
 
 pub type Key = u32;
 

@@ -1,7 +1,9 @@
-//! Canon: the mod manager's own state — order, enabled flags, separators.
+//! Canon: the mod manager's own state — order, enabled flags, separators. @sat:canon
 //!
 //! Manager-agnostic: adapters (`sat-mo2`, later Vortex…) parse into and serialize from these types.
 //! Display order is **lowest priority first** (as MO2 shows it).
+//!
+//! Owns: the serialized snapshot of the canon (`Modlist`, `Entry`), the separator suffix, priorities from order.
 
 use std::collections::HashSet;
 
@@ -10,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::ModId;
 use crate::overwrite::Priorities;
 
+// @sat:canon.separator-suffix
 /// Suffix that marks a separator: MO2 stores separators as folders and modlist entries named `<name>_separator`,
 /// and canon keeps it in [`Entry::name`]. Single owner of this convention (docs/semantic/MAP.md).
 pub const SEPARATOR_SUFFIX: &str = "_separator";
@@ -80,6 +83,7 @@ impl Modlist {
         sep..end
     }
 
+    // @sat:canon.move-entries
     /// Moves entries so they land right before `before` (`None` = end of list), keeping their relative order.
     /// Moving a separator moves its whole block. Returns `false` when nothing changed.
     pub fn move_entries(&mut self, names: &[&str], before: Option<&str>) -> Result<bool, CanonError> {
@@ -148,6 +152,7 @@ impl Modlist {
         Ok(changed)
     }
 
+    // @sat:canon.priorities
     /// Priorities for a provider table: mods get their display position (1-based among managed mods);
     /// disabled or unresolvable mods are inactive; `top` (e.g. Overwrite) gets the highest priority.
     pub fn priorities(

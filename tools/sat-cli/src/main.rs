@@ -1,4 +1,4 @@
-//! `sat-cli` — developer tool for NG-D001 evidence.
+//! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
 //! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
@@ -6,6 +6,8 @@
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
+//!
+//! Owns: the developer CLI: analyze, donor, inspect, bench-synth.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

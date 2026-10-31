@@ -1,3 +1,7 @@
+//! Integration test: scanning a real folder. @sat:scan.it
+//!
+//! Owns: integration test of a real folder scan with DDS, plugin, archive and cache.
+
 use std::fs;
 use std::path::Path;
 

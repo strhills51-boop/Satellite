@@ -1,4 +1,4 @@
-//! Analyzer contract (NG-D002 p.1a, monolith Analysis Orchestrator v503 CP2–CP15).
+//! Analyzer contract (NG-D002 p.1a, monolith Analysis Orchestrator v503 CP2–CP15). @sat:scan.analyzer
 //!
 //! The walker turns a mod folder into **observations** (loose files; archive entries as virtual files) and hands
 //! each one, in registration order, to every analyzer that accepts it. Built-in analyzers are registered exactly
@@ -9,6 +9,8 @@
 //! analyzers alone — no directory walk. A stale *structural* analyzer (the one that produces the path index)
 //! forces a full walk (route `scan`). This replaces the monolith's single `artifactCapabilities` set and NG's
 //! former single `CACHE_VERSION`.
+//!
+//! Owns: the analyzer contract, the registry, built-in analyzers, stamps and route planning.
 
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -96,6 +98,7 @@ pub struct Part<'a> {
     pub archives: &'a mut Vec<ArchiveFacts>,
 }
 
+// @sat:scan.analyzer.contract
 pub trait Analyzer: Send + Sync {
     fn contract(&self) -> Contract;
     /// Settings that change the result (part of the cache stamp).
@@ -144,6 +147,7 @@ impl Registry {
         }
     }
 
+    // @sat:scan.analyzer.builtin
     /// Built-in analyzers enabled by the options: `metrics` always, then `dds-vram`, `plugins`, `archives`.
     pub fn builtin(opts: &ScanOptions) -> Self {
         let mut r = Self::empty();
@@ -236,6 +240,7 @@ pub enum Route {
     Reuse,
 }
 
+// @sat:scan.analyzer.plan
 /// Decides the route from the stamps a cached result was computed with.
 pub(crate) fn plan(reg: &Registry, cached: &[Stamp]) -> Route {
     let now = reg.stamps();

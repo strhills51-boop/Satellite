@@ -1,7 +1,9 @@
-//! BSA (v103/104/105) and BA2 (GNRL/DX10, v1/2/3/7/8) manifests.
+//! BSA (v103/104/105) and BA2 (GNRL/DX10, v1/2/3/7/8) manifests. @sat:formats.archive
 //!
 //! Only the file table is read: paths, sizes and — for BA2 DX10 — texture dimensions,
 //! which give exact VRAM without decompressing anything.
+//!
+//! Owns: BSA/BA2 manifest reading.
 
 use std::io::{BufReader, Read, Seek, SeekFrom};
 

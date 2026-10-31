@@ -1,4 +1,6 @@
-//! `sat-cli bench-order` — the load order engine (ADR 0008) on a synthetic list of N entries.
+//! `sat-cli bench-order` — the load order engine (ADR 0008) on a synthetic list of N entries. @sat:cli.bench-order
+//!
+//! Owns: the load order engine benchmark.
 
 use std::time::Instant;
 

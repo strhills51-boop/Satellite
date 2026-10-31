@@ -1,4 +1,4 @@
-//! The project: canon of the build (ADR 0006).
+//! The project: canon of the build (ADR 0006). @sat:project
 //!
 //! The project — not `modlist.txt` — is the source of truth for order, enabled flags and separators. The build's
 //! folders and the manager's files are *sides* compared against it:
@@ -8,6 +8,8 @@
 //!
 //! The on-disk container is not decided yet (ADR 0007); until then the type is serde-serializable with a schema
 //! number and callers store it as they see fit.
+//!
+//! Owns: the project: canon + signatures + sync records + decoration; observe and manager diff.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -73,6 +75,7 @@ impl Project {
         }
     }
 
+    // @sat:project.book
     /// The live book of this project: canon plus decoration. Decoration that no longer fits is reported.
     pub fn book(&self) -> (OrderBook, Vec<DecorIssue>) {
         let mut book = OrderBook::from_modlist(&self.canon);
@@ -108,6 +111,7 @@ impl Project {
             .collect()
     }
 
+    // @sat:project.observe
     /// Compares the canon with the mods folder: stores the records (keeping decisions) and records the content
     /// signature of every matched entity for the next run. The canon itself is not changed.
     pub fn observe(&mut self, disk: &[DiskFolder]) -> Reconcile {
@@ -133,6 +137,7 @@ impl Project {
         r
     }
 
+    // @sat:project.manager-diff
     /// Difference between the canon and the manager's list (e.g. the order was changed in MO2).
     pub fn manager_diff(&self, manager: &Modlist) -> ManagerDiff {
         let index = |l: &Modlist| -> HashMap<String, usize> {

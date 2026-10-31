@@ -1,4 +1,4 @@
-//! Mod Organizer 2 adapter.
+//! Mod Organizer 2 adapter. @sat:mo2
 //!
 //! - [`ini`] — Qt-style INI reading, `@ByteArray(...)`, `@Variant(...)` QColor;
 //! - [`instance`] — resolving an instance (`ModOrganizer.ini`, `%BASE_DIR%`, profiles, extra mod roots);
@@ -6,6 +6,8 @@
 //! - [`meta`] — a mod's `meta.ini`.
 //!
 //! This crate is the only place that knows MO2 file formats (ADR 0002: canon is written only by its adapter).
+//!
+//! Owns: MO2 adapter layout, errors, atomic file writes.
 
 pub mod ini;
 pub mod instance;
@@ -35,6 +37,7 @@ pub(crate) fn read(path: &std::path::Path) -> Result<Vec<u8>> {
     })
 }
 
+// @sat:mo2.write-atomic
 /// Writes through a temp file and rename, so a crash never leaves a half-written profile file.
 pub fn write_atomic(path: &std::path::Path, data: &[u8]) -> Result<()> {
     let io = |source| Mo2Error::Io {

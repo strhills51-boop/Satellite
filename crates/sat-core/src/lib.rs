@@ -1,6 +1,7 @@
-//! Satellite domain core.
+//! Satellite domain core. @sat:core
 //!
 //! Layering (ADR 0002):
+//! - [`engine`] — truth kinds, change sets, the projection graph (ADR 0010);
 //! - [`facts`] — what scanners observed (input to the warm tier);
 //! - [`canon`] — the manager's state (order, enabled, separators);
 //! - [`table`] — warm tier: immutable, integer-addressed provider table built from facts;
@@ -10,8 +11,11 @@
 //! - [`sync`] — reconciling the project (canon) with the build and external donors (ADR 0006).
 //!
 //! This crate performs no filesystem or network I/O and compiles to WebAssembly.
+//!
+//! Owns: the crate layout (which module is which layer); nothing else.
 
 pub mod canon;
+pub mod engine;
 pub mod facts;
 pub mod ids;
 pub mod interner;

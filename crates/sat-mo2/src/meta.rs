@@ -1,4 +1,6 @@
-//! A mod's `meta.ini`.
+//! A mod's `meta.ini`. @sat:mo2.meta
+//!
+//! Owns: a mod's `meta.ini`.
 
 use std::path::Path;
 

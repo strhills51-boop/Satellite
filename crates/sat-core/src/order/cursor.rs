@@ -1,4 +1,4 @@
-//! Keyboard cursor of the list: **focus** (one entry, where keys act), **anchor** (where a Shift range starts) and
+//! Keyboard cursor of the list: **focus** (one entry, where keys act), **anchor** (where a Shift range starts) and @sat:order.cursor
 //! **selection** (a set). All three are entry keys, not row numbers, so they survive moves, filters and folds;
 //! every change returns row patches like any other operation (ADR 0008).
 //!
@@ -8,6 +8,8 @@
 //! - Alt+↑ ↓ — [`OrderBook::shift_selection`] by one row; Alt+Shift+↑ ↓ — to the start / end of the block;
 //! - ← → — [`OrderBook::fold_focused`]: collapse / expand a separator or group, ← on a mod jumps to its separator;
 //! - letters — [`OrderBook::jump_to`]; Ctrl+A — [`OrderBook::select_all`]; Esc — [`OrderBook::clear_selection`].
+//!
+//! Owns: keyboard focus, anchor, selection and the key layout semantics.
 
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
@@ -133,6 +135,7 @@ impl OrderBook {
         }
     }
 
+    // @sat:order.cursor.navigate
     pub fn navigate(&mut self, nav: Nav, select: Select) -> Change {
         let mut p = Patches::default();
         let rows = self.seq.visible_len();
@@ -219,6 +222,7 @@ impl OrderBook {
         self.finish(p)
     }
 
+    // @sat:order.cursor.shift
     /// Moves the selection (or the focused entry) with the keyboard; undoable like any move.
     pub fn shift_selection(&mut self, how: Shift) -> Result<Option<Change>, OrderError> {
         // entries the manager does not manage (DLC, game files) never move
