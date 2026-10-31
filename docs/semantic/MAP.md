@@ -15,7 +15,8 @@
 | Суффикс разделителя `_separator` | `sat-core/src/canon.rs` (`SEPARATOR_SUFFIX`) | `sat_mo2::profile::SEPARATOR_SUFFIX` — реэкспорт, не копия |
 | Папка-разделитель на диске | `sat-core/src/sync/names.rs` (`is_separator_folder`) | — |
 | Имя мода для сверки (`normalizeName` монолита) | `sat-core/src/sync/names.rs` (`normalize_name`) | ключи донора `raw/norm/loose_key` там же |
-| Порядок, вкл/выкл, разделители (канон) | `sat-core/src/canon.rs` (`Modlist`) | файл `modlist.txt` — только адаптер `sat-mo2/src/profile.rs` |
+| Проект — канон сборки (ADR 0006) | `sat-core/src/project.rs` (`Project`: канон + сигнатуры + записи SYNC; `observe`, `manager_diff`) | `modlist.txt` — сторона, не канон |
+| Порядок, вкл/выкл, разделители (структура канона) | `sat-core/src/canon.rs` (`Modlist`) | файл `modlist.txt` — только адаптер `sat-mo2/src/profile.rs` |
 | Приоритеты из порядка | `sat-core/src/canon.rs` (`Modlist::priorities`) → `overwrite::Priorities` | — |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `sat-core/src/overwrite.rs` (`OverwriteProjection`) | — |
 | Таблица провайдеров (тёплый ярус) | `sat-core/src/table.rs` (`ProviderTable`; сборка по модам — `TableBuilder`) | — |
@@ -51,6 +52,7 @@
 - `crates/sat-core/src/facts.rs` — факты сканера: `LooseFile`, `LooseDir`, `ArchiveFacts`, `PluginFacts`, `ModMetrics`, `ModFacts`.
 - `crates/sat-core/src/table.rs` — `ProviderTable::build`: колонки провайдеров, CSR по путям и модам.
 - `crates/sat-core/src/overwrite.rs` — `Priorities`, `OverwriteProjection::compute` (параллельно по путям), статистика.
+- `crates/sat-core/src/project.rs` — `Project::import`, `observe` (сверка + запоминание сигнатур), `manager_diff` (видимое расхождение с `modlist.txt`).
 - `crates/sat-core/src/canon.rs` — `Modlist`, `Entry`, `EntryKind`, перемещение блоков, вкл/выкл, приоритеты, `SEPARATOR_SUFFIX`.
 - `crates/sat-core/src/sync/mod.rs` — оглавление синхронизации (ADR 0006).
 - `crates/sat-core/src/sync/names.rs` — правила имён монолита (сверено с JS на 1 128 именах).

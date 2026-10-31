@@ -14,6 +14,7 @@ pub mod facts;
 pub mod ids;
 pub mod interner;
 pub mod overwrite;
+pub mod project;
 pub mod sync;
 pub mod table;
 

@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence.
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
@@ -14,6 +14,7 @@ use sat_core::canon::{EntryKind, Modlist};
 use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::ids::ModId;
 use sat_core::overwrite::{OverwriteProjection, Priorities};
+use sat_core::project::{ManagerDiff, PROJECT_SCHEMA, Project};
 use sat_core::sync::donor;
 use sat_core::table::{ProviderTable, TableBuilder};
 use sat_mo2::{Instance, profile};
@@ -21,6 +22,8 @@ use sat_scan::{ScanJob, ScanOptions, ScanProgress};
 use serde::Serialize;
 
 const OVERWRITE: &str = "Overwrite";
+/// Provisional project file until the container format is decided (ADR 0007).
+const PROJECT_FILE: &str = "project.v0.json";
 /// Mods scanned per batch before their facts are folded into the table and dropped.
 const SCAN_BATCH: usize = 256;
 
@@ -46,7 +49,7 @@ fn main() {
         Some("analyze") => analyze(&args[1..]),
         Some("donor") => donor(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -126,9 +129,10 @@ struct ScanBreakdown {
 
 #[derive(Serialize)]
 struct SyncSummary {
-    /// Project = profile's modlist (imported), side = the mods folder (ADR 0006). No stored project yet, so
-    /// renames cannot be detected (entities have no recorded signature).
+    /// Project = canon (stored, imported from modlist.txt on first run), side = the mods folder (ADR 0006).
+    /// Renames are found from the second run on (signatures recorded by the previous one).
     matched: usize,
+    pending: usize,
     fs_created_mods: usize,
     fs_created_separators: usize,
     fs_deleted_mods: usize,
@@ -141,6 +145,7 @@ struct SyncSummary {
 struct Report {
     instance: InstanceInfo,
     sync: SyncSummary,
+    manager_diff: ManagerDiff,
     mods_scanned: usize,
     from_cache: usize,
     missing: usize,
@@ -178,7 +183,58 @@ fn subfolders(dir: &std::path::Path) -> Vec<String> {
 fn analyze(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let all_folders = !has(args, "--listed-only");
-    let list = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
+    let manager = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
+    // The project is the canon (ADR 0006); modlist.txt is a side. First run imports it.
+    let project_path = flag_value(args, "--project")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| inst.profile_dir().join("satellite").join(PROJECT_FILE));
+    let mut project = match std::fs::read(&project_path) {
+        Ok(bytes) if !has(args, "--reimport") => {
+            let p: Project =
+                serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", project_path.display()))?;
+            if p.schema != PROJECT_SCHEMA {
+                return Err(format!(
+                    "{}: project schema {} (this build reads {PROJECT_SCHEMA}); use --reimport",
+                    project_path.display(),
+                    p.schema
+                ));
+            }
+            eprintln!("project: {}", project_path.display());
+            p
+        }
+        Ok(bytes) => {
+            // Re-import keeps what the project learned (signatures, decisions), replaces only the canon.
+            let old: Option<Project> = serde_json::from_slice(&bytes).ok();
+            let mut p = Project::import(manager.clone());
+            if let Some(old) = old {
+                p.signatures = old.signatures;
+                p.sync = old.sync;
+            }
+            eprintln!(
+                "project: re-imported canon from modlist.txt into {}",
+                project_path.display()
+            );
+            p
+        }
+        Err(_) => {
+            eprintln!(
+                "project: imported from modlist.txt (first run) → {}",
+                project_path.display()
+            );
+            Project::import(manager.clone())
+        }
+    };
+    let manager_diff = project.manager_diff(&manager);
+    if !manager_diff.is_empty() {
+        eprintln!(
+            "project vs modlist.txt: only in modlist={} only in project={} enabled differs={} order differs={} — the project stays canon; --reimport to take modlist.txt",
+            manager_diff.only_manager.len(),
+            manager_diff.only_project.len(),
+            manager_diff.enabled_differs.len(),
+            manager_diff.order_differs
+        );
+    }
+    let list = project.canon.clone();
 
     // Inventory: what the profile says vs. what is on disk.
     let listed: std::collections::HashSet<String> =
@@ -362,25 +418,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
     );
 
     let sync = {
-        use sat_core::sync::records::{DiskFolder, EntityKind, Mismatch, ProjectEntity, reconcile};
+        use sat_core::sync::records::{DiskFolder, EntityKind, Mismatch};
         let sig: std::collections::HashMap<String, u64> = outcomes
             .iter()
             .filter(|o| !o.missing && o.name != OVERWRITE)
             .map(|o| (o.name.to_lowercase(), o.signature))
-            .collect();
-        let project: Vec<ProjectEntity> = list
-            .entries
-            .iter()
-            .filter(|e| e.kind != EntryKind::Foreign)
-            .map(|e| ProjectEntity {
-                name: e.name.clone(),
-                kind: if e.kind == EntryKind::Separator {
-                    EntityKind::Separator
-                } else {
-                    EntityKind::Mod
-                },
-                signature: None,
-            })
             .collect();
         let disk: Vec<DiskFolder> = subfolders(&inst.mods_dir)
             .into_iter()
@@ -389,12 +431,13 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 name,
             })
             .collect();
-        let r = reconcile(&project, &disk, &[]);
+        let r = project.observe(&disk);
         let count = |pred: &dyn Fn(&Mismatch, EntityKind) -> bool| {
             r.records.iter().filter(|x| pred(&x.mismatch, x.entity)).count()
         };
         let summary = SyncSummary {
             matched: r.matched.len(),
+            pending: r.count(sat_core::sync::records::Status::Pending),
             fs_created_mods: count(&|m, k| matches!(m, Mismatch::FsCreated { .. }) && k == EntityKind::Mod),
             fs_created_separators: count(&|m, k| {
                 matches!(m, Mismatch::FsCreated { .. }) && k == EntityKind::Separator
@@ -460,6 +503,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let report = Report {
         instance: info,
         sync,
+        manager_diff: manager_diff.clone(),
         mods_scanned: jobs.len(),
         from_cache,
         missing,
@@ -501,6 +545,10 @@ fn analyze(args: &[String]) -> Result<(), String> {
             serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
+    }
+    if !has(args, "--no-save") {
+        let bytes = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
+        sat_mo2::write_atomic(&project_path, &bytes).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

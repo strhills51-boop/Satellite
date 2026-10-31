@@ -291,6 +291,7 @@ dependencies = [
  "rustc-hash",
  "sat-formats",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
