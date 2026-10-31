@@ -39,7 +39,7 @@
 | 8 | Конфликты: проекция | 109 134 (v484 каноническая проекция), 109 144 (палитра файлов), 81 105–87 657 (tree-conflict owners), 18 283–18 450 (CSS «зубов») | owners → chains → contexts, фокус, «зубной ряд» | `sat-core::overwrite` + UI | **`08-conflicts.md`** |
 | 9 | Конфликты: модалка и советник | 4 955–6 762, 11 070–12 058 (CSS), 145 040 (overwrite order advisor) | карточки / таблица / две области, перетаскивание, мастер порядка | NG-D004+ | — |
 | 10 | Нормализованный слой цепочек | `window.modlistToolMaterializeOverwriteNormalizedLayerV501` — назначается **трижды**: 125 625, 126 781, 149 559; хранилища `overwriteNormalized*` | повторы цепочек → нормализованные цепочки и контексты, route groups | NG-D002 | **`08-conflicts.md`** |
-| 11 | SYNC | 34 595–36 160 (модель, сверка, план, pre-commit), 9 146–10 179 (CSS), 175 465–175 702 (Sync issuance / phases) | записи, прокси-моды, план фиксации, версии, `deleted/` | ADR 0006, NG-D003 | частично |
+| 11 | SYNC | 34 595–36 160 (модель, сверка, план, pre-commit), 9 146–10 179 (CSS), 175 465–175 702 (Sync issuance / phases) | записи, прокси-моды, план фиксации, версии, `deleted/` | ADR 0006, NG-D003 | **`11-sync.md`** |
 | 12 | Внешний донор | 106 521–108 312, 163 035–163 453 | сессии, сопоставление, миграция | `sat-core::sync::donor` (сверено) | частично |
 | 13 | Развёртывание и процессоры | 177 759–191 028 (v526Raw contracts, v527 Deployment CP1–CP9) | Resource/Effect contracts, processor registry, invalidation router, fingerprints, escort executor, staging promotion, процессор анимаций | PHILOSOPHY Фаза 3.5 | — |
 | 14 | Плагины | 19 457–19 748, 75 113–78 177, 8 308–10 813 (CSS) | рабочая область плагинов, blacklist, порядок, системный разделитель PLUGINS | NG-D002 (анализатор) + UI | — |
