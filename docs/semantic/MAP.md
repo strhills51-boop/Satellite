@@ -16,7 +16,10 @@
 | Папка-разделитель на диске | `sat-core/src/sync/names.rs` (`is_separator_folder`) | — |
 | Имя мода для сверки (`normalizeName` монолита) | `sat-core/src/sync/names.rs` (`normalize_name`) | ключи донора `raw/norm/loose_key` там же |
 | Проект — канон сборки (ADR 0006) | `sat-core/src/project.rs` (`Project`: канон + сигнатуры + записи SYNC; `observe`, `manager_diff`) | `modlist.txt` — сторона, не канон |
-| Порядок, вкл/выкл, разделители (структура канона) | `sat-core/src/canon.rs` (`Modlist`) | файл `modlist.txt` — только адаптер `sat-mo2/src/profile.rs` |
+| Порядок, вкл/выкл, разделители (структура канона) | `sat-core/src/canon.rs` (`Modlist`) — снимок | файл `modlist.txt` — только адаптер `sat-mo2/src/profile.rs`; живое редактирование — `OrderBook` |
+| Живой порядок загрузки: операции, строки вида, патчи для UI, undo/redo (ADR 0008) | `sat-core/src/order/book.rs` (`OrderBook`, `Patch`, `Row`) | `Modlist::move_entries` — та же семантика на `Vec`, для снимков и тестов |
+| Декорации над каноном: цвет, логические группы | `sat-core/src/order/book.rs` (`set_color`, `create_group`) | порядок они не меняют никогда |
+| Позиции и строки в списке любого размера | `sat-core/src/order/seq.rs` (`Seq`: куски + деревья Фенвика) | — |
 | Приоритеты из порядка | `sat-core/src/canon.rs` (`Modlist::priorities`) → `overwrite::Priorities` | — |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `sat-core/src/overwrite.rs` (`OverwriteProjection`) | — |
 | Таблица провайдеров (тёплый ярус) | `sat-core/src/table.rs` (`ProviderTable`; сборка по модам — `TableBuilder`) | — |
@@ -54,6 +57,10 @@
 - `crates/sat-core/src/overwrite.rs` — `Priorities`, `OverwriteProjection::compute` (параллельно по путям), статистика.
 - `crates/sat-core/src/project.rs` — `Project::import`, `observe` (сверка + запоминание сигнатур), `manager_diff` (видимое расхождение с `modlist.txt`).
 - `crates/sat-core/src/canon.rs` — `Modlist`, `Entry`, `EntryKind`, перемещение блоков, вкл/выкл, приоритеты, `SEPARATOR_SUFFIX`.
+- `crates/sat-core/src/order/mod.rs` — оглавление движка порядка (ADR 0008).
+- `crates/sat-core/src/order/seq.rs` — `Seq`: последовательность кусками, агрегаты (записи / строки / разделители), O(log n) запросы.
+- `crates/sat-core/src/order/book.rs` — `OrderBook`: канон + декорации + вид, `move_keys`, `set_enabled`, `set_color`, группы, свёртка, фильтр, `rows`, undo/redo.
+- `crates/sat-core/src/order/tests.rs` — модельные тесты: зеркало UI только на патчах = вид = пересчёт с нуля.
 - `crates/sat-core/src/sync/mod.rs` — оглавление синхронизации (ADR 0006).
 - `crates/sat-core/src/sync/names.rs` — правила имён монолита (сверено с JS на 1 128 именах).
 - `crates/sat-core/src/sync/donor.rs` — внешний донор: `FolderLookup`, `TargetIndex`, `validate`, `candidates`.
@@ -74,6 +81,7 @@
 - `crates/sat-scan/tests/scan.rs` — интеграционный тест: DDS, плагин, архив, кеш.
 
 ### `tools`
+- `tools/sat-cli/src/bench_order.rs` — `bench-order`: движок порядка на N записей (по умолчанию 1 млн).
 - `tools/sat-cli/src/main.rs` — `analyze` (инвентарь, проект, скан, сверка, таблица, проекция, отчёт), `donor`, `inspect` (что видят разборщики форматов), `bench-synth`.
 
 ## Документы
