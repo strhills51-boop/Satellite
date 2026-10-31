@@ -3,6 +3,7 @@
 
 use super::book::Row;
 use super::*;
+use super::{Nav, Select, Shift};
 use crate::canon::{Entry, EntryKind, Modlist};
 
 struct Rng(u64);
@@ -44,7 +45,7 @@ fn list(n: usize, rng: &mut Rng) -> Modlist {
 
 /// What a UI keeps per row: content it rendered.
 #[derive(Debug, Clone, PartialEq)]
-struct Shown(Key, RowKind, String, bool, u8, bool, Option<u32>, u32);
+struct Shown(Key, RowKind, String, bool, u8, bool, Option<u32>, u32, [bool; 3]);
 fn shown(r: &Row<'_>) -> Shown {
     Shown(
         r.key,
@@ -55,6 +56,7 @@ fn shown(r: &Row<'_>) -> Shown {
         r.collapsed,
         r.color,
         r.size,
+        [r.muted, r.focused, r.selected],
     )
 }
 
@@ -112,6 +114,44 @@ fn run(seed: u64, n: usize, steps: usize) {
         let len = b.len();
         let pick = |rng: &mut Rng, b: &OrderBook| b.key_at(1 + rng.below(len - 1));
         let roll = rng.below(100);
+        if rng.chance(30) {
+            let rows = b.row_count() as u32;
+            let what = rng.below(9);
+            let c = match what {
+                0..=3 => {
+                    let nav = match rng.below(7) {
+                        0 => Nav::Up,
+                        1 => Nav::Down,
+                        2 => Nav::PageUp(1 + rng.below(20) as u32),
+                        3 => Nav::PageDown(1 + rng.below(20) as u32),
+                        4 => Nav::Home,
+                        5 => Nav::End,
+                        _ => Nav::Row(rng.below(rows as usize + 1) as u32),
+                    };
+                    let sel =
+                        [Select::Replace, Select::Extend, Select::Toggle, Select::FocusOnly][rng.below(4)];
+                    Some(b.navigate(nav, sel))
+                }
+                4 => b.toggle_focused(),
+                5 => Some(if rng.chance(50) {
+                    b.select_all()
+                } else {
+                    b.clear_selection()
+                }),
+                6 => {
+                    let how = [Shift::Up, Shift::Down, Shift::BlockStart, Shift::BlockEnd][rng.below(4)];
+                    b.shift_selection(how).unwrap()
+                }
+                7 => b.fold_focused(rng.chance(50)).unwrap(),
+                _ => b.jump_to(&format!("mod {}", rng.below(10))),
+            };
+            if let Some(c) = c {
+                m.apply(&b, &c);
+            }
+            b.check();
+            m.assert_eq(&b, &format!("seed {seed} step {step} cursor {what}"));
+            continue;
+        }
         let (what, change) = match roll {
             0..=34 => {
                 let mut keys = vec![pick(&mut rng, &b)];
@@ -169,7 +209,11 @@ fn run(seed: u64, n: usize, steps: usize) {
                 }
             }
             82..=84 => {
-                let f = match rng.below(4) {
+                let f = match rng.below(5) {
+                    4 => Filter {
+                        show_muted: true,
+                        ..Filter::default()
+                    },
                     0 => Filter::default(),
                     1 => Filter {
                         text: format!("mod {}", rng.below(9)),
@@ -206,6 +250,11 @@ fn run(seed: u64, n: usize, steps: usize) {
                     .collect();
                 let before = (!rng.chance(10)).then(|| b.key_at(rng.below(len)));
                 ("insert", b.insert_entries(&entries, before).ok().map(|x| x.1))
+            }
+            96 if rng.chance(50) => {
+                let keys = vec![pick(&mut rng, &b)];
+                let m = rng.chance(70);
+                ("mute", b.set_muted(&keys, m).unwrap())
             }
             96 => {
                 let k = pick(&mut rng, &b);
@@ -332,4 +381,39 @@ fn errors() {
     assert!(matches!(b.move_keys(&[0], None), Err(OrderError::Immovable(_))));
     assert_eq!(b.move_keys(&[9999], None), Err(OrderError::UnknownKey(9999)));
     assert!(b.create_group("x", &[2]).is_err());
+}
+
+#[test]
+fn keyboard_moves_blocks_whole_and_mods_by_row() {
+    let names = ["A_separator", "a1", "a2", "B_separator", "b1", "b2", "C_separator", "c1"];
+    let list = Modlist::new(
+        names
+            .iter()
+            .map(|n| Entry {
+                name: n.to_string(),
+                kind: if n.ends_with("_separator") { EntryKind::Separator } else { EntryKind::Mod },
+                enabled: true,
+            })
+            .collect(),
+    );
+    let mut b = OrderBook::from_modlist(&list);
+    let order = |b: &OrderBook| b.to_modlist().entries.into_iter().map(|e| e.name).collect::<Vec<_>>();
+    // focus A_separator, Alt+↓: block A goes below block B (not into it)
+    b.navigate(Nav::Home, Select::Replace);
+    b.shift_selection(Shift::Down).unwrap().unwrap();
+    assert_eq!(order(&b), ["B_separator", "b1", "b2", "A_separator", "a1", "a2", "C_separator", "c1"]);
+    // Alt+↑ brings it back
+    b.shift_selection(Shift::Up).unwrap().unwrap();
+    assert_eq!(order(&b)[..3], ["A_separator", "a1", "a2"]);
+    // a mod moves by one row, crossing into the next block
+    let a2 = b.key_of("a2").unwrap();
+    b.navigate(Nav::Row(b.pos(a2) as u32), Select::Replace);
+    b.shift_selection(Shift::Down).unwrap().unwrap();
+    assert_eq!(order(&b)[..5], ["A_separator", "a1", "B_separator", "a2", "b1"]);
+    // the focus follows the entry
+    assert_eq!(b.focus(), Some(a2));
+    assert!(b.rows(3, 1)[0].focused);
+    // Alt+Shift+↓: end of its block
+    b.shift_selection(Shift::BlockEnd).unwrap().unwrap();
+    assert_eq!(order(&b)[..6], ["A_separator", "a1", "B_separator", "b1", "b2", "a2"]);
 }

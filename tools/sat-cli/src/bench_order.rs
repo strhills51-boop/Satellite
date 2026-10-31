@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use sat_core::canon::{Entry, EntryKind, Modlist};
-use sat_core::order::{Change, Filter, OrderBook};
+use sat_core::order::{Change, Filter, Nav, OrderBook, Select, Shift};
 
 fn arg(args: &[String], name: &str, default: usize) -> usize {
     args.iter()
@@ -141,6 +141,45 @@ pub fn run(args: &[String]) -> Result<(), String> {
         Ok((_, c)) => println!("group of 5        {:>9.3} ms   {}", ms(t), patches(&Some(c))),
         Err(e) => println!("group of 5        skipped: {e}"),
     }
+
+    // keyboard cursor
+    let t = Instant::now();
+    b.navigate(Nav::Row(500_000), Select::Replace);
+    for _ in 0..1000 {
+        b.navigate(Nav::Down, Select::Replace);
+    }
+    println!(
+        "cursor ↓          {:>9.3} ms   per key press (avg of 1000)",
+        ms(t) / 1000.0
+    );
+    let t = Instant::now();
+    let c = b.navigate(Nav::PageDown(100_000), Select::Extend);
+    println!(
+        "Shift+PgDn 100k   {:>9.1} ms   {} patches, {} selected",
+        ms(t),
+        c.patches.len(),
+        b.selection_len()
+    );
+    let t = Instant::now();
+    let c = b.shift_selection(Shift::Down).map_err(|e| e.to_string())?;
+    println!("Alt+↓ 100k rows   {:>9.1} ms   {}", ms(t), patches(&c));
+    let t = Instant::now();
+    let c = b.select_all();
+    println!(
+        "select all        {:>9.1} ms   {} patches",
+        ms(t),
+        c.patches.len()
+    );
+    let t = Instant::now();
+    b.clear_selection();
+    b.navigate(Nav::Home, Select::Replace);
+    for _ in 0..1000 {
+        b.shift_selection(Shift::Down).map_err(|e| e.to_string())?;
+    }
+    println!(
+        "Alt+↓ one entry   {:>9.3} ms   per key press (avg of 1000)",
+        ms(t) / 1000.0
+    );
 
     let t = Instant::now();
     let mut undone = 0;

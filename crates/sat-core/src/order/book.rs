@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
+use super::cursor::Cursor;
 use super::decor::{Decor, DecorIssue, GroupDef};
 use super::seq::{Key, Seq};
 use crate::canon::{Entry, EntryKind, Modlist};
@@ -83,6 +84,11 @@ pub struct Row<'a> {
     /// Separator: entries in its block. Group: members.
     pub size: u32,
     pub group: Option<GroupId>,
+    /// Hidden from views unless the filter shows muted entries ("not planned, keep out of sight").
+    pub muted: bool,
+    /// The keyboard cursor is on this row.
+    pub focused: bool,
+    pub selected: bool,
 }
 
 /// Which mods are rows. Separators always are.
@@ -92,27 +98,31 @@ pub struct Filter {
     pub text: String,
     pub enabled: Option<bool>,
     pub color: Option<u32>,
+    /// Show entries the user muted (hidden by default).
+    #[serde(default)]
+    pub show_muted: bool,
 }
 
 #[derive(Debug, Clone)]
-struct Item {
-    name: String,
-    folded: String,
-    kind: EntryKind,
-    enabled: bool,
-    collapsed: bool,
-    color: Option<u32>,
-    group: Option<GroupId>,
+pub(super) struct Item {
+    pub(super) name: String,
+    pub(super) folded: String,
+    pub(super) kind: EntryKind,
+    pub(super) enabled: bool,
+    pub(super) collapsed: bool,
+    pub(super) color: Option<u32>,
+    pub(super) group: Option<GroupId>,
+    pub(super) muted: bool,
 }
 
 #[derive(Debug, Clone)]
-struct Group {
+pub(super) struct Group {
     name: String,
-    members: Vec<Key>,
-    collapsed: bool,
+    pub(super) members: Vec<Key>,
+    pub(super) collapsed: bool,
     /// Members are contiguous (hence in one block). A broken group shows its members as plain rows.
-    valid: bool,
-    first: Key,
+    pub(super) valid: bool,
+    pub(super) first: Key,
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +134,7 @@ enum Op {
     Place(Vec<(Key, usize)>),
     Enabled(Vec<(Key, bool)>),
     Color(Vec<(Key, Option<u32>)>),
+    Muted(Vec<(Key, bool)>),
     MakeGroup {
         id: GroupId,
         name: String,
@@ -144,10 +155,10 @@ enum Op {
 }
 
 #[derive(Default)]
-struct Patches(Vec<Patch>);
+pub(super) struct Patches(pub(super) Vec<Patch>);
 
 impl Patches {
-    fn remove(&mut self, at: usize) {
+    pub(super) fn remove(&mut self, at: usize) {
         let at = at as u32;
         if let Some(Patch::Remove { at: a, count }) = self.0.last_mut() {
             if *a == at {
@@ -162,7 +173,7 @@ impl Patches {
         }
         self.0.push(Patch::Remove { at, count: 1 });
     }
-    fn insert(&mut self, at: usize) {
+    pub(super) fn insert(&mut self, at: usize) {
         let at = at as u32;
         if let Some(Patch::Insert { at: a, count }) = self.0.last_mut()
             && at == *a + *count
@@ -172,7 +183,7 @@ impl Patches {
         }
         self.0.push(Patch::Insert { at, count: 1 });
     }
-    fn update(&mut self, at: usize) {
+    pub(super) fn update(&mut self, at: usize) {
         let at = at as u32;
         if let Some(Patch::Update { at: a, count }) = self.0.last_mut() {
             if at >= *a && at < *a + *count {
@@ -190,16 +201,17 @@ impl Patches {
 /// The live canon and its rows.
 #[derive(Debug, Clone)]
 pub struct OrderBook {
-    items: Vec<Item>,
+    pub(super) items: Vec<Item>,
     by_name: FxHashMap<String, Key>,
-    seq: Seq,
-    groups: Vec<Option<Group>>,
+    pub(super) seq: Seq,
+    pub(super) groups: Vec<Option<Group>>,
     /// Stable external id of each group slot (marker token, project file).
     group_ids: Vec<String>,
     filter: Filter,
     revision: u64,
     undo: Vec<(Op, Op)>,
     redo: Vec<(Op, Op)>,
+    pub(super) cursor: Cursor,
 }
 
 impl OrderBook {
@@ -216,6 +228,7 @@ impl OrderBook {
                 collapsed: false,
                 color: None,
                 group: None,
+                muted: false,
             })
             .collect();
         let by_name = items
@@ -235,6 +248,7 @@ impl OrderBook {
             revision: 0,
             undo: Vec::new(),
             redo: Vec::new(),
+            cursor: Cursor::default(),
         }
     }
 
@@ -286,7 +300,7 @@ impl OrderBook {
         !self.redo.is_empty()
     }
 
-    fn check_key(&self, k: Key) -> Result<(), OrderError> {
+    pub(super) fn check_key(&self, k: Key) -> Result<(), OrderError> {
         if self.seq.contains(k) {
             Ok(())
         } else {
@@ -294,7 +308,7 @@ impl OrderBook {
         }
     }
 
-    fn group(&self, k: Key) -> Option<(GroupId, &Group)> {
+    pub(super) fn group(&self, k: Key) -> Option<(GroupId, &Group)> {
         let g = self.items[k as usize].group?;
         self.groups[g as usize].as_ref().map(|gr| (g, gr))
     }
@@ -304,6 +318,7 @@ impl OrderBook {
         (f.text.is_empty() || it.folded.contains(&f.text))
             && f.enabled.is_none_or(|e| e == it.enabled)
             && f.color.is_none_or(|c| it.color == Some(c))
+            && (f.show_muted || !it.muted)
     }
 
     /// Whether entry `k` is a row now, given `collapsed` = the state of its block's separator.
@@ -332,7 +347,7 @@ impl OrderBook {
 
     /// Re-evaluates rows of `keys` (any order; sorted here), emitting patches; `update(k)` marks a row whose
     /// content changed in place.
-    fn reweigh(
+    pub(super) fn reweigh(
         &mut self,
         keys: impl IntoIterator<Item = Key>,
         update: impl Fn(Key) -> bool,
@@ -359,13 +374,13 @@ impl OrderBook {
     }
 
     /// Entries of the block after separator `s` (excluding `s`).
-    fn block_keys(&self, s: Key) -> Vec<Key> {
+    pub(super) fn block_keys(&self, s: Key) -> Vec<Key> {
         let start = self.seq.pos(s) + 1;
         let end = self.seq.block_end(start);
         self.seq.iter_from(start).take(end - start).collect()
     }
 
-    fn owner(&self, k: Key) -> Option<Key> {
+    pub(super) fn owner(&self, k: Key) -> Option<Key> {
         if self.items[k as usize].kind == EntryKind::Separator {
             return None;
         }
@@ -388,7 +403,8 @@ impl OrderBook {
         changed
     }
 
-    fn finish(&mut self, p: Patches) -> Change {
+    pub(super) fn finish(&mut self, mut p: Patches) -> Change {
+        self.sync_focus_mark(&mut p);
         self.seq.compact();
         self.revision += 1;
         Change {
@@ -440,6 +456,14 @@ impl OrderBook {
             self.check_key(k)?;
         }
         self.apply_recorded(Op::Color(keys.iter().map(|&k| (k, color)).collect()))
+    }
+
+    /// Mutes (hides unless the filter shows muted entries) or unmutes entries. Separators cannot be muted.
+    pub fn set_muted(&mut self, keys: &[Key], muted: bool) -> Result<Option<Change>, OrderError> {
+        for &k in keys {
+            self.check_key(k)?;
+        }
+        self.apply_recorded(Op::Muted(keys.iter().map(|&k| (k, muted)).collect()))
     }
 
     /// Joins contiguous mods of one block into a logical group (shown collapsed as one row).
@@ -523,6 +547,7 @@ impl OrderBook {
                     collapsed: false,
                     color: None,
                     group: None,
+                    muted: false,
                 });
                 (self.items.len() - 1) as Key
             })
@@ -644,6 +669,20 @@ impl OrderBook {
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Color(inv))
             }
+            Op::Muted(each) => {
+                let mut inv = Vec::new();
+                let mut touched = HashSet::new();
+                for &(k, m) in each {
+                    let it = &mut self.items[k as usize];
+                    if it.muted != m && it.kind != EntryKind::Separator {
+                        inv.push((k, it.muted));
+                        it.muted = m;
+                        touched.insert(k);
+                    }
+                }
+                self.after_content_change(touched, p);
+                (!inv.is_empty()).then_some(Op::Muted(inv))
+            }
             Op::MakeGroup {
                 id,
                 name,
@@ -686,6 +725,7 @@ impl OrderBook {
                 let inv: Vec<(Key, usize)> = keys.iter().map(|&k| (k, self.seq.pos(k))).collect();
                 self.relocate(&keys, Placement::Nowhere, p);
                 self.name_keys(&keys, false);
+                self.cursor_forget(&keys, inv.first().map_or(0, |x| x.1), p);
                 Some(Op::Restore(inv))
             }
             Op::Rename(k, name) => {
@@ -720,7 +760,7 @@ impl OrderBook {
     }
 
     /// Rows whose content depends on changed entries: the entries themselves and their groups' rows.
-    fn after_content_change(&mut self, touched: HashSet<Key>, p: &mut Patches) {
+    pub(super) fn after_content_change(&mut self, touched: HashSet<Key>, p: &mut Patches) {
         let mut keys: HashSet<Key> = touched.clone();
         for &k in &touched {
             if let Some((_, g)) = self.group(k) {
@@ -891,6 +931,9 @@ impl OrderBook {
             if it.kind == EntryKind::Separator && it.collapsed {
                 d.collapsed.push(it.name.clone());
             }
+            if it.muted {
+                d.muted.push(it.name.clone());
+            }
         }
         for (g, gr) in self.groups.iter().enumerate() {
             let Some(gr) = gr else { continue };
@@ -917,6 +960,7 @@ impl OrderBook {
             it.color = None;
             it.collapsed = false;
             it.group = None;
+            it.muted = false;
         }
         self.groups.clear();
         self.group_ids.clear();
@@ -926,6 +970,14 @@ impl OrderBook {
             match self.key_of(name) {
                 Some(k) => self.items[k as usize].color = Some(c),
                 None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+            }
+        }
+        for name in &d.muted {
+            match self.key_of(name) {
+                Some(k) if self.items[k as usize].kind != EntryKind::Separator => {
+                    self.items[k as usize].muted = true
+                }
+                _ => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
             }
         }
         for name in &d.collapsed {
@@ -1015,6 +1067,7 @@ impl OrderBook {
             vis[k as usize] = self.want_with(k, collapsed);
         }
         self.seq.reflag_all(|k| vis[k as usize]);
+        self.cursor.shown = self.effective_focus();
         self.revision += 1;
         let len = self.seq.visible_len() as u32;
         Change {
@@ -1054,6 +1107,9 @@ impl OrderBook {
             color: it.color,
             size: 0,
             group: it.group,
+            muted: it.muted,
+            focused: self.effective_focus() == Some(k),
+            selected: self.cursor.selected.contains(&k),
         };
         if it.kind == EntryKind::Separator {
             row.size = (self.seq.block_end(pos + 1) - pos - 1) as u32;

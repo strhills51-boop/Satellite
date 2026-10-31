@@ -22,11 +22,14 @@ pub struct Decor {
     /// Collapsed separators (names).
     #[serde(default)]
     pub collapsed: Vec<String>,
+    /// Muted entries (names): kept in the analysis, hidden from views.
+    #[serde(default)]
+    pub muted: Vec<String>,
 }
 
 impl Decor {
     pub fn is_empty(&self) -> bool {
-        self.colors.is_empty() && self.groups.is_empty() && self.collapsed.is_empty()
+        self.colors.is_empty() && self.groups.is_empty() && self.collapsed.is_empty() && self.muted.is_empty()
     }
 }
 

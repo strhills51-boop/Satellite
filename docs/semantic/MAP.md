@@ -22,6 +22,8 @@
 | Декорации как данные проекта (по именам) | `sat-core/src/order/decor.rs` (`Decor`, `GroupDef`); `OrderBook::decor` / `apply_decor`; `Project::book` / `commit_book` | — |
 | Маркеры логических групп `⟦MLT-LG:v1⟧` в экспортном `modlist.txt` | `sat-core/src/order/decor.rs` (`format_marker`, `parse_marker`, `strip_markers`, `encode_markers`) | настоящий `modlist.txt` MO2 маркеров не содержит |
 | Вставка, удаление, переименование записей канона (новые папки SYNC, корзина, принятый rename) | `sat-core/src/order/book.rs` (`insert_entries`, `remove_entries`, `rename`) | — |
+| Клавиатурный курсор: фокус, якорь, выделение; навигация, Alt-перемещения, свёртка, поиск по набору | `sat-core/src/order/cursor.rs` (`navigate`, `shift_selection`, `fold_focused`, `jump_to`) | выделение хранится ключами, не номерами строк |
+| Приглушённые записи («не мешают») | `OrderBook::set_muted`, `Decor.muted`, `Filter.show_muted` | технический игнор `meta.ini` и т. п. — `ScanOptions::ignore_root_files`, это другое |
 | Позиции и строки в списке любого размера | `sat-core/src/order/seq.rs` (`Seq`: куски + деревья Фенвика) | — |
 | Приоритеты из порядка | `sat-core/src/canon.rs` (`Modlist::priorities`) → `overwrite::Priorities` | — |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `sat-core/src/overwrite.rs` (`OverwriteProjection`) | — |
@@ -65,6 +67,7 @@
 - `crates/sat-core/src/order/mod.rs` — оглавление движка порядка (ADR 0008).
 - `crates/sat-core/src/order/seq.rs` — `Seq`: последовательность кусками, агрегаты (записи / строки / разделители), O(log n) запросы.
 - `crates/sat-core/src/order/book.rs` — `OrderBook`: канон + декорации + вид, `move_keys`, `set_enabled`, `set_color`, группы, свёртка, фильтр, `rows`, undo/redo.
+- `crates/sat-core/src/order/cursor.rs` — фокус / якорь / выделение и раскладка клавиш (в шапке файла).
 - `crates/sat-core/src/order/decor.rs` — `Decor` для проекта, кодек маркеров групп монолита (строгая проверка, без тихого ремонта).
 - `crates/sat-core/src/order/tests.rs` — модельные тесты: зеркало UI только на патчах = вид = пересчёт с нуля.
 - `crates/sat-core/src/run.rs` — таблица переходов монолита (12 статусов), `Authority` с оптимистической проверкой предка, `seal` (реестр staging, инварианты конфликтов).
