@@ -99,4 +99,6 @@
 - `PHILOSOPHY.md` — направление и правила. `docs/adr/` — решения. `docs/distances/` — текущая работа.
 - `docs/parity/` — что делает монолит (эталон поведения). `docs/semantic/monolith/` — конспект монолита:
   `00-index.md` (области и где они), `GOLD.md` (идеи, которые переносим), `structure.md` (генерирует `tools/monolith-map.py`).
+- `docs/semantic/old-satellite/` — конспект прототипа «Satellite V2 Constructor Core»: `00-conspectus.md` (по слоям,
+  с пометками берём / меняем / ошибка), `BORROW.md` (что переносим и что не повторяем), `structure.md` (разделы `@sat:`).
 - `tools/check-map.sh` — проверка этой карты в CI. `tools/monolith-map.py` — структурная карта монолита.
