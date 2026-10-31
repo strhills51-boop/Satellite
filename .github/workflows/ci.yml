@@ -23,7 +23,7 @@ jobs:
         run: |
           set -o pipefail
           rustc --version
-          if ! cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee clippy.log; then
+          if ! cargo clippy --color never --workspace --all-targets -- -D warnings 2>&1 | tee clippy.log; then
             msg=$(grep -E -A6 "^(error|warning)" clippy.log | head -80 | sed ':a;N;$!ba;s/\n/%0A/g')
             echo "::error title=clippy failed::$msg"
             exit 1
