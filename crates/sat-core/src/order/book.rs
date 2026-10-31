@@ -65,7 +65,8 @@ pub enum RowKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Row<'a> {
     pub key: Key,
-    /// Canon position (0-based, display order).
+    /// Canon position (0-based, display order; MO2 priority). **Not covered by patches**: one move shifts the
+    /// position of every entry between source and target, so a UI re-reads its window after each change.
     pub pos: u32,
     pub kind: RowKind,
     pub name: &'a str,
