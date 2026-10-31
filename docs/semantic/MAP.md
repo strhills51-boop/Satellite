@@ -29,7 +29,7 @@
 | Факты обхода мода | `sat-core/src/facts.rs` (`ModFacts`, `ModMetrics`) | — |
 | Разбор BSA/BA2 | `sat-formats/src/archive.rs` | — |
 | Заголовок DDS и VRAM | `sat-formats/src/dds.rs` | — |
-| Заголовок и записи плагина | `sat-formats/src/plugin.rs` | — |
+| Заголовок и записи плагина | `sat-formats/src/plugin.rs` (`kind` — класс загрузки NG; `monolith_plugin_type` — тип монолита для паритета) | — |
 | Экземпляр MO2 (папки, профили, ini) | `sat-mo2/src/instance.rs` | — |
 | Разбор и запись `modlist.txt` / `plugins.txt` / `loadorder.txt` | `sat-mo2/src/profile.rs` | — |
 | `meta.ini` мода, цвет QColor | `sat-mo2/src/meta.rs`, `sat-mo2/src/ini.rs` | — |
