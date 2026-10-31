@@ -152,30 +152,44 @@ impl Modlist {
         Ok(changed)
     }
 
-    // @sat:canon.priorities
-    /// Priorities for a provider table: mods get their display position (1-based among managed mods);
-    /// disabled or unresolvable mods are inactive; `top` (e.g. Overwrite) gets the highest priority.
+    /// Priorities for a provider table (see [`priorities`]).
     pub fn priorities(
         &self,
         mod_count: usize,
         resolve: impl Fn(&str) -> Option<ModId>,
         top: Option<ModId>,
     ) -> Priorities {
-        let mut p = Priorities::all_inactive(mod_count);
-        let mut rank = 0i32;
-        for e in self.entries.iter().filter(|e| e.is_mod()) {
-            rank += 1;
-            if e.enabled
-                && let Some(m) = resolve(&e.name)
-            {
-                p.0[m.idx()] = rank;
-            }
-        }
-        if let Some(t) = top {
-            p.0[t.idx()] = rank + 1;
-        }
-        p
+        priorities(
+            self.entries.iter().map(|e| (e.name.as_str(), e.kind, e.enabled)),
+            mod_count,
+            resolve,
+            top,
+        )
     }
+}
+
+// @sat:canon.priorities
+/// Priorities for a provider table from entries in display order `(name, kind, enabled)`: mods get their
+/// display position (1-based among managed mods); disabled or unresolvable mods are inactive; `top` (e.g.
+/// Overwrite) gets the highest priority. The single rule for both the snapshot ([`Modlist`]) and the live book.
+pub fn priorities<'a>(
+    entries: impl Iterator<Item = (&'a str, EntryKind, bool)>,
+    mod_count: usize,
+    resolve: impl Fn(&str) -> Option<ModId>,
+    top: Option<ModId>,
+) -> Priorities {
+    let mut p = Priorities::all_inactive(mod_count);
+    let mut rank = 0i32;
+    for (name, _, enabled) in entries.filter(|e| e.1 == EntryKind::Mod) {
+        rank += 1;
+        if enabled && let Some(m) = resolve(name) {
+            p.0[m.idx()] = rank;
+        }
+    }
+    if let Some(t) = top {
+        p.0[t.idx()] = rank + 1;
+    }
+    p
 }
 
 #[cfg(test)]

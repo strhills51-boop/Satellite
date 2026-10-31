@@ -8,6 +8,7 @@
 //! - [`overwrite`] — hot tier: projection of the table under current priorities (stacks, chains, contexts);
 //! - [`order`] — live load order: canon + decoration + view, mutated by row patches (ADR 0008);
 //! - [`run`] — run lifecycle, staging/authoritative generations, seals before publication;
+//! - [`session`] — one build: canon and facts wired to the projection graph (ADR 0010);
 //! - [`sync`] — reconciling the project (canon) with the build and external donors (ADR 0006).
 //!
 //! This crate performs no filesystem or network I/O and compiles to WebAssembly.
@@ -23,6 +24,7 @@ pub mod order;
 pub mod overwrite;
 pub mod project;
 pub mod run;
+pub mod session;
 pub mod sync;
 pub mod table;
 

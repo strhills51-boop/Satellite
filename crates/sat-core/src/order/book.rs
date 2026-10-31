@@ -394,6 +394,14 @@ impl OrderBook {
         }
     }
 
+    /// Entries `(name, kind, enabled)` in display order, without copying (projections read the canon here).
+    pub fn entries(&self) -> impl Iterator<Item = (&str, EntryKind, bool)> + '_ {
+        self.seq.iter_from(0).map(|k| {
+            let it = &self.items[k as usize];
+            (it.name.as_str(), it.kind, it.enabled)
+        })
+    }
+
     /// The canon in display order.
     pub fn to_modlist(&self) -> Modlist {
         Modlist::new(

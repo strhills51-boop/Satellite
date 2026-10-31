@@ -21,6 +21,8 @@
 | Виды истины (канон, декорации, факты, решения, настройки) | `@sat:engine` (`Truth`) | проекции — производное, не истина |
 | Набор изменений команды | `@sat:engine.change` (`Change`, `Keys`); книга порядка отдаёт его в `order::Change::truth` | патч строк вида — `@sat:order.book.patch` |
 | Граф проекций: входы, инвалидация, ленивый план | `@sat:engine.graph` (`Graph::register / apply / plan / done`) | — |
+| Сессия сборки: канон и факты, связанные с графом; команды только через неё | `@sat:session` (`@sat:session.state`, `@sat:session.command`) | граф сам (`@sat:engine.graph`) |
+| Перезапись по требованию: пересчёт только после изменения канона или фактов | `@sat:session.overwrite` → проекции `priorities` (канон, факты) → `overwrite` (факты, `priorities`) | декорации и виды её не трогают |
 | Статусы пробега, поколения, печати | `@sat:run.status`, `@sat:run.authority`, `@sat:run.seal` | — |
 
 ## Понятия → единственный владелец
@@ -37,7 +39,7 @@
 | Живая книга проекта (канон + декорации) | `@sat:project.book` | — |
 | Снимок канона (сериализация) | `@sat:canon` (`Modlist`) | живое редактирование — `@sat:order.book` |
 | Перемещение на снимке (`Vec`, та же семантика, что у книги) | `@sat:canon.move-entries` | `@sat:order.book.move` |
-| Приоритеты из порядка | `@sat:canon.priorities` → `overwrite::Priorities` | — |
+| Приоритеты из порядка (одно правило для снимка `Modlist` и живой книги `OrderBook::entries`) | `@sat:canon.priorities` → `overwrite::Priorities` | — |
 | Живой порядок: операции, строки, патчи, undo/redo (ADR 0008) | `@sat:order.book` | — |
 | Патч строк вида | `@sat:order.book.patch` | набор изменений истины — `@sat:engine.change` |
 | Перемещение записей (блоки разделителей, группы) | `@sat:order.book.move` | — |
@@ -84,6 +86,7 @@
 - `crates/sat-core/src/canon.rs` — `@sat:canon`: снимок канона, блоки, приоритеты.
 - `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`.
 - `crates/sat-core/src/run.rs` — `@sat:run`: статусы пробега, `Authority`, `seal`.
+- `crates/sat-core/src/session.rs` — `@sat:session`: книга порядка + таблица фактов + граф проекций; ленивые `priorities()` / `overwrite()`.
 - `crates/sat-core/src/order/mod.rs` — `@sat:order`: оглавление движка порядка (ADR 0008).
 - `crates/sat-core/src/order/seq.rs` — `@sat:order.seq`: последовательность кусками, агрегаты, O(log n) запросы.
 - `crates/sat-core/src/order/book.rs` — `@sat:order.book`: канон + декорации + вид, операции, патчи, история.

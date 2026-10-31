@@ -24,7 +24,7 @@ use sat_mo2::{Instance, profile};
 use sat_scan::{ScanJob, ScanOptions, ScanProgress};
 use serde::Serialize;
 
-const OVERWRITE: &str = "Overwrite";
+use sat_core::session::OVERWRITE;
 /// Provisional project file until the container format is decided (ADR 0007).
 const PROJECT_FILE: &str = "project.v0.json";
 /// Mods scanned per batch before their facts are folded into the table and dropped.
