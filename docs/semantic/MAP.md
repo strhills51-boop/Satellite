@@ -39,6 +39,7 @@
 | Кеш сканов (холодный, на машине) | `sat-scan/src/cache.rs` (конверт: сигнатура + штампы анализаторов + факты; читает и первый формат) | контейнер проекта (ADR 0007) — другое |
 | Пул ввода-вывода | `sat-scan/src/lib.rs` (`scan`, `ScanOptions::io_threads`) | пул `rayon` по умолчанию — для вычислений ядра |
 | Донор: соответствие, категории, оценка | `sat-core/src/sync/donor.rs` | — |
+| Статусы пробега, поколения staging → authoritative / aborted, печати перед публикацией | `sat-core/src/run.rs` (`RunStatus::can_go`, `RunState`, `Authority`, `Staging`, `seal`) | — |
 | Записи SYNC и сверка диска с проектом | `sat-core/src/sync/records.rs` (`reconcile`, `SyncRecord`, `Status`) | ключ сопоставления — `normalize_name`, ключ отпечатка — точное имя в нижнем регистре |
 
 ## Файлы
@@ -66,6 +67,7 @@
 - `crates/sat-core/src/order/book.rs` — `OrderBook`: канон + декорации + вид, `move_keys`, `set_enabled`, `set_color`, группы, свёртка, фильтр, `rows`, undo/redo.
 - `crates/sat-core/src/order/decor.rs` — `Decor` для проекта, кодек маркеров групп монолита (строгая проверка, без тихого ремонта).
 - `crates/sat-core/src/order/tests.rs` — модельные тесты: зеркало UI только на патчах = вид = пересчёт с нуля.
+- `crates/sat-core/src/run.rs` — таблица переходов монолита (12 статусов), `Authority` с оптимистической проверкой предка, `seal` (реестр staging, инварианты конфликтов).
 - `crates/sat-core/src/sync/mod.rs` — оглавление синхронизации (ADR 0006).
 - `crates/sat-core/src/sync/names.rs` — правила имён монолита (сверено с JS на 1 128 именах).
 - `crates/sat-core/src/sync/donor.rs` — внешний донор: `FolderLookup`, `TargetIndex`, `validate`, `candidates`.

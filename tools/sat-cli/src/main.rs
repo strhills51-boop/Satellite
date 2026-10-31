@@ -33,6 +33,8 @@ struct Seen {
     name: String,
     missing: bool,
     from_cache: bool,
+    route: StagedRoute,
+    error: Option<String>,
     signature: u64,
     files: u32,
     archive_files: u32,
@@ -175,8 +177,14 @@ struct Report {
     scan: ScanBreakdown,
     peak_rss_mib: Option<u64>,
     rss_after_mib: Option<u64>,
+    /// Run lifecycle: final status, seal violations, transitions.
+    run: RunState,
+    seals: Vec<String>,
+    /// Mods whose facts are degraded (unreadable subfolder, …).
+    degraded: Vec<String>,
 }
 
+use sat_core::run::{RunState, RunStatus, RunSummary, StagedMod, StagedRoute, seal};
 use sat_core::sync::names::is_separator_folder;
 
 fn subfolders(dir: &std::path::Path) -> Vec<String> {
@@ -317,6 +325,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         );
     }
 
+    let mut run = RunState::default();
     let mut jobs: Vec<ScanJob> = list
         .entries
         .iter()
@@ -352,6 +361,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let progress = ScanProgress::default();
     let t = Instant::now();
     let done = std::sync::atomic::AtomicBool::new(false);
+    run.go(RunStatus::Running, "scan").map_err(|e| e.to_string())?;
     let (mut issues, mut issue_count) = (Vec::<String>::new(), 0usize);
     let outcomes = std::thread::scope(|s| {
         s.spawn(|| {
@@ -383,6 +393,12 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 name: o.facts.name.clone(),
                 missing: o.facts.missing,
                 from_cache: o.from_cache,
+                route: match o.route {
+                    sat_scan::Route::Scan => StagedRoute::Scan,
+                    sat_scan::Route::Indexed { .. } => StagedRoute::Indexed,
+                    sat_scan::Route::Reuse => StagedRoute::Reuse,
+                },
+                error: o.facts.error.clone(),
                 signature: o.signature,
                 files: o.facts.metrics.files,
                 archive_files: o.facts.metrics.archive_files,
@@ -533,6 +549,50 @@ fn analyze(args: &[String]) -> Result<(), String> {
             (n.clone(), [s.win, s.lose, s.mid, s.unique])
         })
         .collect();
+    // Seal before anything is published (project file); a failed seal publishes nothing.
+    run.go(RunStatus::Staging, "projection built")
+        .map_err(|e| e.to_string())?;
+    let summary = RunSummary {
+        expected: jobs.iter().map(|j| j.name.clone()).collect(),
+        staged: outcomes
+            .iter()
+            .map(|o| StagedMod {
+                name: o.name.clone(),
+                route: o.route,
+                missing: o.missing,
+                error: o.error.clone(),
+            })
+            .collect(),
+        chains: totals.chains,
+        contexts: totals.contexts,
+        conflict_paths: totals.conflict_paths,
+    };
+    let seals = seal(&summary);
+    let degraded: Vec<String> = outcomes
+        .iter()
+        .filter_map(|o| o.error.as_ref().map(|e| format!("{}: {e}", o.name)))
+        .collect();
+    let publish = seals.is_empty() && !has(args, "--no-save");
+    if seals.is_empty() {
+        for (to, why) in [
+            (RunStatus::Committing, "seals passed"),
+            (RunStatus::Verifying, "project written"),
+            (RunStatus::Promoting, "verified"),
+            (RunStatus::Completed, "published"),
+        ] {
+            run.go(to, why).map_err(|e| e.to_string())?;
+        }
+    } else {
+        run.go(RunStatus::Failed, "seals failed")
+            .map_err(|e| e.to_string())?;
+        eprintln!("SEALS FAILED — nothing published:");
+        for v in &seals {
+            eprintln!("  {v}");
+        }
+    }
+    if !degraded.is_empty() {
+        eprintln!("degraded mods: {} (first: {})", degraded.len(), degraded[0]);
+    }
     let report = Report {
         instance: info,
         sync,
@@ -553,6 +613,9 @@ fn analyze(args: &[String]) -> Result<(), String> {
         scan: breakdown,
         peak_rss_mib: peak_rss_mib(),
         rss_after_mib: rss_mib(),
+        run,
+        seals,
+        degraded,
     };
     eprintln!(
         "mods={} cache={} missing={} files={} archive={} paths={} providers={} conflicts={} chains={} contexts={} X={}",
@@ -579,7 +642,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
-    if !has(args, "--no-save") {
+    if publish {
         let bytes = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
         sat_mo2::write_atomic(&project_path, &bytes).map_err(|e| e.to_string())?;
     }
