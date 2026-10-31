@@ -140,6 +140,7 @@ enum Op {
     Take(Vec<Key>),
     /// Puts taken entries back at their positions.
     Restore(Vec<(Key, usize)>),
+    Rename(Key, String),
 }
 
 #[derive(Default)]
@@ -556,6 +557,18 @@ impl OrderBook {
         self.apply_recorded(Op::Take(uniq))
     }
 
+    /// Renames an entry (e.g. accepting a folder renamed on disk). The new name must be free; a separator keeps
+    /// its `_separator` suffix only if the caller passes it.
+    pub fn rename(&mut self, k: Key, name: &str) -> Result<Option<Change>, OrderError> {
+        self.check_key(k)?;
+        if let Some(&other) = self.by_name.get(&name.to_lowercase())
+            && other != k
+        {
+            return Err(OrderError::Duplicate(name.to_string()));
+        }
+        self.apply_recorded(Op::Rename(k, name.to_string()))
+    }
+
     fn name_keys(&mut self, keys: &[Key], present: bool) {
         for &k in keys {
             let f = self.items[k as usize].folded.clone();
@@ -674,6 +687,21 @@ impl OrderBook {
                 self.relocate(&keys, Placement::Nowhere, p);
                 self.name_keys(&keys, false);
                 Some(Op::Restore(inv))
+            }
+            Op::Rename(k, name) => {
+                let it = &mut self.items[*k as usize];
+                if it.name == *name {
+                    return Ok(None);
+                }
+                let old = std::mem::replace(&mut it.name, name.clone());
+                let (old_f, new_f) = (
+                    std::mem::replace(&mut it.folded, name.to_lowercase()),
+                    name.to_lowercase(),
+                );
+                self.by_name.remove(&old_f);
+                self.by_name.insert(new_f, *k);
+                self.after_content_change(HashSet::from([*k]), p);
+                Some(Op::Rename(*k, old))
             }
             Op::Dissolve(id) => {
                 let g = self.groups[*id as usize].take().expect("group exists");

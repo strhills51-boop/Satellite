@@ -21,7 +21,7 @@
 | Декорации над каноном: цвет, логические группы | `sat-core/src/order/book.rs` (`set_color`, `create_group`) | порядок они не меняют никогда |
 | Декорации как данные проекта (по именам) | `sat-core/src/order/decor.rs` (`Decor`, `GroupDef`); `OrderBook::decor` / `apply_decor`; `Project::book` / `commit_book` | — |
 | Маркеры логических групп `⟦MLT-LG:v1⟧` в экспортном `modlist.txt` | `sat-core/src/order/decor.rs` (`format_marker`, `parse_marker`, `strip_markers`, `encode_markers`) | настоящий `modlist.txt` MO2 маркеров не содержит |
-| Вставка и удаление записей канона (новые папки SYNC, корзина) | `sat-core/src/order/book.rs` (`insert_entries`, `remove_entries`) | — |
+| Вставка, удаление, переименование записей канона (новые папки SYNC, корзина, принятый rename) | `sat-core/src/order/book.rs` (`insert_entries`, `remove_entries`, `rename`) | — |
 | Позиции и строки в списке любого размера | `sat-core/src/order/seq.rs` (`Seq`: куски + деревья Фенвика) | — |
 | Приоритеты из порядка | `sat-core/src/canon.rs` (`Modlist::priorities`) → `overwrite::Priorities` | — |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `sat-core/src/overwrite.rs` (`OverwriteProjection`) | — |

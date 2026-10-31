@@ -207,7 +207,12 @@ fn run(seed: u64, n: usize, steps: usize) {
                 let before = (!rng.chance(10)).then(|| b.key_at(rng.below(len)));
                 ("insert", b.insert_entries(&entries, before).ok().map(|x| x.1))
             }
-            96..=97 => {
+            96 => {
+                let k = pick(&mut rng, &b);
+                let name = format!("Renamed {step}");
+                ("rename", b.rename(k, &name).unwrap())
+            }
+            97 => {
                 let keys: Vec<Key> = (0..1 + rng.below(2)).map(|_| pick(&mut rng, &b)).collect();
                 ("remove", b.remove_entries(&keys).unwrap_or(None))
             }
