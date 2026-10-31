@@ -63,64 +63,97 @@ pub struct TableStats {
     pub archives: usize,
 }
 
-impl ProviderTable {
-    /// Builds the table. `ModId(i)` is `facts[i]`.
-    ///
-    /// Interning is sequential (one hash map); sorting and column gathering are parallel.
-    pub fn build(facts: &[ModFacts]) -> Self {
-        let total: usize = facts.iter().map(ModFacts::provider_count).sum();
-        let mut interner = PathInterner::new();
-        let mut archives = Vec::new();
-        let mut key = Vec::with_capacity(total);
-        let mut owner = Vec::with_capacity(total);
-        let mut size = Vec::with_capacity(total);
-        let mut archive = Vec::with_capacity(total);
-        let mut vram = Vec::with_capacity(total);
+/// Incremental builder: mods are added one by one (in [`ModId`] order) and their facts can be dropped right away,
+/// so peak memory is the table plus one batch of facts, not all facts of the build at once.
+#[derive(Debug, Default)]
+pub struct TableBuilder {
+    interner: PathInterner,
+    mod_names: Vec<String>,
+    archives: Vec<ArchiveRef>,
+    key: Vec<FileKey>,
+    owner: Vec<ModId>,
+    size: Vec<u64>,
+    archive: Vec<u32>,
+    vram: Vec<u32>,
+}
 
-        for (mi, m) in facts.iter().enumerate() {
-            let mid = ModId::from_idx(mi);
-            for d in &m.dirs {
-                let dir = interner.dir(&d.rel);
-                for f in &d.files {
-                    key.push(crate::interner::file_key(dir, interner.name(&f.name)));
-                    owner.push(mid);
-                    size.push(f.size);
-                    archive.push(LOOSE);
-                    vram.push(to_kib(f.vram));
-                }
-            }
-            for a in &m.archives {
-                let Some(manifest) = &a.manifest else { continue };
-                let aid = archives.len() as u32;
-                archives.push(ArchiveRef {
-                    owner: mid,
-                    file_name: a.file_name.clone(),
-                    entries: manifest.entries.len() as u32,
-                });
-                for e in &manifest.entries {
-                    let (dir, file) = e.path.rsplit_once('/').unwrap_or(("", e.path.as_str()));
-                    let dir = interner.dir(dir);
-                    key.push(crate::interner::file_key(dir, interner.name(file)));
-                    owner.push(mid);
-                    size.push(e.size);
-                    archive.push(aid);
-                    vram.push(to_kib(e.vram));
-                }
+impl TableBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reserves column space for `providers` more entries (optional).
+    pub fn reserve(&mut self, providers: usize) {
+        self.key.reserve(providers);
+        self.owner.reserve(providers);
+        self.size.reserve(providers);
+        self.archive.reserve(providers);
+        self.vram.reserve(providers);
+    }
+
+    /// Adds one mod; returns its id. Interning is sequential, so ids and paths are deterministic for a given order.
+    pub fn add(&mut self, m: &ModFacts) -> ModId {
+        let mid = ModId::from_idx(self.mod_names.len());
+        self.mod_names.push(m.name.clone());
+        for d in &m.dirs {
+            let dir = self.interner.dir(&d.rel);
+            for f in &d.files {
+                let name = self.interner.name(&f.name);
+                self.key.push(crate::interner::file_key(dir, name));
+                self.owner.push(mid);
+                self.size.push(f.size);
+                self.archive.push(LOOSE);
+                self.vram.push(to_kib(f.vram));
             }
         }
+        for a in &m.archives {
+            let Some(manifest) = &a.manifest else { continue };
+            let aid = self.archives.len() as u32;
+            self.archives.push(ArchiveRef {
+                owner: mid,
+                file_name: a.file_name.clone(),
+                entries: manifest.entries.len() as u32,
+            });
+            for e in &manifest.entries {
+                let (dir, file) = e.path.rsplit_once('/').unwrap_or(("", e.path.as_str()));
+                let dir = self.interner.dir(dir);
+                let name = self.interner.name(file);
+                self.key.push(crate::interner::file_key(dir, name));
+                self.owner.push(mid);
+                self.size.push(e.size);
+                self.archive.push(aid);
+                self.vram.push(to_kib(e.vram));
+            }
+        }
+        mid
+    }
 
+    /// Sorts the columns by path (parallel) and builds the path groups and the mod index.
+    pub fn finish(self) -> ProviderTable {
+        let Self {
+            interner,
+            mod_names,
+            archives,
+            key,
+            owner,
+            size,
+            archive,
+            vram,
+        } = self;
         let n = key.len();
         let mut order: Vec<(FileKey, u32)> = key.iter().enumerate().map(|(i, &k)| (k, i as u32)).collect();
+        drop(key);
         order.par_sort_unstable();
-        fn gather<T: Copy + Send + Sync>(order: &[(FileKey, u32)], src: &[T]) -> Vec<T> {
+        fn gather<T: Copy + Send + Sync>(order: &[(FileKey, u32)], src: Vec<T>) -> Vec<T> {
             order.par_iter().map(|&(_, i)| src[i as usize]).collect()
         }
         let key_s: Vec<FileKey> = order.par_iter().map(|&(k, _)| k).collect();
-        let owner_s = gather(&order, &owner);
-        let size_s = gather(&order, &size);
-        let archive_s = gather(&order, &archive);
-        let vram_s = gather(&order, &vram);
-        drop((key, owner, size, archive, vram, order));
+        // One column at a time, so at most one source column and its sorted copy coexist.
+        let owner_s = gather(&order, owner);
+        let size_s = gather(&order, size);
+        let archive_s = gather(&order, archive);
+        let vram_s = gather(&order, vram);
+        drop(order);
 
         let mut path_key = Vec::new();
         let mut path_offsets = Vec::new();
@@ -132,7 +165,7 @@ impl ProviderTable {
         }
         path_offsets.push(n as u32);
 
-        let mods = facts.len();
+        let mods = mod_names.len();
         let mut mod_offsets = vec![0u32; mods + 1];
         for o in &owner_s {
             mod_offsets[o.idx() + 1] += 1;
@@ -147,9 +180,9 @@ impl ProviderTable {
             fill[o.idx()] += 1;
         }
 
-        Self {
+        ProviderTable {
             interner,
-            mod_names: facts.iter().map(|m| m.name.clone()).collect(),
+            mod_names,
             archives,
             key: key_s,
             owner: owner_s,
@@ -161,6 +194,18 @@ impl ProviderTable {
             mod_offsets,
             mod_providers,
         }
+    }
+}
+
+impl ProviderTable {
+    /// Builds the table. `ModId(i)` is `facts[i]`. For large builds prefer [`TableBuilder`] and drop facts as you go.
+    pub fn build(facts: &[ModFacts]) -> Self {
+        let mut b = TableBuilder::new();
+        b.reserve(facts.iter().map(ModFacts::provider_count).sum());
+        for m in facts {
+            b.add(m);
+        }
+        b.finish()
     }
 
     pub fn stats(&self) -> TableStats {

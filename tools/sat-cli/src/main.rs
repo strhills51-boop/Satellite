@@ -15,12 +15,25 @@ use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::ids::ModId;
 use sat_core::overwrite::{OverwriteProjection, Priorities};
 use sat_core::sync::donor;
-use sat_core::table::ProviderTable;
+use sat_core::table::{ProviderTable, TableBuilder};
 use sat_mo2::{Instance, profile};
 use sat_scan::{ScanJob, ScanOptions, ScanProgress};
 use serde::Serialize;
 
 const OVERWRITE: &str = "Overwrite";
+/// Mods scanned per batch before their facts are folded into the table and dropped.
+const SCAN_BATCH: usize = 256;
+
+/// What the report needs from one scan outcome, kept after its facts are dropped.
+struct Seen {
+    name: String,
+    missing: bool,
+    from_cache: bool,
+    signature: u64,
+    files: u32,
+    archive_files: u32,
+    elapsed: std::time::Duration,
+}
 
 /// Millions of small allocations (path strings, per-dir vectors) dominate table builds; the system allocator on
 /// Windows is markedly slower at that than mimalloc.
@@ -64,14 +77,9 @@ fn peak_rss_mib() -> Option<u64> {
         .ok()
         .map(|kb| kb / 1024)
 }
+/// Current resident memory (all platforms).
 fn rss_mib() -> Option<u64> {
-    let s = std::fs::read_to_string("/proc/self/status").ok()?;
-    let line = s.lines().find(|l| l.starts_with("VmRSS:"))?;
-    line.split_whitespace()
-        .nth(1)?
-        .parse::<u64>()
-        .ok()
-        .map(|kb| kb / 1024)
+    memory_stats::memory_stats().map(|m| (m.physical_mem >> 20) as u64)
 }
 
 #[derive(Serialize)]
@@ -291,25 +299,34 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 }
             }
         });
-        let out = sat_scan::scan(&jobs, &opts, &progress);
+        // Facts are folded into the table batch by batch and dropped: peak memory = table + one batch.
+        let mut builder = TableBuilder::new();
+        let mut seen = Vec::with_capacity(jobs.len());
+        sat_scan::scan_batched(&jobs, &opts, &progress, SCAN_BATCH, |_, o| {
+            builder.add(&o.facts);
+            seen.push(Seen {
+                name: o.facts.name.clone(),
+                missing: o.facts.missing,
+                from_cache: o.from_cache,
+                signature: o.signature,
+                files: o.facts.metrics.files,
+                archive_files: o.facts.metrics.archive_files,
+                elapsed: o.elapsed,
+            });
+        });
         done.store(true, std::sync::atomic::Ordering::Relaxed);
-        out
+        (seen, builder)
     });
+    let (outcomes, builder) = outcomes;
     timings.insert("scan", t.elapsed().as_millis());
+    eprintln!("after scan: rss={:?}MiB", rss_mib());
 
     let ms = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
     let n = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
     let mut slowest: Vec<(String, u128, u32, u32)> = outcomes
         .iter()
         .filter(|o| !o.from_cache)
-        .map(|o| {
-            (
-                o.facts.name.clone(),
-                o.elapsed.as_millis(),
-                o.facts.metrics.files,
-                o.facts.metrics.archive_files,
-            )
-        })
+        .map(|o| (o.name.clone(), o.elapsed.as_millis(), o.files, o.archive_files))
         .collect();
     slowest.sort_by_key(|b| std::cmp::Reverse(b.1));
     slowest.truncate(20);
@@ -348,8 +365,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
         use sat_core::sync::records::{DiskFolder, EntityKind, Mismatch, ProjectEntity, reconcile};
         let sig: std::collections::HashMap<String, u64> = outcomes
             .iter()
-            .filter(|o| !o.facts.missing && o.facts.name != OVERWRITE)
-            .map(|o| (o.facts.name.to_lowercase(), o.signature))
+            .filter(|o| !o.missing && o.name != OVERWRITE)
+            .map(|o| (o.name.to_lowercase(), o.signature))
             .collect();
         let project: Vec<ProjectEntity> = list
             .entries
@@ -404,19 +421,14 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let from_cache = outcomes.iter().filter(|o| o.from_cache).count();
     let missing = outcomes
         .iter()
-        .filter(|o| o.facts.missing && o.facts.name != OVERWRITE)
+        .filter(|o| o.missing && o.name != OVERWRITE)
         .count();
-    let files: u64 = outcomes.iter().map(|o| u64::from(o.facts.metrics.files)).sum();
-    let archive_entries: u64 = outcomes
-        .iter()
-        .map(|o| u64::from(o.facts.metrics.archive_files))
-        .sum();
-    let facts: Vec<ModFacts> = outcomes.into_iter().map(|o| o.facts).collect();
+    let files: u64 = outcomes.iter().map(|o| u64::from(o.files)).sum();
+    let archive_entries: u64 = outcomes.iter().map(|o| u64::from(o.archive_files)).sum();
 
     let t = Instant::now();
-    let table = ProviderTable::build(&facts);
+    let table = builder.finish();
     timings.insert("table_build", t.elapsed().as_millis());
-    drop(facts);
     eprintln!("live table heap={}MiB", table.heap_bytes() >> 20);
 
     let index: BTreeMap<String, ModId> = table

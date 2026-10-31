@@ -23,6 +23,7 @@ bincode = { version = "2", features = ["serde"] }
 tempfile = "3"
 regex = "1.11"
 mimalloc = { version = "0.1", default-features = false }
+memory-stats = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

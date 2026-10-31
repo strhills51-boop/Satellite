@@ -18,7 +18,7 @@
 | Порядок, вкл/выкл, разделители (канон) | `sat-core/src/canon.rs` (`Modlist`) | файл `modlist.txt` — только адаптер `sat-mo2/src/profile.rs` |
 | Приоритеты из порядка | `sat-core/src/canon.rs` (`Modlist::priorities`) → `overwrite::Priorities` | — |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `sat-core/src/overwrite.rs` (`OverwriteProjection`) | — |
-| Таблица провайдеров (тёплый ярус) | `sat-core/src/table.rs` (`ProviderTable`) | — |
+| Таблица провайдеров (тёплый ярус) | `sat-core/src/table.rs` (`ProviderTable`; сборка по модам — `TableBuilder`) | — |
 | Факты обхода мода | `sat-core/src/facts.rs` (`ModFacts`, `ModMetrics`) | — |
 | Разбор BSA/BA2 | `sat-formats/src/archive.rs` | — |
 | Заголовок DDS и VRAM | `sat-formats/src/dds.rs` | — |
@@ -65,7 +65,7 @@
 - `crates/sat-mo2/src/meta.rs` — `ModMeta` из `meta.ini`.
 
 ### `crates/sat-scan` — обход папок модов (холодный ярус)
-- `crates/sat-scan/src/lib.rs` — `ScanJob`, `ScanOptions`, `ScanProgress` (счётчики по фазам), `scan` на I/O-пуле.
+- `crates/sat-scan/src/lib.rs` — `ScanJob`, `ScanOptions`, `ScanProgress` (счётчики по фазам), `scan` / `scan_batched` на I/O-пуле (стек потоков 32 МиБ).
 - `crates/sat-scan/src/walk.rs` — обход одного мода: файлы, DDS, корневые архивы и плагины, метрики.
 - `crates/sat-scan/src/signature.rs` — сигнатура v2 (листинг каталога), `signature_v1` для переноса старого кеша.
 - `crates/sat-scan/src/cache.rs` — кеш по моду (bincode, временный файл + rename).

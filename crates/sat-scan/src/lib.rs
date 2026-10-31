@@ -111,25 +111,57 @@ impl ScanProgress {
     }
 }
 
-/// Scans all jobs on a dedicated I/O pool ([`ScanOptions::io_threads`]). Results are returned in job order.
-pub fn scan(jobs: &[ScanJob], opts: &ScanOptions, progress: &ScanProgress) -> Vec<ScanOutcome> {
+/// Stack of scan threads. The pool steals work inside joins, so one thread can run a mod's directory walk on top of
+/// another's; on deep trees the 2 MiB default overflowed on the owner's build. Reserved, not committed, memory.
+const SCAN_STACK_BYTES: usize = 32 << 20;
+
+fn pool(opts: &ScanOptions) -> Option<rayon::ThreadPool> {
     let threads = if opts.io_threads == 0 {
         default_io_threads()
     } else {
         opts.io_threads
     };
-    match rayon::ThreadPoolBuilder::new()
+    rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
+        .stack_size(SCAN_STACK_BYTES)
         .thread_name(|i| format!("sat-scan-{i}"))
         .build()
-    {
-        Ok(pool) => pool.install(|| scan_on_current_pool(jobs, opts, progress)),
-        Err(_) => scan_on_current_pool(jobs, opts, progress),
+        .ok()
+}
+
+/// Scans all jobs on a dedicated I/O pool ([`ScanOptions::io_threads`]). Results are returned in job order.
+///
+/// Holds every result in memory; for large builds use [`scan_batched`].
+pub fn scan(jobs: &[ScanJob], opts: &ScanOptions, progress: &ScanProgress) -> Vec<ScanOutcome> {
+    let mut out = Vec::with_capacity(jobs.len());
+    scan_batched(jobs, opts, progress, jobs.len().max(1), |_, o| out.push(o));
+    out
+}
+
+/// Scans in batches of `batch` jobs (parallel inside a batch) and hands every outcome to `sink` **in job order**.
+/// Only one batch of facts is alive at a time, so the caller can fold outcomes into a table and drop them.
+pub fn scan_batched(
+    jobs: &[ScanJob],
+    opts: &ScanOptions,
+    progress: &ScanProgress,
+    batch: usize,
+    mut sink: impl FnMut(usize, ScanOutcome),
+) {
+    progress.total.store(jobs.len(), Ordering::Relaxed);
+    let run = |chunk: &[ScanJob]| scan_on_current_pool(chunk, opts, progress);
+    let pool = pool(opts);
+    for (ci, chunk) in jobs.chunks(batch.max(1)).enumerate() {
+        let outcomes = match &pool {
+            Some(p) => p.install(|| run(chunk)),
+            None => run(chunk),
+        };
+        for (i, o) in outcomes.into_iter().enumerate() {
+            sink(ci * batch.max(1) + i, o);
+        }
     }
 }
 
 fn scan_on_current_pool(jobs: &[ScanJob], opts: &ScanOptions, progress: &ScanProgress) -> Vec<ScanOutcome> {
-    progress.total.store(jobs.len(), Ordering::Relaxed);
     jobs.par_iter()
         .map(|job| {
             let out = scan_one(job, opts, progress);
