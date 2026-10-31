@@ -186,8 +186,42 @@ fn run(seed: u64, n: usize, steps: usize) {
                 };
                 ("filter", Some(b.set_filter(f)))
             }
-            85..=93 => ("undo", b.undo()),
-            _ => ("redo", b.redo()),
+            85..=90 => ("undo", b.undo()),
+            91..=93 => ("redo", b.redo()),
+            94..=95 => {
+                let n = 1 + rng.below(3);
+                let entries: Vec<Entry> = (0..n)
+                    .map(|i| {
+                        let sep = rng.chance(25);
+                        Entry {
+                            name: if sep {
+                                format!("N{step}.{i}_separator")
+                            } else {
+                                format!("New {step}.{i}")
+                            },
+                            kind: if sep { EntryKind::Separator } else { EntryKind::Mod },
+                            enabled: !sep,
+                        }
+                    })
+                    .collect();
+                let before = (!rng.chance(10)).then(|| b.key_at(rng.below(len)));
+                ("insert", b.insert_entries(&entries, before).ok().map(|x| x.1))
+            }
+            96..=97 => {
+                let keys: Vec<Key> = (0..1 + rng.below(2)).map(|_| pick(&mut rng, &b)).collect();
+                ("remove", b.remove_entries(&keys).unwrap_or(None))
+            }
+            _ => {
+                // decoration round trip through names, on a copy (it clears history)
+                let d = b.decor();
+                let mut copy = b.clone();
+                let (_, issues) = copy.apply_decor(&d);
+                assert!(issues.is_empty(), "{issues:?}");
+                assert_eq!(copy.decor(), d);
+                let rows = |x: &OrderBook| x.rows(0, usize::MAX).iter().map(shown).collect::<Vec<_>>();
+                assert_eq!(rows(&copy), rows(&b), "decoration round trip changed the view");
+                ("decor", None)
+            }
         };
         if let Some(c) = change {
             applied += 1;

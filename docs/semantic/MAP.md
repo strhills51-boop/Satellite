@@ -19,6 +19,9 @@
 | Порядок, вкл/выкл, разделители (структура канона) | `sat-core/src/canon.rs` (`Modlist`) — снимок | файл `modlist.txt` — только адаптер `sat-mo2/src/profile.rs`; живое редактирование — `OrderBook` |
 | Живой порядок загрузки: операции, строки вида, патчи для UI, undo/redo (ADR 0008) | `sat-core/src/order/book.rs` (`OrderBook`, `Patch`, `Row`) | `Modlist::move_entries` — та же семантика на `Vec`, для снимков и тестов |
 | Декорации над каноном: цвет, логические группы | `sat-core/src/order/book.rs` (`set_color`, `create_group`) | порядок они не меняют никогда |
+| Декорации как данные проекта (по именам) | `sat-core/src/order/decor.rs` (`Decor`, `GroupDef`); `OrderBook::decor` / `apply_decor`; `Project::book` / `commit_book` | — |
+| Маркеры логических групп `⟦MLT-LG:v1⟧` в экспортном `modlist.txt` | `sat-core/src/order/decor.rs` (`format_marker`, `parse_marker`, `strip_markers`, `encode_markers`) | настоящий `modlist.txt` MO2 маркеров не содержит |
+| Вставка и удаление записей канона (новые папки SYNC, корзина) | `sat-core/src/order/book.rs` (`insert_entries`, `remove_entries`) | — |
 | Позиции и строки в списке любого размера | `sat-core/src/order/seq.rs` (`Seq`: куски + деревья Фенвика) | — |
 | Приоритеты из порядка | `sat-core/src/canon.rs` (`Modlist::priorities`) → `overwrite::Priorities` | — |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `sat-core/src/overwrite.rs` (`OverwriteProjection`) | — |
@@ -55,11 +58,12 @@
 - `crates/sat-core/src/facts.rs` — факты сканера: `LooseFile`, `LooseDir`, `ArchiveFacts`, `PluginFacts`, `ModMetrics`, `ModFacts`.
 - `crates/sat-core/src/table.rs` — `ProviderTable::build`: колонки провайдеров, CSR по путям и модам.
 - `crates/sat-core/src/overwrite.rs` — `Priorities`, `OverwriteProjection::compute` (параллельно по путям), статистика.
-- `crates/sat-core/src/project.rs` — `Project::import`, `observe` (сверка + запоминание сигнатур), `manager_diff` (видимое расхождение с `modlist.txt`).
+- `crates/sat-core/src/project.rs` — `Project::import`, `observe` (сверка + запоминание сигнатур), `manager_diff` (видимое расхождение с `modlist.txt`), `book` / `commit_book` (живая книга с декорациями).
 - `crates/sat-core/src/canon.rs` — `Modlist`, `Entry`, `EntryKind`, перемещение блоков, вкл/выкл, приоритеты, `SEPARATOR_SUFFIX`.
 - `crates/sat-core/src/order/mod.rs` — оглавление движка порядка (ADR 0008).
 - `crates/sat-core/src/order/seq.rs` — `Seq`: последовательность кусками, агрегаты (записи / строки / разделители), O(log n) запросы.
 - `crates/sat-core/src/order/book.rs` — `OrderBook`: канон + декорации + вид, `move_keys`, `set_enabled`, `set_color`, группы, свёртка, фильтр, `rows`, undo/redo.
+- `crates/sat-core/src/order/decor.rs` — `Decor` для проекта, кодек маркеров групп монолита (строгая проверка, без тихого ремонта).
 - `crates/sat-core/src/order/tests.rs` — модельные тесты: зеркало UI только на патчах = вид = пересчёт с нуля.
 - `crates/sat-core/src/sync/mod.rs` — оглавление синхронизации (ADR 0006).
 - `crates/sat-core/src/sync/names.rs` — правила имён монолита (сверено с JS на 1 128 именах).

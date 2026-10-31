@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
+use super::decor::{Decor, DecorIssue, GroupDef};
 use super::seq::{Key, Seq};
 use crate::canon::{Entry, EntryKind, Modlist};
 
@@ -47,6 +48,10 @@ pub enum OrderError {
     UnknownKey(Key),
     #[error("entry {0:?} cannot be moved")]
     Immovable(String),
+    #[error("an entry named {0:?} already exists")]
+    Duplicate(String),
+    #[error("nothing to insert")]
+    Empty,
     #[error("cannot group: {0}")]
     Group(&'static str),
 }
@@ -126,6 +131,15 @@ enum Op {
         collapsed: bool,
     },
     Dissolve(GroupId),
+    /// Puts entries that are not in the list (new or taken) before `before`.
+    Put {
+        keys: Vec<Key>,
+        before: Option<Key>,
+    },
+    /// Takes entries out of the list.
+    Take(Vec<Key>),
+    /// Puts taken entries back at their positions.
+    Restore(Vec<(Key, usize)>),
 }
 
 #[derive(Default)]
@@ -179,6 +193,8 @@ pub struct OrderBook {
     by_name: FxHashMap<String, Key>,
     seq: Seq,
     groups: Vec<Option<Group>>,
+    /// Stable external id of each group slot (marker token, project file).
+    group_ids: Vec<String>,
     filter: Filter,
     revision: u64,
     undo: Vec<(Op, Op)>,
@@ -213,6 +229,7 @@ impl OrderBook {
             by_name,
             seq,
             groups: Vec::new(),
+            group_ids: Vec::new(),
             filter: Filter::default(),
             revision: 0,
             undo: Vec::new(),
@@ -426,29 +443,12 @@ impl OrderBook {
 
     /// Joins contiguous mods of one block into a logical group (shown collapsed as one row).
     pub fn create_group(&mut self, name: &str, keys: &[Key]) -> Result<(GroupId, Change), OrderError> {
-        let mut members: Vec<Key> = keys.to_vec();
-        members.sort_unstable();
-        members.dedup();
-        if members.len() < 2 {
-            return Err(OrderError::Group("need at least two mods"));
-        }
-        for &k in &members {
+        for &k in keys {
             self.check_key(k)?;
-            let it = &self.items[k as usize];
-            if it.kind != EntryKind::Mod {
-                return Err(OrderError::Group("only mods can be grouped"));
-            }
-            if it.group.is_some() {
-                return Err(OrderError::Group("contains members of another group"));
-            }
         }
-        let pos: Vec<usize> = members.iter().map(|&k| self.seq.pos(k)).collect();
-        let (lo, hi) = (pos.iter().min().unwrap(), pos.iter().max().unwrap());
-        if hi - lo + 1 != members.len() {
-            return Err(OrderError::Group("selection is not contiguous"));
-        }
-        members.sort_by_key(|&k| self.seq.pos(k));
+        let members = self.group_rule(keys, true).map_err(OrderError::Group)?;
         let id = self.groups.len() as GroupId;
+        self.group_ids.push(format!("lg-{id}"));
         let fwd = Op::MakeGroup {
             id,
             name: name.to_string(),
@@ -459,12 +459,112 @@ impl OrderBook {
         Ok((id, change))
     }
 
+    /// Monolith rule (44353): at least two mods, contiguous (for a new group), not in another group. Returns members in canon order.
+    fn group_rule(&self, keys: &[Key], contiguous: bool) -> Result<Vec<Key>, &'static str> {
+        let mut members: Vec<Key> = keys.to_vec();
+        members.sort_unstable();
+        members.dedup();
+        if members.len() < 2 {
+            return Err("need at least two mods");
+        }
+        for &k in &members {
+            let it = &self.items[k as usize];
+            if it.kind != EntryKind::Mod {
+                return Err("only mods can be grouped");
+            }
+            if it.group.is_some() {
+                return Err("contains members of another group");
+            }
+        }
+        members.sort_by_key(|&k| self.seq.pos(k));
+        let (lo, hi) = (self.seq.pos(members[0]), self.seq.pos(members[members.len() - 1]));
+        if contiguous && hi - lo + 1 != members.len() {
+            return Err("selection is not contiguous");
+        }
+        Ok(members)
+    }
+
     /// Removes a logical group; its members stay where they are.
     pub fn dissolve_group(&mut self, g: GroupId) -> Result<Option<Change>, OrderError> {
         if self.groups.get(g as usize).is_none_or(Option::is_none) {
             return Err(OrderError::Group("no such group"));
         }
         self.apply_recorded(Op::Dissolve(g))
+    }
+
+    /// Adds new entries right before `before` (`None` = end), e.g. folders found by SYNC. Names must be new.
+    pub fn insert_entries(
+        &mut self,
+        entries: &[Entry],
+        before: Option<Key>,
+    ) -> Result<(Vec<Key>, Change), OrderError> {
+        if let Some(b) = before {
+            self.check_key(b)?;
+        }
+        if entries.is_empty() {
+            return Err(OrderError::Empty);
+        }
+        let mut seen = HashSet::new();
+        for e in entries {
+            let f = e.name.to_lowercase();
+            if self.by_name.contains_key(&f) || !seen.insert(f) {
+                return Err(OrderError::Duplicate(e.name.clone()));
+            }
+        }
+        let keys: Vec<Key> = entries
+            .iter()
+            .map(|e| {
+                self.items.push(Item {
+                    name: e.name.clone(),
+                    folded: e.name.to_lowercase(),
+                    kind: e.kind,
+                    enabled: e.enabled,
+                    collapsed: false,
+                    color: None,
+                    group: None,
+                });
+                (self.items.len() - 1) as Key
+            })
+            .collect();
+        let fwd = Op::Put {
+            keys: keys.clone(),
+            before,
+        };
+        let change = self.apply_recorded(fwd)?.expect("insertion changes the list");
+        Ok((keys, change))
+    }
+
+    /// Takes entries out of the list (undoable). A separator goes alone: its block joins the block above.
+    /// Members of a logical group must leave the group first.
+    pub fn remove_entries(&mut self, keys: &[Key]) -> Result<Option<Change>, OrderError> {
+        let mut uniq: Vec<Key> = Vec::new();
+        let mut seen = HashSet::new();
+        for &k in keys {
+            self.check_key(k)?;
+            if self.items[k as usize].group.is_some() {
+                return Err(OrderError::Group(
+                    "dissolve the group before removing its members",
+                ));
+            }
+            if seen.insert(k) {
+                uniq.push(k);
+            }
+        }
+        if uniq.is_empty() {
+            return Ok(None);
+        }
+        self.apply_recorded(Op::Take(uniq))
+    }
+
+    fn name_keys(&mut self, keys: &[Key], present: bool) {
+        for &k in keys {
+            let f = self.items[k as usize].folded.clone();
+            if present {
+                self.by_name.insert(f, k);
+            } else {
+                self.by_name.remove(&f);
+            }
+        }
     }
 
     fn apply_recorded(&mut self, fwd: Op) -> Result<Option<Change>, OrderError> {
@@ -556,6 +656,25 @@ impl OrderBook {
                 self.reweigh(members.clone(), |_| true, p);
                 Some(Op::Dissolve(id))
             }
+            Op::Put { keys, before } => {
+                self.relocate(keys, Placement::Before(*before), p);
+                self.name_keys(keys, true);
+                Some(Op::Take(keys.clone()))
+            }
+            Op::Restore(items) => {
+                let keys: Vec<Key> = items.iter().map(|x| x.0).collect();
+                self.relocate(&keys, Placement::At(items), p);
+                self.name_keys(&keys, true);
+                Some(Op::Take(keys))
+            }
+            Op::Take(keys) => {
+                let mut keys = keys.clone();
+                keys.sort_by_key(|&k| self.seq.pos(k));
+                let inv: Vec<(Key, usize)> = keys.iter().map(|&k| (k, self.seq.pos(k))).collect();
+                self.relocate(&keys, Placement::Nowhere, p);
+                self.name_keys(&keys, false);
+                Some(Op::Restore(inv))
+            }
             Op::Dissolve(id) => {
                 let g = self.groups[*id as usize].take().expect("group exists");
                 for &k in &g.members {
@@ -645,7 +764,7 @@ impl OrderBook {
         let mut headers: HashSet<Key> = HashSet::new();
         let mut neighbours: Vec<Key> = Vec::new();
         let len = self.seq.len();
-        for &k in keys {
+        for &k in keys.iter().filter(|&&k| self.seq.contains(k)) {
             if self.items[k as usize].kind == EntryKind::Separator {
                 touched.extend(self.block_keys(k).into_iter().filter(|x| !set.contains(x)));
             }
@@ -662,7 +781,8 @@ impl OrderBook {
             }
         }
         // Out, from the back so earlier row indices stay valid.
-        for &k in keys.iter().rev() {
+        let present: Vec<Key> = keys.iter().copied().filter(|&k| self.seq.contains(k)).collect();
+        for &k in present.iter().rev() {
             if self.seq.is_visible(k) {
                 p.remove(self.seq.rows_before(k));
             }
@@ -683,9 +803,10 @@ impl OrderBook {
                     self.seq.insert(pos, &[k], |k| is_sep(items, k));
                 }
             }
+            Placement::Nowhere => {}
         }
         let len = self.seq.len();
-        for &k in keys {
+        for &k in keys.iter().filter(|&&k| self.seq.contains(k)) {
             if self.items[k as usize].kind == EntryKind::Separator {
                 touched.extend(self.block_keys(k).into_iter().filter(|x| !set.contains(x)));
             }
@@ -703,6 +824,9 @@ impl OrderBook {
         }
         let mut groups: HashSet<GroupId> = HashSet::new();
         for &k in keys.iter().chain(neighbours.iter()) {
+            if !self.seq.contains(k) {
+                continue;
+            }
             if let Some(g) = self.items[k as usize].group {
                 groups.insert(g);
             }
@@ -722,7 +846,100 @@ impl OrderBook {
         updates.extend(touched.iter().copied());
         touched.extend(keys.iter().copied());
         touched.extend(updates.iter().copied());
+        touched.retain(|&k| self.seq.contains(k));
         self.reweigh(touched, |k| updates.contains(&k) && !set.contains(&k), p);
+    }
+
+    // ---------------------------------------------------------------- decoration as data (project file)
+
+    /// Current decoration keyed by names (for the project file).
+    pub fn decor(&self) -> Decor {
+        let mut d = Decor::default();
+        for k in self.seq.iter_from(0) {
+            let it = &self.items[k as usize];
+            if let Some(c) = it.color {
+                d.colors.insert(it.name.clone(), c);
+            }
+            if it.kind == EntryKind::Separator && it.collapsed {
+                d.collapsed.push(it.name.clone());
+            }
+        }
+        for (g, gr) in self.groups.iter().enumerate() {
+            let Some(gr) = gr else { continue };
+            let mut members = gr.members.clone();
+            members.sort_by_key(|&k| self.seq.pos(k));
+            d.groups.push(GroupDef {
+                id: self.group_ids[g].clone(),
+                name: gr.name.clone(),
+                members: members
+                    .iter()
+                    .map(|&k| self.items[k as usize].name.clone())
+                    .collect(),
+                collapsed: gr.collapsed,
+            });
+        }
+        d
+    }
+
+    /// Replaces the decoration (on project open). History is cleared: it refers to the previous decoration.
+    /// Pieces that do not fit the canon are reported and skipped.
+    pub fn apply_decor(&mut self, d: &Decor) -> (Change, Vec<DecorIssue>) {
+        let mut issues = Vec::new();
+        for it in &mut self.items {
+            it.color = None;
+            it.collapsed = false;
+            it.group = None;
+        }
+        self.groups.clear();
+        self.group_ids.clear();
+        self.undo.clear();
+        self.redo.clear();
+        for (name, &c) in &d.colors {
+            match self.key_of(name) {
+                Some(k) => self.items[k as usize].color = Some(c),
+                None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+            }
+        }
+        for name in &d.collapsed {
+            match self.key_of(name) {
+                Some(k) if self.items[k as usize].kind == EntryKind::Separator => {
+                    self.items[k as usize].collapsed = true
+                }
+                _ => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+            }
+        }
+        for g in &d.groups {
+            let keys: Option<Vec<Key>> = g.members.iter().map(|m| self.key_of(m)).collect();
+            let reject = |reason: &str| DecorIssue::GroupRejected {
+                id: g.id.clone(),
+                reason: reason.to_string(),
+            };
+            let Some(keys) = keys else {
+                issues.push(reject("a member is not in the list"));
+                continue;
+            };
+            // a stored group may be broken (an entry was dropped into it): it is kept, shown as plain rows
+            match self.group_rule(&keys, false) {
+                Err(e) => issues.push(reject(e)),
+                Ok(members) => {
+                    let id = self.groups.len() as GroupId;
+                    for &k in &members {
+                        self.items[k as usize].group = Some(id);
+                    }
+                    self.groups.push(Some(Group {
+                        name: g.name.clone(),
+                        first: members[0],
+                        members,
+                        collapsed: g.collapsed,
+                        valid: true,
+                    }));
+                    self.group_ids.push(g.id.clone());
+                    self.recheck_group(id);
+                }
+            }
+        }
+        let filter = self.filter.clone();
+        (self.set_filter(filter), issues)
     }
 
     // ---------------------------------------------------------------- view operations (not in history)
@@ -830,6 +1047,8 @@ impl OrderBook {
 enum Placement<'a> {
     Before(Option<Key>),
     At(&'a [(Key, usize)]),
+    /// Taken out of the list (kept as a tombstone for undo).
+    Nowhere,
 }
 
 #[cfg(test)]

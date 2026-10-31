@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::canon::{EntryKind, Modlist};
+use crate::order::{Decor, DecorIssue, OrderBook};
 use crate::sync::records::{DiskFolder, EntityKind, ProjectEntity, Reconcile, SyncRecord, reconcile};
 
 /// Version of the serialized shape. Bump with a migration when fields change meaning.
@@ -29,6 +30,9 @@ pub struct Project {
     pub signatures: BTreeMap<String, u64>,
     /// Current sync records with the user's decisions.
     pub sync: Vec<SyncRecord>,
+    /// Colours, logical groups, collapsed separators (ADR 0008). Absent in older files.
+    #[serde(default, skip_serializing_if = "Decor::is_empty")]
+    pub decor: Decor,
 }
 
 /// How the manager's list differs from the project canon.
@@ -65,7 +69,25 @@ impl Project {
             canon: list,
             signatures: BTreeMap::new(),
             sync: Vec::new(),
+            decor: Decor::default(),
         }
+    }
+
+    /// The live book of this project: canon plus decoration. Decoration that no longer fits is reported.
+    pub fn book(&self) -> (OrderBook, Vec<DecorIssue>) {
+        let mut book = OrderBook::from_modlist(&self.canon);
+        let issues = if self.decor.is_empty() {
+            Vec::new()
+        } else {
+            book.apply_decor(&self.decor).1
+        };
+        (book, issues)
+    }
+
+    /// Takes canon and decoration back from a book after editing.
+    pub fn commit_book(&mut self, book: &OrderBook) {
+        self.canon = book.to_modlist();
+        self.decor = book.decor();
     }
 
     /// Mods and separators of the canon as reconcile entities (foreign manager entries are not folders).
@@ -223,6 +245,34 @@ mod tests {
         assert!(p.manager_diff(&p.canon).is_empty());
         // the canon is still the project's
         assert_eq!(p.canon.entries[0].name, "A");
+    }
+
+    #[test]
+    fn book_round_trip_keeps_decoration() {
+        let mut p = Project::import(list(&["#UI", "SkyUI", "A", "B", "C"]));
+        let (mut book, issues) = p.book();
+        assert!(issues.is_empty());
+        let (a, b) = (book.key_of("A").unwrap(), book.key_of("B").unwrap());
+        book.create_group("Pack", &[a, b]).unwrap();
+        book.set_color(&[a], Some(3)).unwrap();
+        book.move_keys(&[book.key_of("C").unwrap()], Some(a)).unwrap();
+        p.commit_book(&book);
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, p);
+        let (book2, issues) = back.book();
+        assert!(issues.is_empty());
+        // keys are renumbered by the rebuild; everything else is the same
+        let strip = |b: &OrderBook| {
+            b.rows(0, 10)
+                .into_iter()
+                .map(|r| (r.pos, r.kind, r.name.to_string(), r.color, r.size, r.depth))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(strip(&book2), strip(&book));
+        // files written before decoration existed still load
+        let old = r#"{"schema":1,"canon":{"entries":[]},"signatures":{},"sync":[]}"#;
+        assert!(serde_json::from_str::<Project>(old).unwrap().decor.is_empty());
     }
 
     #[test]
