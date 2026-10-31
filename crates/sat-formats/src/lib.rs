@@ -10,7 +10,9 @@ mod read;
 
 pub use archive::{ArchiveEntry, ArchiveKind, ArchiveManifest, read_archive};
 pub use dds::{DdsInfo, dxgi_name, texture_bytes};
-pub use plugin::{PluginHeader, PluginKind, RecordCounts, read_plugin_header, scan_records};
+pub use plugin::{
+    PluginHeader, PluginKind, RecordCounts, monolith_plugin_type, read_plugin_header, scan_records,
+};
 
 /// Errors produced by the parsers.
 #[derive(Debug, thiserror::Error)]

@@ -52,6 +52,27 @@ impl PluginHeader {
     }
 }
 
+/// The monolith's plugin type (`resolvePluginType` 100529 / `resolvePluginTypeV503` 172032), for parity views and
+/// imports: ESL flag → `espfe` on `.esp`, else `esl`; then the extension; then the ESM flag; else `unknown`.
+///
+/// It differs from [`PluginHeader::kind`] on an ESM-flagged `.esp`: the monolith says `esp`, the game loads it with
+/// the masters, so NG's kind is `Esm` (docs/parity/run/01-plugins.md).
+pub fn monolith_plugin_type(file_name: &str, header: Option<&PluginHeader>) -> &'static str {
+    let lower = file_name.to_ascii_lowercase();
+    let ext = lower.rsplit_once('.').map_or("", |(_, e)| e);
+    let (esm, esl) = header.map_or((false, false), |h| (h.master_flag, h.light_flag));
+    if esl {
+        return if ext == "esp" { "espfe" } else { "esl" };
+    }
+    match ext {
+        "esl" => "esl",
+        "esm" => "esm",
+        "esp" => "esp",
+        _ if esm => "esm",
+        _ => "unknown",
+    }
+}
+
 /// Reads the TES4 header record from the start of a plugin.
 pub fn read_plugin_header<R: Read>(mut r: R) -> Result<PluginHeader> {
     let mut hdr = [0u8; 24];
@@ -242,6 +263,10 @@ pub(crate) mod tests {
         assert_eq!(h.author.as_deref(), Some("author"));
         assert!((h.version - 1.7).abs() < 1e-6);
         assert_eq!(h.kind("x.esp"), PluginKind::Esm);
+        assert_eq!(
+            monolith_plugin_type("x.esp", Some(&h)),
+            if h.light_flag { "espfe" } else { "esp" }
+        );
         let c = scan_records(&bytes[..]).unwrap();
         assert_eq!(c.placed_references(), 2);
         assert_eq!(c.get("NPC_"), 1);
@@ -259,5 +284,36 @@ pub(crate) mod tests {
         let mut bytes = sample_plugin(false, &[]);
         bytes.truncate(bytes.len() - 2);
         assert!(scan_records(&bytes[..]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod monolith_type_tests {
+    use super::*;
+
+    #[test]
+    fn matches_the_monolith_table() {
+        let h = |esm, esl| PluginHeader {
+            master_flag: esm,
+            light_flag: esl,
+            ..Default::default()
+        };
+        let t = |n: &str, esm, esl| monolith_plugin_type(n, Some(&h(esm, esl)));
+        assert_eq!(t("A.esp", false, true), "espfe");
+        assert_eq!(t("A.esm", false, true), "esl");
+        assert_eq!(t("A.esl", false, false), "esl");
+        assert_eq!(t("A.esm", false, false), "esm");
+        assert_eq!(
+            t("A.esp", true, false),
+            "esp",
+            "monolith: extension before the ESM flag"
+        );
+        assert_eq!(
+            h(true, false).kind("A.esp"),
+            PluginKind::Esm,
+            "NG: the game loads it as a master"
+        );
+        assert_eq!(t("A.bak", true, false), "esm");
+        assert_eq!(monolith_plugin_type("A.bak", None), "unknown");
     }
 }
