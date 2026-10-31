@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use sat_core::canon::{Entry, EntryKind, Modlist};
-use sat_core::order::{Change, Filter, Nav, OrderBook, Select, Shift};
+use sat_core::order::{Change, Filter, MAIN, Nav, OrderBook, Select, Shift};
 
 fn arg(args: &[String], name: &str, default: usize) -> usize {
     args.iter()
@@ -17,7 +17,7 @@ fn arg(args: &[String], name: &str, default: usize) -> usize {
 
 fn patches(c: &Option<Change>) -> String {
     match c {
-        Some(c) => format!("{} patches, rows {}", c.patches.len(), c.len),
+        Some(c) => format!("{} patches, rows {}", c.main().patches.len(), c.main().len),
         None => "no change".into(),
     }
 }
@@ -54,15 +54,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
     println!(
         "build             {:>9.1} ms   {n} entries, {} rows, rss {} MiB",
         ms(t),
-        b.row_count(),
+        b.row_count(MAIN),
         rss()
     );
 
     let t = Instant::now();
     let mut names = 0usize;
     for _ in 0..1000 {
-        let start = (next() as usize) % b.row_count();
-        names += b.rows(start, 60).iter().map(|r| r.name.len()).sum::<usize>();
+        let start = (next() as usize) % b.row_count(MAIN);
+        names += b
+            .rows(MAIN, start, 60)
+            .iter()
+            .map(|r| r.name.len())
+            .sum::<usize>();
     }
     println!(
         "window read       {:>9.3} ms   60 rows at a random offset (avg of 1000; {names} bytes)",
@@ -116,25 +120,33 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     let mut collapsed = 0;
     for &k in &seps {
-        if b.set_collapsed(k, true).map_err(|e| e.to_string())?.is_some() {
+        if b.set_collapsed(MAIN, k, true)
+            .map_err(|e| e.to_string())?
+            .is_some()
+        {
             collapsed += 1;
         }
     }
     println!(
         "collapse          {:>9.3} ms   per separator ({collapsed} collapsed), rows now {}",
         ms(t) / collapsed.max(1) as f64,
-        b.row_count()
+        b.row_count(MAIN)
     );
 
     let t = Instant::now();
-    let c = b.set_filter(Filter {
-        text: "mod 05".into(),
-        ..Filter::default()
-    });
-    println!("filter            {:>9.1} ms   rows {}", ms(t), c.len);
+    let c = b
+        .set_filter(
+            MAIN,
+            Filter {
+                text: "mod 05".into(),
+                ..Filter::default()
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    println!("filter            {:>9.1} ms   rows {}", ms(t), c.main().len);
     let t = Instant::now();
-    let c = b.set_filter(Filter::default());
-    println!("filter cleared    {:>9.1} ms   rows {}", ms(t), c.len);
+    let c = b.set_filter(MAIN, Filter::default()).map_err(|e| e.to_string())?;
+    println!("filter cleared    {:>9.1} ms   rows {}", ms(t), c.main().len);
 
     let p = n / 3 + 1;
     let members: Vec<u32> = (p..p + 5).map(|i| b.key_at(i)).collect();
@@ -146,41 +158,69 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     // keyboard cursor
     let t = Instant::now();
-    b.navigate(Nav::Row(500_000), Select::Replace);
+    b.navigate(MAIN, Nav::Row(500_000), Select::Replace)
+        .map_err(|e| e.to_string())?;
     for _ in 0..1000 {
-        b.navigate(Nav::Down, Select::Replace);
+        b.navigate(MAIN, Nav::Down, Select::Replace)
+            .map_err(|e| e.to_string())?;
     }
     println!(
         "cursor ↓          {:>9.3} ms   per key press (avg of 1000)",
         ms(t) / 1000.0
     );
     let t = Instant::now();
-    let c = b.navigate(Nav::PageDown(100_000), Select::Extend);
+    let c = b
+        .navigate(MAIN, Nav::PageDown(100_000), Select::Extend)
+        .map_err(|e| e.to_string())?;
     println!(
         "Shift+PgDn 100k   {:>9.1} ms   {} patches, {} selected",
         ms(t),
-        c.patches.len(),
-        b.selection_len()
+        c.main().patches.len(),
+        b.selection_len(MAIN)
     );
     let t = Instant::now();
-    let c = b.shift_selection(Shift::Down).map_err(|e| e.to_string())?;
+    let c = b.shift_selection(MAIN, Shift::Down).map_err(|e| e.to_string())?;
     println!("Alt+↓ 100k rows   {:>9.1} ms   {}", ms(t), patches(&c));
     let t = Instant::now();
-    let c = b.select_all();
+    let c = b.select_all(MAIN).map_err(|e| e.to_string())?;
     println!(
         "select all        {:>9.1} ms   {} patches",
         ms(t),
-        c.patches.len()
+        c.main().patches.len()
     );
     let t = Instant::now();
-    b.clear_selection();
-    b.navigate(Nav::Home, Select::Replace);
+    b.clear_selection(MAIN).map_err(|e| e.to_string())?;
+    b.navigate(MAIN, Nav::Home, Select::Replace)
+        .map_err(|e| e.to_string())?;
     for _ in 0..1000 {
-        b.shift_selection(Shift::Down).map_err(|e| e.to_string())?;
+        b.shift_selection(MAIN, Shift::Down).map_err(|e| e.to_string())?;
     }
     println!(
         "Alt+↓ one entry   {:>9.3} ms   per key press (avg of 1000)",
         ms(t) / 1000.0
+    );
+
+    // a second window over the same canon: every canon operation patches both views
+    let w = b.open_view().map_err(|e| e.to_string())?;
+    b.set_filter(
+        w,
+        Filter {
+            text: "mod 00042".into(),
+            ..Filter::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let t = Instant::now();
+    for _ in 0..1000 {
+        let k = b.key_at(1 + (next() as usize) % (n - 1));
+        let target = b.key_at((next() as usize) % n);
+        b.move_keys(&[k], Some(target)).map_err(|e| e.to_string())?;
+    }
+    println!(
+        "move one, 2 views {:>9.3} ms   main {} rows, second window {} rows (avg of 1000)",
+        ms(t) / 1000.0,
+        b.row_count(MAIN),
+        b.row_count(w)
     );
 
     let t = Instant::now();

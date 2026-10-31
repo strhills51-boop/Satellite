@@ -19,7 +19,7 @@
 | Понятие | Якорь | Не путать с |
 |---|---|---|
 | Виды истины (канон, декорации, факты, решения, настройки) | `@sat:engine` (`Truth`) | проекции — производное, не истина |
-| Набор изменений команды | `@sat:engine.change` (`Change`, `Keys`) | патч строк вида — `@sat:order.book.patch` |
+| Набор изменений команды | `@sat:engine.change` (`Change`, `Keys`); книга порядка отдаёт его в `order::Change::truth` | патч строк вида — `@sat:order.book.patch` |
 | Граф проекций: входы, инвалидация, ленивый план | `@sat:engine.graph` (`Graph::register / apply / plan / done`) | — |
 | Статусы пробега, поколения, печати | `@sat:run.status`, `@sat:run.authority`, `@sat:run.seal` | — |
 
@@ -46,6 +46,7 @@
 | Приглушение («не мешает») | `@sat:order.book.muted` | технический игнор `meta.ini` — `ScanOptions::ignore_root_files` (`@sat:scan`) |
 | Фильтр вида | `@sat:order.book.filter` | — |
 | Строки окна | `@sat:order.book.rows` | — |
+| Виды одной книги: открытие, закрытие, свой фильтр / свёртка / курсор (ADR 0009) | `@sat:order.book.views`; слои видимости — `@sat:order.seq` (`add_layer`, до 64) | окно на холсте (раскладка, связи) — будущий слой пространств |
 | Декорации ↔ данные проекта | `@sat:order.book.decor` (`decor`, `apply_decor`), `@sat:order.decor.data` | — |
 | Маркеры групп монолита в экспортном `modlist.txt` | `@sat:order.decor.markers` | настоящий `modlist.txt` MO2 маркеров не содержит |
 | Позиции и строки в списке любого размера | `@sat:order.seq` (`Seq`) | — |

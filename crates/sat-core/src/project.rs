@@ -16,6 +16,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::canon::{EntryKind, Modlist};
+#[cfg(test)]
+use crate::order::MAIN;
 use crate::order::{Decor, DecorIssue, OrderBook};
 use crate::sync::records::{DiskFolder, EntityKind, ProjectEntity, Reconcile, SyncRecord, reconcile};
 
@@ -269,7 +271,7 @@ mod tests {
         assert!(issues.is_empty());
         // keys are renumbered by the rebuild; everything else is the same
         let strip = |b: &OrderBook| {
-            b.rows(0, 10)
+            b.rows(MAIN, 0, 10)
                 .into_iter()
                 .map(|r| (r.pos, r.kind, r.name.to_string(), r.color, r.size, r.depth))
                 .collect::<Vec<_>>()

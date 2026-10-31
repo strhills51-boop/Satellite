@@ -1,25 +1,35 @@
-//! [`OrderBook`] — the live canon of a list (any size) and its visible projection, changed only by operations @sat:order.book
-//! that return **row patches**. A UI never re-renders the list: it keeps the row count and its visible window
-//! and applies [`Patch`]es (ADR 0008).
+//! [`OrderBook`] — the live canon of a list (any size) and its views, changed only by operations that @sat:order.book
+//! return **row patches** per view and the **change set** of the truth (ADR 0008, 0009, 0010). A UI never
+//! re-renders a list: each window keeps its row count and visible window and applies its view's [`Patch`]es.
 //!
 //! Three layers, never mixed:
 //! - **canon** — order and enabled flags (what goes to `modlist.txt`);
-//! - **decoration** — colour, logical groups: stored next to the canon, never reorder it;
-//! - **view** — collapsed separators and groups, filter: decide which entries are rows.
+//! - **decoration** — colour, logical groups, muted: stored next to the canon, never reorder it;
+//! - **views** — one per window ([`ViewId`]; [`MAIN`] always open): filter, collapsed separators and groups,
+//!   keyboard cursor. The main view's collapse state is the stored default; a new view starts from it.
 //!
-//! Owns: the live canon and decoration of a list, its operations, undo/redo, rows and row patches.
+//! Owns: the live canon and decoration of a list, its operations, undo/redo, the views over it, rows and row patches.
+//! Not here: positions and per-view visibility counters (`@sat:order.seq`), the cursor semantics
+//! (`@sat:order.cursor`), stored decoration (`@sat:order.decor`).
 
 use std::collections::HashSet;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use super::cursor::Cursor;
 use super::decor::{Decor, DecorIssue, GroupDef};
-use super::seq::{Key, Seq};
+use super::seq::{Key, Layer, Seq};
 use crate::canon::{Entry, EntryKind, Modlist};
+use crate::engine::{self, Keys, Truth};
 
 pub type GroupId = u32;
+
+/// A view of the book (= a layer of the sequence).
+pub type ViewId = Layer;
+
+/// The view every book has; its collapse state is what the project stores.
+pub const MAIN: ViewId = 0;
 
 // @sat:order.book.patch
 /// A change of the visible rows. Patches of one [`Change`] apply in order; each index refers to the rows as
@@ -37,13 +47,34 @@ pub enum Patch {
     Reset { len: u32 },
 }
 
+/// Result of an operation: what changed in the truth and how each affected view's rows changed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Change {
     /// Revision of the book after the change.
     pub revision: u64,
+    /// Truth changes for the engine (empty for view-only operations: filter, fold, cursor).
+    pub truth: Vec<engine::Change>,
+    /// One entry per view the operation touched (every open view for canon and decoration changes).
+    pub views: Vec<ViewChange>,
+}
+
+/// Row patches of one view.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewChange {
+    pub view: ViewId,
     /// Row count after the change.
     pub len: u32,
     pub patches: Vec<Patch>,
+}
+
+impl Change {
+    pub fn view(&self, v: ViewId) -> Option<&ViewChange> {
+        self.views.iter().find(|c| c.view == v)
+    }
+    /// The main view's part (always present for canon and decoration changes).
+    pub fn main(&self) -> &ViewChange {
+        self.view(MAIN).expect("change does not touch the main view")
+    }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -58,6 +89,10 @@ pub enum OrderError {
     Empty,
     #[error("cannot group: {0}")]
     Group(&'static str),
+    #[error("no such view {0}")]
+    UnknownView(ViewId),
+    #[error("too many views open")]
+    TooManyViews,
 }
 
 /// What a row shows.
@@ -112,7 +147,6 @@ pub(super) struct Item {
     pub(super) folded: String,
     pub(super) kind: EntryKind,
     pub(super) enabled: bool,
-    pub(super) collapsed: bool,
     pub(super) color: Option<u32>,
     pub(super) group: Option<GroupId>,
     pub(super) muted: bool,
@@ -122,7 +156,6 @@ pub(super) struct Item {
 pub(super) struct Group {
     name: String,
     pub(super) members: Vec<Key>,
-    pub(super) collapsed: bool,
     /// Members are contiguous (hence in one block). A broken group shows its members as plain rows.
     pub(super) valid: bool,
     pub(super) first: Key,
@@ -159,6 +192,40 @@ enum Op {
 
 #[derive(Default)]
 pub(super) struct Patches(pub(super) Vec<Patch>);
+
+/// What an operation produces while it runs: patches per view, truth changes.
+pub(super) struct Out {
+    pub(super) views: Vec<(ViewId, Patches)>,
+    truth: Vec<engine::Change>,
+}
+
+impl Out {
+    pub(super) fn p(&mut self, v: ViewId) -> &mut Patches {
+        &mut self
+            .views
+            .iter_mut()
+            .find(|x| x.0 == v)
+            .expect("view in output")
+            .1
+    }
+    fn truth(&mut self, truth: Truth, keys: impl IntoIterator<Item = Key>) {
+        self.truth.push(engine::Change {
+            truth,
+            keys: Keys::some(keys.into_iter().collect()),
+        });
+    }
+}
+
+/// State of one view.
+#[derive(Debug, Clone, Default)]
+pub(super) struct View {
+    pub(super) filter: Filter,
+    /// Collapsed separators.
+    pub(super) collapsed: FxHashSet<Key>,
+    /// Logical groups shown expanded (groups are collapsed by default).
+    pub(super) open_groups: FxHashSet<GroupId>,
+    pub(super) cursor: Cursor,
+}
 
 impl Patches {
     pub(super) fn remove(&mut self, at: usize) {
@@ -210,11 +277,11 @@ pub struct OrderBook {
     pub(super) groups: Vec<Option<Group>>,
     /// Stable external id of each group slot (marker token, project file).
     group_ids: Vec<String>,
-    filter: Filter,
+    /// Views by layer (`None` = closed).
+    pub(super) views: Vec<Option<View>>,
     revision: u64,
     undo: Vec<(Op, Op)>,
     redo: Vec<(Op, Op)>,
-    pub(super) cursor: Cursor,
 }
 
 impl OrderBook {
@@ -228,7 +295,6 @@ impl OrderBook {
                 folded: e.name.to_lowercase(),
                 kind: e.kind,
                 enabled: e.enabled,
-                collapsed: false,
                 color: None,
                 group: None,
                 muted: false,
@@ -240,18 +306,91 @@ impl OrderBook {
             .map(|(i, it)| (it.folded.clone(), i as Key))
             .collect();
         let keys: Vec<Key> = (0..items.len() as Key).collect();
-        let seq = Seq::from_keys(&keys, |k| (true, items[k as usize].kind == EntryKind::Separator));
+        let mut seq = Seq::from_keys(&keys, |k| items[k as usize].kind == EntryKind::Separator);
+        let main = seq.add_layer().expect("a fresh sequence has free layers");
+        debug_assert_eq!(main, MAIN);
+        seq.reflag_all(MAIN, |_| true);
         Self {
             items,
             by_name,
             seq,
             groups: Vec::new(),
             group_ids: Vec::new(),
-            filter: Filter::default(),
+            views: vec![Some(View::default())],
             revision: 0,
             undo: Vec::new(),
             redo: Vec::new(),
-            cursor: Cursor::default(),
+        }
+    }
+
+    // @sat:order.book.views
+    /// Opens a view starting from the main view's collapse state, with no filter and no cursor.
+    pub fn open_view(&mut self) -> Result<ViewId, OrderError> {
+        let v = self.seq.add_layer().ok_or(OrderError::TooManyViews)?;
+        let main = self.view(MAIN);
+        let state = View {
+            collapsed: main.collapsed.clone(),
+            open_groups: main.open_groups.clone(),
+            ..View::default()
+        };
+        if self.views.len() <= v {
+            self.views.resize(v + 1, None);
+        }
+        self.views[v] = Some(state);
+        self.refill_view(v);
+        Ok(v)
+    }
+
+    /// Closes a view (not the main one).
+    pub fn close_view(&mut self, v: ViewId) -> Result<(), OrderError> {
+        if v == MAIN || self.views.get(v).is_none_or(Option::is_none) {
+            return Err(OrderError::UnknownView(v));
+        }
+        self.views[v] = None;
+        self.seq.drop_layer(v);
+        Ok(())
+    }
+
+    /// Open views.
+    pub fn view_ids(&self) -> Vec<ViewId> {
+        (0..self.views.len())
+            .filter(|&v| self.views[v].is_some())
+            .collect()
+    }
+
+    pub(super) fn view(&self, v: ViewId) -> &View {
+        self.views[v].as_ref().expect("open view")
+    }
+
+    pub(super) fn view_mut(&mut self, v: ViewId) -> &mut View {
+        self.views[v].as_mut().expect("open view")
+    }
+
+    pub(super) fn check_view(&self, v: ViewId) -> Result<(), OrderError> {
+        if self.views.get(v).is_some_and(Option::is_some) {
+            Ok(())
+        } else {
+            Err(OrderError::UnknownView(v))
+        }
+    }
+
+    /// An output collecting patches of every open view.
+    pub(super) fn out_all(&self) -> Out {
+        Out {
+            views: self
+                .view_ids()
+                .into_iter()
+                .map(|v| (v, Patches::default()))
+                .collect(),
+            truth: Vec::new(),
+        }
+    }
+
+    /// An output for one view.
+    pub(super) fn out_one(&self, v: ViewId) -> Out {
+        Out {
+            views: vec![(v, Patches::default())],
+            truth: Vec::new(),
         }
     }
 
@@ -278,8 +417,8 @@ impl OrderBook {
     pub fn is_empty(&self) -> bool {
         self.seq.is_empty()
     }
-    pub fn row_count(&self) -> usize {
-        self.seq.visible_len()
+    pub fn row_count(&self, v: ViewId) -> usize {
+        self.seq.visible_len(v)
     }
     pub fn revision(&self) -> u64 {
         self.revision
@@ -316,64 +455,88 @@ impl OrderBook {
         self.groups[g as usize].as_ref().map(|gr| (g, gr))
     }
 
-    fn passes_filter(&self, it: &Item) -> bool {
-        let f = &self.filter;
+    fn passes_filter(&self, it: &Item, v: ViewId) -> bool {
+        let f = &self.view(v).filter;
         (f.text.is_empty() || it.folded.contains(&f.text))
             && f.enabled.is_none_or(|e| e == it.enabled)
             && f.color.is_none_or(|c| it.color == Some(c))
             && (f.show_muted || !it.muted)
     }
 
-    /// Whether entry `k` is a row now, given `collapsed` = the state of its block's separator.
-    fn want_with(&self, k: Key, block_collapsed: bool) -> bool {
+    /// A logical group is shown as one row in view `v`.
+    pub(super) fn group_collapsed(&self, g: GroupId, v: ViewId) -> bool {
+        !self.view(v).open_groups.contains(&g)
+    }
+
+    /// Whether entry `k` is a row of view `v`, given `block_collapsed` = the state of its block's separator.
+    fn want_with(&self, k: Key, v: ViewId, block_collapsed: bool) -> bool {
         let it = &self.items[k as usize];
         if it.kind == EntryKind::Separator {
             return true;
         }
-        if block_collapsed || !self.passes_filter(it) {
+        if block_collapsed || !self.passes_filter(it, v) {
             return false;
         }
         match self.group(k) {
-            Some((_, g)) => !(g.valid && g.collapsed && g.first != k),
+            Some((gid, g)) => !(g.valid && self.group_collapsed(gid, v) && g.first != k),
             None => true,
         }
     }
 
-    fn want(&self, k: Key) -> bool {
+    fn want(&self, k: Key, v: ViewId) -> bool {
         let collapsed = self.items[k as usize].kind != EntryKind::Separator
             && self
                 .seq
                 .separator_before(self.seq.pos(k))
-                .is_some_and(|s| self.items[s as usize].collapsed);
-        self.want_with(k, collapsed)
+                .is_some_and(|s| self.view(v).collapsed.contains(&s));
+        self.want_with(k, v, collapsed)
     }
 
-    /// Re-evaluates rows of `keys` (any order; sorted here), emitting patches; `update(k)` marks a row whose
-    /// content changed in place.
+    /// Re-evaluates rows of `keys` (any order; sorted here) in every view of `out`, emitting patches;
+    /// `update(k)` marks a row whose content changed in place.
     pub(super) fn reweigh(
         &mut self,
         keys: impl IntoIterator<Item = Key>,
         update: impl Fn(Key) -> bool,
-        p: &mut Patches,
+        out: &mut Out,
     ) {
         let mut ks: Vec<(usize, Key)> = keys.into_iter().map(|k| (self.seq.pos(k), k)).collect();
         ks.sort_unstable();
         ks.dedup();
-        for (_, k) in ks {
-            let (had, want) = (self.seq.is_visible(k), self.want(k));
-            match (had, want) {
-                (false, true) => {
-                    self.seq.set_visible(k, true);
-                    p.insert(self.seq.rows_before(k));
+        for i in 0..out.views.len() {
+            let v = out.views[i].0;
+            for &(_, k) in &ks {
+                let (had, want) = (self.seq.is_visible(k, v), self.want(k, v));
+                let p = &mut out.views[i].1;
+                match (had, want) {
+                    (false, true) => {
+                        self.seq.set_visible(k, v, true);
+                        p.insert(self.seq.rows_before(k, v));
+                    }
+                    (true, false) => {
+                        p.remove(self.seq.rows_before(k, v));
+                        self.seq.set_visible(k, v, false);
+                    }
+                    (true, true) if update(k) => p.update(self.seq.rows_before(k, v)),
+                    _ => {}
                 }
-                (true, false) => {
-                    p.remove(self.seq.rows_before(k));
-                    self.seq.set_visible(k, false);
-                }
-                (true, true) if update(k) => p.update(self.seq.rows_before(k)),
-                _ => {}
             }
         }
+    }
+
+    /// Recomputes view `v`'s rows from scratch (no patches): opening a view, a new filter, new decoration.
+    fn refill_view(&mut self, v: ViewId) {
+        let mut vis = vec![false; self.items.len()];
+        let mut collapsed = false;
+        for k in self.seq.iter_from(0) {
+            if self.items[k as usize].kind == EntryKind::Separator {
+                collapsed = self.view(v).collapsed.contains(&k);
+            }
+            vis[k as usize] = self.want_with(k, v, collapsed);
+        }
+        self.seq.reflag_all(v, |k| vis[k as usize]);
+        let focus = self.effective_focus(v);
+        self.view_mut(v).cursor.shown = focus;
     }
 
     /// Entries of the block after separator `s` (excluding `s`).
@@ -406,14 +569,25 @@ impl OrderBook {
         changed
     }
 
-    pub(super) fn finish(&mut self, mut p: Patches) -> Change {
-        self.sync_focus_mark(&mut p);
+    pub(super) fn finish(&mut self, mut out: Out) -> Change {
+        for i in 0..out.views.len() {
+            let v = out.views[i].0;
+            self.sync_focus_mark(v, &mut out.views[i].1);
+        }
         self.seq.compact();
         self.revision += 1;
         Change {
             revision: self.revision,
-            len: self.seq.visible_len() as u32,
-            patches: p.0,
+            truth: out.truth,
+            views: out
+                .views
+                .into_iter()
+                .map(|(v, p)| ViewChange {
+                    view: v,
+                    len: self.seq.visible_len(v) as u32,
+                    patches: p.0,
+                })
+                .collect(),
         }
     }
 
@@ -433,12 +607,12 @@ impl OrderBook {
             keys: keys.to_vec(),
             before,
         };
-        let mut p = Patches::default();
-        let Some(inv) = self.apply(&fwd, &mut p)? else {
+        let mut out = self.out_all();
+        let Some(inv) = self.apply(&fwd, &mut out)? else {
             return Ok(None);
         };
         self.record(fwd, inv);
-        Ok(Some(self.finish(p)))
+        Ok(Some(self.finish(out)))
     }
 
     /// Sets (or toggles with `None`) the enabled flag of mods; other entries are ignored.
@@ -551,7 +725,6 @@ impl OrderBook {
                     folded: e.name.to_lowercase(),
                     kind: e.kind,
                     enabled: e.enabled,
-                    collapsed: false,
                     color: None,
                     group: None,
                     muted: false,
@@ -615,32 +788,32 @@ impl OrderBook {
     }
 
     fn apply_recorded(&mut self, fwd: Op) -> Result<Option<Change>, OrderError> {
-        let mut p = Patches::default();
-        let Some(inv) = self.apply(&fwd, &mut p)? else {
+        let mut out = self.out_all();
+        let Some(inv) = self.apply(&fwd, &mut out)? else {
             return Ok(None);
         };
         self.record(fwd, inv);
-        Ok(Some(self.finish(p)))
+        Ok(Some(self.finish(out)))
     }
 
     pub fn undo(&mut self) -> Option<Change> {
         let (fwd, inv) = self.undo.pop()?;
-        let mut p = Patches::default();
-        self.apply(&inv, &mut p).expect("inverse operations are valid");
+        let mut out = self.out_all();
+        self.apply(&inv, &mut out).expect("inverse operations are valid");
         self.redo.push((fwd, inv));
-        Some(self.finish(p))
+        Some(self.finish(out))
     }
 
     pub fn redo(&mut self) -> Option<Change> {
         let (fwd, inv) = self.redo.pop()?;
-        let mut p = Patches::default();
-        self.apply(&fwd, &mut p).expect("redone operations are valid");
+        let mut out = self.out_all();
+        self.apply(&fwd, &mut out).expect("redone operations are valid");
         self.undo.push((fwd, inv));
-        Some(self.finish(p))
+        Some(self.finish(out))
     }
 
     /// Applies an operation; returns its inverse, or `None` when nothing changed.
-    fn apply(&mut self, op: &Op, p: &mut Patches) -> Result<Option<Op>, OrderError> {
+    fn apply(&mut self, op: &Op, p: &mut Out) -> Result<Option<Op>, OrderError> {
         Ok(match op {
             Op::Move { keys, before } => self.apply_move(keys, *before, p)?,
             Op::Place(items) => {
@@ -648,6 +821,7 @@ impl OrderBook {
                 keys.sort_by_key(|&k| self.seq.pos(k));
                 let inv: Vec<(Key, usize)> = keys.iter().map(|&k| (k, self.seq.pos(k))).collect();
                 self.relocate(&keys, Placement::At(items), p);
+                p.truth(Truth::Canon, keys);
                 Some(Op::Place(inv))
             }
             Op::Enabled(each) => {
@@ -661,6 +835,7 @@ impl OrderBook {
                         touched.insert(k);
                     }
                 }
+                p.truth(Truth::Canon, touched.iter().copied());
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Enabled(inv))
             }
@@ -675,6 +850,7 @@ impl OrderBook {
                         touched.insert(k);
                     }
                 }
+                p.truth(Truth::Decoration, touched.iter().copied());
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Color(inv))
             }
@@ -689,6 +865,7 @@ impl OrderBook {
                         touched.insert(k);
                     }
                 }
+                p.truth(Truth::Decoration, touched.iter().copied());
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Muted(inv))
             }
@@ -705,14 +882,21 @@ impl OrderBook {
                 self.groups[id as usize] = Some(Group {
                     name: name.clone(),
                     members: members.clone(),
-                    collapsed: *collapsed,
                     valid: false,
                     first: members[0],
                 });
                 for &k in members {
                     self.items[k as usize].group = Some(id);
                 }
+                for view in self.views.iter_mut().flatten() {
+                    if *collapsed {
+                        view.open_groups.remove(&id);
+                    } else {
+                        view.open_groups.insert(id);
+                    }
+                }
                 self.recheck_group(id);
+                p.truth(Truth::Decoration, members.iter().copied());
                 // members change depth, the first one becomes the group row
                 self.reweigh(members.clone(), |_| true, p);
                 Some(Op::Dissolve(id))
@@ -720,12 +904,14 @@ impl OrderBook {
             Op::Put { keys, before } => {
                 self.relocate(keys, Placement::Before(*before), p);
                 self.name_keys(keys, true);
+                p.truth(Truth::Canon, keys.iter().copied());
                 Some(Op::Take(keys.clone()))
             }
             Op::Restore(items) => {
                 let keys: Vec<Key> = items.iter().map(|x| x.0).collect();
                 self.relocate(&keys, Placement::At(items), p);
                 self.name_keys(&keys, true);
+                p.truth(Truth::Canon, keys.iter().copied());
                 Some(Op::Take(keys))
             }
             Op::Take(keys) => {
@@ -735,6 +921,7 @@ impl OrderBook {
                 self.relocate(&keys, Placement::Nowhere, p);
                 self.name_keys(&keys, false);
                 self.cursor_forget(&keys, inv.first().map_or(0, |x| x.1), p);
+                p.truth(Truth::Canon, keys.iter().copied());
                 Some(Op::Restore(inv))
             }
             Op::Rename(k, name) => {
@@ -749,6 +936,7 @@ impl OrderBook {
                 );
                 self.by_name.remove(&old_f);
                 self.by_name.insert(new_f, *k);
+                p.truth(Truth::Canon, [*k]);
                 self.after_content_change(HashSet::from([*k]), p);
                 Some(Op::Rename(*k, old))
             }
@@ -757,19 +945,24 @@ impl OrderBook {
                 for &k in &g.members {
                     self.items[k as usize].group = None;
                 }
+                let collapsed = !self.view(MAIN).open_groups.contains(id);
+                for view in self.views.iter_mut().flatten() {
+                    view.open_groups.remove(id);
+                }
                 self.reweigh(g.members.clone(), |_| true, p);
+                p.truth(Truth::Decoration, g.members.iter().copied());
                 Some(Op::MakeGroup {
                     id: *id,
                     name: g.name,
                     members: g.members,
-                    collapsed: g.collapsed,
+                    collapsed,
                 })
             }
         })
     }
 
     /// Rows whose content depends on changed entries: the entries themselves and their groups' rows.
-    pub(super) fn after_content_change(&mut self, touched: HashSet<Key>, p: &mut Patches) {
+    pub(super) fn after_content_change(&mut self, touched: HashSet<Key>, p: &mut Out) {
         let mut keys: HashSet<Key> = touched.clone();
         for &k in &touched {
             if let Some((_, g)) = self.group(k) {
@@ -783,7 +976,7 @@ impl OrderBook {
         &mut self,
         keys: &[Key],
         before: Option<Key>,
-        p: &mut Patches,
+        p: &mut Out,
     ) -> Result<Option<Op>, OrderError> {
         let mut picked: HashSet<Key> = HashSet::new();
         for &k in keys {
@@ -797,9 +990,10 @@ impl OrderBook {
                 }
                 EntryKind::Mod => {
                     picked.insert(k);
-                    if let Some((_, g)) = self.group(k)
+                    // a group row moves its members (collapsed in the main view: what the canon user sees)
+                    if let Some((gid, g)) = self.group(k)
                         && g.valid
-                        && g.collapsed
+                        && self.group_collapsed(gid, MAIN)
                         && g.first == k
                     {
                         picked.extend(g.members.iter().copied());
@@ -830,12 +1024,13 @@ impl OrderBook {
         let inv = Op::Place(moved.iter().map(|&(pos, k)| (k, pos)).collect());
         let keys: Vec<Key> = moved.into_iter().map(|x| x.1).collect();
         self.relocate(&keys, Placement::Before(before), p);
+        p.truth(Truth::Canon, keys.iter().copied());
         Ok(Some(inv))
     }
 
     /// Takes `keys` (in canon order) out and puts them back per `placement`, emitting row patches for every
     /// entry whose row changed: the moved entries, entries whose block changed, group rows, separator headers.
-    fn relocate(&mut self, keys: &[Key], placement: Placement<'_>, p: &mut Patches) {
+    fn relocate(&mut self, keys: &[Key], placement: Placement<'_>, out: &mut Out) {
         let set: HashSet<Key> = keys.iter().copied().collect();
         let mut touched: HashSet<Key> = HashSet::new();
         let mut headers: HashSet<Key> = HashSet::new();
@@ -860,8 +1055,10 @@ impl OrderBook {
         // Out, from the back so earlier row indices stay valid.
         let present: Vec<Key> = keys.iter().copied().filter(|&k| self.seq.contains(k)).collect();
         for &k in present.iter().rev() {
-            if self.seq.is_visible(k) {
-                p.remove(self.seq.rows_before(k));
+            for (v, p) in out.views.iter_mut() {
+                if self.seq.is_visible(k, *v) {
+                    p.remove(self.seq.rows_before(k, *v));
+                }
             }
             self.seq.remove(k);
         }
@@ -924,7 +1121,7 @@ impl OrderBook {
         touched.extend(keys.iter().copied());
         touched.extend(updates.iter().copied());
         touched.retain(|&k| self.seq.contains(k));
-        self.reweigh(touched, |k| updates.contains(&k) && !set.contains(&k), p);
+        self.reweigh(touched, |k| updates.contains(&k) && !set.contains(&k), out);
     }
 
     // ---------------------------------------------------------------- decoration as data (project file)
@@ -938,7 +1135,7 @@ impl OrderBook {
             if let Some(c) = it.color {
                 d.colors.insert(it.name.clone(), c);
             }
-            if it.kind == EntryKind::Separator && it.collapsed {
+            if it.kind == EntryKind::Separator && self.view(MAIN).collapsed.contains(&k) {
                 d.collapsed.push(it.name.clone());
             }
             if it.muted {
@@ -956,22 +1153,23 @@ impl OrderBook {
                     .iter()
                     .map(|&k| self.items[k as usize].name.clone())
                     .collect(),
-                collapsed: gr.collapsed,
+                collapsed: self.group_collapsed(g as GroupId, MAIN),
             });
         }
         d
     }
 
     /// Replaces the decoration (on project open). History is cleared: it refers to the previous decoration.
-    /// Pieces that do not fit the canon are reported and skipped.
+    /// Every view takes the stored collapse state. Pieces that do not fit the canon are reported and skipped.
     pub fn apply_decor(&mut self, d: &Decor) -> (Change, Vec<DecorIssue>) {
         let mut issues = Vec::new();
         for it in &mut self.items {
             it.color = None;
-            it.collapsed = false;
             it.group = None;
             it.muted = false;
         }
+        let mut collapsed: FxHashSet<Key> = FxHashSet::default();
+        let mut open_groups: FxHashSet<GroupId> = FxHashSet::default();
         self.groups.clear();
         self.group_ids.clear();
         self.undo.clear();
@@ -993,7 +1191,7 @@ impl OrderBook {
         for name in &d.collapsed {
             match self.key_of(name) {
                 Some(k) if self.items[k as usize].kind == EntryKind::Separator => {
-                    self.items[k as usize].collapsed = true
+                    collapsed.insert(k);
                 }
                 _ => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
             }
@@ -1020,87 +1218,133 @@ impl OrderBook {
                         name: g.name.clone(),
                         first: members[0],
                         members,
-                        collapsed: g.collapsed,
                         valid: true,
                     }));
+                    if !g.collapsed {
+                        open_groups.insert(id);
+                    }
                     self.group_ids.push(g.id.clone());
                     self.recheck_group(id);
                 }
             }
         }
-        let filter = self.filter.clone();
-        (self.set_filter(filter), issues)
+        self.revision += 1;
+        let mut views = Vec::new();
+        for v in self.view_ids() {
+            let view = self.view_mut(v);
+            view.collapsed = collapsed.clone();
+            view.open_groups = open_groups.clone();
+            self.refill_view(v);
+            let len = self.seq.visible_len(v) as u32;
+            views.push(ViewChange {
+                view: v,
+                len,
+                patches: vec![Patch::Reset { len }],
+            });
+        }
+        let change = Change {
+            revision: self.revision,
+            truth: vec![engine::Change {
+                truth: Truth::Decoration,
+                keys: Keys::All,
+            }],
+            views,
+        };
+        (change, issues)
     }
 
     // ---------------------------------------------------------------- view operations (not in history)
 
-    /// Collapses or expands a separator's block.
-    pub fn set_collapsed(&mut self, sep: Key, collapsed: bool) -> Result<Option<Change>, OrderError> {
+    /// Collapses or expands a separator's block in view `v`. The main view's state is what the project stores.
+    pub fn set_collapsed(
+        &mut self,
+        v: ViewId,
+        sep: Key,
+        collapsed: bool,
+    ) -> Result<Option<Change>, OrderError> {
+        self.check_view(v)?;
         self.check_key(sep)?;
-        let it = &mut self.items[sep as usize];
-        if it.kind != EntryKind::Separator || it.collapsed == collapsed {
+        if self.items[sep as usize].kind != EntryKind::Separator
+            || self.view(v).collapsed.contains(&sep) == collapsed
+        {
             return Ok(None);
         }
-        it.collapsed = collapsed;
-        let mut p = Patches::default();
+        let set = &mut self.view_mut(v).collapsed;
+        if collapsed {
+            set.insert(sep);
+        } else {
+            set.remove(&sep);
+        }
+        let mut out = self.out_one(v);
         let mut keys = self.block_keys(sep);
         keys.push(sep);
-        self.reweigh(keys, |k| k == sep, &mut p);
-        Ok(Some(self.finish(p)))
+        self.reweigh(keys, |k| k == sep, &mut out);
+        Ok(Some(self.finish(out)))
     }
 
-    /// Collapses (one row) or expands a logical group.
-    pub fn set_group_collapsed(&mut self, g: GroupId, collapsed: bool) -> Result<Option<Change>, OrderError> {
-        let Some(gr) = self.groups.get_mut(g as usize).and_then(Option::as_mut) else {
+    /// Collapses (one row) or expands a logical group in view `v`.
+    pub fn set_group_collapsed(
+        &mut self,
+        v: ViewId,
+        g: GroupId,
+        collapsed: bool,
+    ) -> Result<Option<Change>, OrderError> {
+        self.check_view(v)?;
+        let Some(gr) = self.groups.get(g as usize).and_then(Option::as_ref) else {
             return Err(OrderError::Group("no such group"));
         };
-        if gr.collapsed == collapsed {
+        let (members, first) = (gr.members.clone(), gr.first);
+        if self.group_collapsed(g, v) == collapsed {
             return Ok(None);
         }
-        gr.collapsed = collapsed;
-        let (members, first) = (gr.members.clone(), gr.first);
-        let mut p = Patches::default();
-        self.reweigh(members, |k| k == first, &mut p);
-        Ok(Some(self.finish(p)))
+        let open = &mut self.view_mut(v).open_groups;
+        if collapsed {
+            open.remove(&g);
+        } else {
+            open.insert(g);
+        }
+        let mut out = self.out_one(v);
+        self.reweigh(members, |k| k == first, &mut out);
+        Ok(Some(self.finish(out)))
     }
 
     // @sat:order.book.filter
-    /// Replaces the filter: one pass over the list, then a [`Patch::Reset`].
-    pub fn set_filter(&mut self, mut filter: Filter) -> Change {
+    /// Replaces the filter of view `v`: one pass over the list, then a [`Patch::Reset`] for that view.
+    pub fn set_filter(&mut self, v: ViewId, mut filter: Filter) -> Result<Change, OrderError> {
+        self.check_view(v)?;
         filter.text = filter.text.to_lowercase();
-        self.filter = filter;
-        let mut vis = vec![false; self.items.len()];
-        let mut collapsed = false;
-        for k in self.seq.iter_from(0) {
-            if self.items[k as usize].kind == EntryKind::Separator {
-                collapsed = self.items[k as usize].collapsed;
-            }
-            vis[k as usize] = self.want_with(k, collapsed);
-        }
-        self.seq.reflag_all(|k| vis[k as usize]);
-        self.cursor.shown = self.effective_focus();
+        self.view_mut(v).filter = filter;
+        self.refill_view(v);
         self.revision += 1;
-        let len = self.seq.visible_len() as u32;
-        Change {
+        let len = self.seq.visible_len(v) as u32;
+        Ok(Change {
             revision: self.revision,
-            len,
-            patches: vec![Patch::Reset { len }],
-        }
+            truth: Vec::new(),
+            views: vec![ViewChange {
+                view: v,
+                len,
+                patches: vec![Patch::Reset { len }],
+            }],
+        })
     }
 
     // ---------------------------------------------------------------- reading
 
     // @sat:order.book.rows
-    /// Rows `[start, start + count)` of the current view.
-    pub fn rows(&self, start: usize, count: usize) -> Vec<Row<'_>> {
+    /// Rows `[start, start + count)` of view `v` (empty for a closed view).
+    pub fn rows(&self, v: ViewId, start: usize, count: usize) -> Vec<Row<'_>> {
+        if self.check_view(v).is_err() {
+            return Vec::new();
+        }
+        let focus = self.effective_focus(v);
         self.seq
-            .rows_from(start)
+            .rows_from(start, v)
             .take(count)
-            .map(|k| self.row_of(k))
+            .map(|k| self.row_of(k, v, focus))
             .collect()
     }
 
-    fn row_of(&self, k: Key) -> Row<'_> {
+    fn row_of(&self, k: Key, v: ViewId, focus: Option<Key>) -> Row<'_> {
         let it = &self.items[k as usize];
         let pos = self.seq.pos(k);
         let in_block = self.owner(k).is_some();
@@ -1115,18 +1359,18 @@ impl OrderBook {
             name: &it.name,
             enabled: it.enabled,
             depth: in_block as u8,
-            collapsed: it.collapsed,
+            collapsed: self.view(v).collapsed.contains(&k),
             color: it.color,
             size: 0,
             group: it.group,
             muted: it.muted,
-            focused: self.effective_focus() == Some(k),
-            selected: self.cursor.selected.contains(&k),
+            focused: focus == Some(k),
+            selected: self.view(v).cursor.selected.contains(&k),
         };
         if it.kind == EntryKind::Separator {
             row.size = (self.seq.block_end(pos + 1) - pos - 1) as u32;
-        } else if let Some((_, g)) = self.group(k) {
-            if g.valid && g.collapsed && g.first == k {
+        } else if let Some((gid, g)) = self.group(k) {
+            if g.valid && self.group_collapsed(gid, v) && g.first == k {
                 row.kind = RowKind::Group;
                 row.name = &g.name;
                 row.collapsed = true;
@@ -1150,7 +1394,7 @@ enum Placement<'a> {
 #[cfg(test)]
 impl OrderBook {
     /// Rows recomputed from scratch by a plain scan (test oracle for the incremental path).
-    pub(super) fn naive_rows(&self) -> Vec<Key> {
+    pub(super) fn naive_rows(&self, v: ViewId) -> Vec<Key> {
         let order: Vec<Key> = self.seq.iter_from(0).collect();
         let mut pos = vec![usize::MAX; self.items.len()];
         for (i, &k) in order.iter().enumerate() {
@@ -1166,17 +1410,19 @@ impl OrderBook {
         for &k in &order {
             let it = &self.items[k as usize];
             if it.kind == EntryKind::Separator {
-                collapsed = it.collapsed;
+                collapsed = self.view(v).collapsed.contains(&k);
                 out.push(k);
                 continue;
             }
-            if collapsed || !self.passes_filter(it) {
+            if collapsed || !self.passes_filter(it, v) {
                 continue;
             }
-            if let Some(g) = it.group.and_then(|g| self.groups[g as usize].as_ref()) {
+            if let Some(gid) = it.group
+                && let Some(g) = self.groups[gid as usize].as_ref()
+            {
                 let (valid, first) = group_ok(g);
                 assert_eq!((valid, first), (g.valid, g.first), "group state drifted");
-                if valid && g.collapsed && first != k {
+                if valid && self.group_collapsed(gid, v) && first != k {
                     continue;
                 }
             }

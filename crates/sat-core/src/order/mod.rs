@@ -17,7 +17,9 @@ pub mod cursor;
 pub mod decor;
 pub mod seq;
 
-pub use book::{Change, Filter, GroupId, OrderBook, OrderError, Patch, Row, RowKind};
+pub use book::{
+    Change, Filter, GroupId, MAIN, OrderBook, OrderError, Patch, Row, RowKind, ViewChange, ViewId,
+};
 pub use cursor::{Nav, Select, Shift};
 pub use decor::{Decor, DecorIssue, GroupDef, MarkerIssue};
 pub use seq::Key;

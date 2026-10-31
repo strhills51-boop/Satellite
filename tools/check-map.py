@@ -6,7 +6,8 @@ Checks, failing CI on any violation:
 2. every source path the map mentions exists;
 3. every Rust source starts with a `//!` header whose first line carries a module anchor `@sat:<id>`
    and which has an `Owns:` line;
-4. anchors are unique across the repository;
+4. anchors are defined once across the repository (definition = the anchor on a module's first `//!` line or a
+   line that is only `// @sat:<id>`); any other mention is a reference and must point to a defined anchor;
 5. every anchor in code is mentioned in the map, and every anchor the map mentions exists in code.
 """
 import os
@@ -16,6 +17,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAP = os.path.join(ROOT, "docs", "semantic", "MAP.md")
 ANCHOR = re.compile(r"@sat:([a-z0-9][a-z0-9._-]*[a-z0-9])")
+BLOCK = re.compile(r"^//\s*@sat:[a-z0-9][a-z0-9._-]*[a-z0-9]\s*$")
 
 
 def sources():
@@ -46,6 +48,7 @@ def main():
             fail = True
 
     code_anchors = {}
+    references = []
     for f in files:
         lines = open(os.path.join(ROOT, f), encoding="utf-8").read().split("\n")
         header = []
@@ -62,14 +65,24 @@ def main():
             fail = True
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
-            if not (stripped.startswith("//") or stripped.startswith("///")):
+            if not stripped.startswith("//"):
                 continue
+            # a definition: the anchor on the first header line, or a line that is only `// @sat:<id>`
+            definition = (i == 1 and header) or BLOCK.match(stripped)
             for a in ANCHOR.findall(line):
+                if not definition:
+                    references.append((a, f, i))
+                    continue
                 if a in code_anchors:
                     error(f, f"anchor @sat:{a} also defined in {code_anchors[a][0]}:{code_anchors[a][1]} (line {i})")
                     fail = True
                 else:
                     code_anchors[a] = (f, i)
+
+    for a, f, i in references:
+        if a not in code_anchors:
+            error(f, f"line {i} refers to @sat:{a}, which is not defined anywhere")
+            fail = True
 
     map_anchors = set(ANCHOR.findall(text))
     for a, (f, i) in sorted(code_anchors.items()):
@@ -81,7 +94,7 @@ def main():
         fail = True
 
     if not fail:
-        print(f"semantic map OK: {len(files)} sources, {len(code_anchors)} anchors")
+        print(f"semantic map OK: {len(files)} sources, {len(code_anchors)} anchors, {len(references)} references")
     return 1 if fail else 0
 
 
