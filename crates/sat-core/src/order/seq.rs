@@ -18,6 +18,11 @@ const MIN: usize = TARGET / 4;
 const VISIBLE: u8 = 1;
 const SEPARATOR: u8 = 2;
 
+/// Lowest set bit of `i > 0` (`isolate_lowest_one` is newer than the pinned toolchain).
+fn lowbit(i: usize) -> usize {
+    1 << i.trailing_zeros()
+}
+
 #[derive(Debug, Clone, Default)]
 struct Fenwick {
     t: Vec<u32>,
@@ -28,7 +33,7 @@ impl Fenwick {
         let mut t: Vec<u32> = std::iter::once(0).chain(vals).collect();
         let n = t.len();
         for i in 1..n {
-            let j = i + (i & i.wrapping_neg());
+            let j = i + lowbit(i);
             if j < n {
                 t[j] += t[i];
             }
@@ -39,7 +44,7 @@ impl Fenwick {
         let mut i = i + 1;
         while i < self.t.len() {
             self.t[i] = self.t[i].wrapping_add_signed(delta);
-            i += i & i.wrapping_neg();
+            i += lowbit(i);
         }
     }
     /// Sum of `[0, i)`.
