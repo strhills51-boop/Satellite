@@ -3,6 +3,7 @@
 //! ```text
 //! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]
+//! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
 
@@ -48,8 +49,9 @@ fn main() {
     let res = match args.first().map(String::as_str) {
         Some("analyze") => analyze(&args[1..]),
         Some("donor") => donor(&args[1..]),
+        Some("inspect") => inspect(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -679,6 +681,65 @@ fn donor(args: &[String]) -> Result<(), String> {
             serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Prints what the format parsers see in real files (archives, plugins, textures). For checking parsers on samples.
+fn inspect(args: &[String]) -> Result<(), String> {
+    if args.is_empty() {
+        return Err("usage: sat-cli inspect <file>...".into());
+    }
+    for path in args {
+        let p = std::path::Path::new(path);
+        let ext = p
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let open = || std::fs::File::open(p).map_err(|e| format!("{path}: {e}"));
+        println!("== {path}");
+        match ext.as_str() {
+            "bsa" | "ba2" => {
+                let m = sat_formats::read_archive(open()?).map_err(|e| format!("{path}: {e}"))?;
+                let size: u64 = m.entries.iter().map(|e| e.size).sum();
+                let vram: u64 = m.entries.iter().map(|e| e.vram).sum();
+                println!(
+                    "kind={:?} entries={} sum_size={size} sum_vram={vram}",
+                    m.kind,
+                    m.entries.len()
+                );
+                for e in m.entries.iter().take(5) {
+                    println!("  {} size={} vram={}", e.path, e.size, e.vram);
+                }
+            }
+            "esp" | "esm" | "esl" => {
+                let h = sat_formats::read_plugin_header(std::io::BufReader::new(open()?))
+                    .map_err(|e| format!("{path}: {e}"))?;
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                println!("{h:?}\nkind={:?}", h.kind(&name));
+                let r = sat_formats::scan_records(std::io::BufReader::with_capacity(1 << 20, open()?))
+                    .map_err(|e| format!("{path}: {e}"))?;
+                let mut top: Vec<_> = r.by_signature.iter().collect();
+                top.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+                println!(
+                    "records total={} placed_refs={} top={:?}",
+                    r.total,
+                    r.placed_references(),
+                    &top[..top.len().min(8)]
+                );
+            }
+            "dds" => {
+                let data = std::fs::read(p).map_err(|e| format!("{path}: {e}"))?;
+                match sat_formats::DdsInfo::parse(&data) {
+                    Some(i) => println!("{i:?} known={}", i.known()),
+                    None => println!("not a DDS header ({} bytes)", data.len()),
+                }
+            }
+            _ => println!("unknown extension"),
+        }
     }
     Ok(())
 }

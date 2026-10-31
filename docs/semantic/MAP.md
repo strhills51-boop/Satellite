@@ -74,7 +74,7 @@
 - `crates/sat-scan/tests/scan.rs` — интеграционный тест: DDS, плагин, архив, кеш.
 
 ### `tools`
-- `tools/sat-cli/src/main.rs` — `analyze` (инвентарь, скан, сверка, таблица, проекция, отчёт), `donor`, `bench-synth`.
+- `tools/sat-cli/src/main.rs` — `analyze` (инвентарь, проект, скан, сверка, таблица, проекция, отчёт), `donor`, `inspect` (что видят разборщики форматов), `bench-synth`.
 
 ## Документы
 - `PHILOSOPHY.md` — направление и правила. `docs/adr/` — решения. `docs/distances/` — текущая работа.
