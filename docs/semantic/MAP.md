@@ -24,6 +24,12 @@
 | Сессия сборки: канон и факты, связанные с графом; команды только через неё | `@sat:session` (`@sat:session.state`, `@sat:session.command`) | граф сам (`@sat:engine.graph`) |
 | Перезапись по требованию: пересчёт только после изменения канона или фактов | `@sat:session.overwrite` → проекции `priorities` (канон, факты) → `overwrite` (факты, `priorities`) | декорации и виды её не трогают |
 | Статусы пробега, поколения, печати | `@sat:run.status`, `@sat:run.authority`, `@sat:run.seal` | — |
+| Ресурс: манифест (данные, без кода), род, id без доверия | `@sat:resource` (`@sat:resource.manifest`, `@sat:resource.kind`, `@sat:resource.digest`) | анализатор как контракт — `@sat:scan.analyzer` |
+| Источник загрузки → доверие; возможности на ресурс | `@sat:resource.source`, `@sat:resource.capability` | id-префикс `core.` ничего не даёт |
+| Политика и реестр: решения Active / NeedsApproval / Blocked, зависимости | `@sat:resource.policy`, `@sat:resource.registry`, `@sat:resource.decision` | — |
+| Одобрения на машине (id + версия + дайджест) | `@sat:resource.approvals` | проект одобрений не хранит |
+| Команды-ресурсы: словарь `op`, встроенные, проверка возможностей при запуске | `@sat:resource.command` (`@sat:resource.command.parse`, `@sat:resource.command.builtins`, `@sat:resource.command.check`); запуск — `Session::run` | сами операции — `@sat:order.cursor.navigate`, `@sat:order.cursor.shift` |
+| Клавиши-ресурсы: аккорд, раскладка по умолчанию, карта с приоритетом источника и конфликтами | `@sat:resource.hotkeys` (`@sat:resource.hotkeys.chord`, `@sat:resource.hotkeys.builtins`, `@sat:resource.hotkeys.keymap`) | — |
 
 ## Понятия → единственный владелец
 
@@ -93,6 +99,10 @@
 - `crates/sat-core/src/order/cursor.rs` — `@sat:order.cursor`: фокус / якорь / выделение и раскладка клавиш.
 - `crates/sat-core/src/order/decor.rs` — `@sat:order.decor`: декорации для проекта, кодек маркеров групп.
 - `crates/sat-core/src/order/tests.rs` — `@sat:order.tests`: модельные тесты.
+- `crates/sat-core/src/resource/mod.rs` — `@sat:resource`: манифест, источник, возможности, политика, реестр (ADR 0011).
+- `crates/sat-core/src/resource/approvals.rs` — `@sat:resource.approvals`: одобрения пользователя, файл на машине.
+- `crates/sat-core/src/resource/command.rs` — `@sat:resource.command`: встроенные команды и их запуск.
+- `crates/sat-core/src/resource/hotkeys.rs` — `@sat:resource.hotkeys`: аккорды, раскладка, карта клавиш.
 - `crates/sat-core/src/sync/mod.rs` — `@sat:sync`: оглавление синхронизации (ADR 0006).
 - `crates/sat-core/src/sync/names.rs` — `@sat:sync.names`: правила имён монолита.
 - `crates/sat-core/src/sync/donor.rs` — `@sat:sync.donor`: внешний донор.
@@ -125,7 +135,7 @@
 - `tools/sat-cli/src/bench_order.rs` — `@sat:cli.bench-order`: бенчмарк движка порядка.
 
 ## Документы
-- `PHILOSOPHY.md` — направление и правила. `docs/adr/` — решения (0010 — ядро и движок). `docs/distances/` — текущая работа.
+- `PHILOSOPHY.md` — направление и правила. `docs/adr/` — решения (0010 — ядро и движок, 0011 — реестр ресурсов). `docs/distances/` — текущая работа.
 - `docs/parity/` — что делает монолит (эталон поведения). `docs/semantic/monolith/` — конспект монолита:
   `00-index.md` (области и где они), `GOLD.md` (идеи, которые переносим), `structure.md` (генерирует `tools/monolith-map.py`).
 - `docs/semantic/old-satellite/` — конспект прототипа «Satellite V2 Constructor Core»: `00-conspectus.md` (по слоям,

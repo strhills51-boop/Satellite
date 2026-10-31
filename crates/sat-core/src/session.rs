@@ -104,6 +104,18 @@ impl Session {
         Ok(change)
     }
 
+    /// Runs a command resource by id in view `v` (key press, menu, palette): the registry checks it is active
+    /// and holds the capabilities its operation needs; the change goes through [`Session::command`].
+    pub fn run(
+        &mut self,
+        registry: &crate::resource::Registry,
+        id: &str,
+        v: order::ViewId,
+    ) -> Result<Option<order::Change>, crate::resource::CommandError> {
+        let action = crate::resource::command::authorize(registry.get(id), id)?;
+        Ok(self.command(|bk| action.apply(bk, v))?)
+    }
+
     /// New facts (a finished run): replaces the table and dirties everything that reads facts.
     pub fn set_facts(&mut self, table: Arc<ProviderTable>) {
         self.index = index_of(&table);
@@ -218,6 +230,21 @@ mod tests {
         assert_eq!(s.table().mod_name(ow.path_winner(path).unwrap()), "A");
         assert_eq!(s.computed("overwrite"), 3);
         assert_eq!(s.computed("priorities"), 3);
+    }
+
+    #[test]
+    fn commands_by_id_reach_the_graph() {
+        let mut s = session();
+        let r = crate::resource::Registry::with_builtins();
+        s.overwrite();
+        s.run(&r, "core.cursor.down", MAIN).unwrap(); // focus the separator
+        s.run(&r, "core.cursor.down", MAIN).unwrap(); // focus A
+        s.overwrite();
+        assert_eq!(s.computed("overwrite"), 1, "cursor moves are view-only");
+        s.run(&r, "core.order.toggle-enabled", MAIN).unwrap();
+        s.overwrite();
+        assert_eq!(s.computed("overwrite"), 2);
+        assert!(s.run(&r, "core.nope", MAIN).is_err());
     }
 
     #[test]
