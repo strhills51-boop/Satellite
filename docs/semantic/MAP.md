@@ -31,6 +31,7 @@
 | Кеш сканов (холодный, на машине) | `sat-scan/src/cache.rs` | контейнер проекта (ADR 0007) — другое |
 | Пул ввода-вывода | `sat-scan/src/lib.rs` (`scan`, `ScanOptions::io_threads`) | пул `rayon` по умолчанию — для вычислений ядра |
 | Донор: соответствие, категории, оценка | `sat-core/src/sync/donor.rs` | — |
+| Записи SYNC и сверка диска с проектом | `sat-core/src/sync/records.rs` (`reconcile`, `SyncRecord`, `Status`) | ключ сопоставления — `normalize_name`, ключ отпечатка — точное имя в нижнем регистре |
 
 ## Файлы
 
@@ -54,6 +55,7 @@
 - `crates/sat-core/src/sync/mod.rs` — оглавление синхронизации (ADR 0006).
 - `crates/sat-core/src/sync/names.rs` — правила имён монолита (сверено с JS на 1 128 именах).
 - `crates/sat-core/src/sync/donor.rs` — внешний донор: `FolderLookup`, `TargetIndex`, `validate`, `candidates`.
+- `crates/sat-core/src/sync/records.rs` — `reconcile(project, disk, previous)`: записи `FsCreated / FsDeleted / FsRenamed`, решения сохраняются между прогонами.
 
 ### `crates/sat-mo2` — адаптер Mod Organizer 2
 - `crates/sat-mo2/src/lib.rs` — `Mo2Error`, `read`, `write_atomic`.
@@ -70,7 +72,7 @@
 - `crates/sat-scan/tests/scan.rs` — интеграционный тест: DDS, плагин, архив, кеш.
 
 ### `tools`
-- `tools/sat-cli/src/main.rs` — `analyze` (инвентарь, скан, таблица, проекция, отчёт), `donor`, `bench-synth`.
+- `tools/sat-cli/src/main.rs` — `analyze` (инвентарь, скан, сверка, таблица, проекция, отчёт), `donor`, `bench-synth`.
 
 ## Документы
 - `PHILOSOPHY.md` — направление и правила. `docs/adr/` — решения. `docs/distances/` — текущая работа.

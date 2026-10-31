@@ -117,8 +117,22 @@ struct ScanBreakdown {
 }
 
 #[derive(Serialize)]
+struct SyncSummary {
+    /// Project = profile's modlist (imported), side = the mods folder (ADR 0006). No stored project yet, so
+    /// renames cannot be detected (entities have no recorded signature).
+    matched: usize,
+    fs_created_mods: usize,
+    fs_created_separators: usize,
+    fs_deleted_mods: usize,
+    fs_deleted_separators: usize,
+    fs_renamed: usize,
+    sample: Vec<String>,
+}
+
+#[derive(Serialize)]
 struct Report {
     instance: InstanceInfo,
+    sync: SyncSummary,
     mods_scanned: usize,
     from_cache: usize,
     missing: usize,
@@ -330,6 +344,63 @@ fn analyze(args: &[String]) -> Result<(), String> {
         breakdown.plugin_ms
     );
 
+    let sync = {
+        use sat_core::sync::records::{DiskFolder, EntityKind, Mismatch, ProjectEntity, reconcile};
+        let sig: std::collections::HashMap<String, u64> = outcomes
+            .iter()
+            .filter(|o| !o.facts.missing && o.facts.name != OVERWRITE)
+            .map(|o| (o.facts.name.to_lowercase(), o.signature))
+            .collect();
+        let project: Vec<ProjectEntity> = list
+            .entries
+            .iter()
+            .filter(|e| e.kind != EntryKind::Foreign)
+            .map(|e| ProjectEntity {
+                name: e.name.clone(),
+                kind: if e.kind == EntryKind::Separator {
+                    EntityKind::Separator
+                } else {
+                    EntityKind::Mod
+                },
+                signature: None,
+            })
+            .collect();
+        let disk: Vec<DiskFolder> = subfolders(&inst.mods_dir)
+            .into_iter()
+            .map(|name| DiskFolder {
+                signature: sig.get(&name.to_lowercase()).copied(),
+                name,
+            })
+            .collect();
+        let r = reconcile(&project, &disk, &[]);
+        let count = |pred: &dyn Fn(&Mismatch, EntityKind) -> bool| {
+            r.records.iter().filter(|x| pred(&x.mismatch, x.entity)).count()
+        };
+        let summary = SyncSummary {
+            matched: r.matched.len(),
+            fs_created_mods: count(&|m, k| matches!(m, Mismatch::FsCreated { .. }) && k == EntityKind::Mod),
+            fs_created_separators: count(&|m, k| {
+                matches!(m, Mismatch::FsCreated { .. }) && k == EntityKind::Separator
+            }),
+            fs_deleted_mods: count(&|m, k| matches!(m, Mismatch::FsDeleted { .. }) && k == EntityKind::Mod),
+            fs_deleted_separators: count(&|m, k| {
+                matches!(m, Mismatch::FsDeleted { .. }) && k == EntityKind::Separator
+            }),
+            fs_renamed: count(&|m, _| matches!(m, Mismatch::FsRenamed { .. })),
+            sample: r.records.iter().take(30).map(|x| x.fingerprint.clone()).collect(),
+        };
+        eprintln!(
+            "sync: matched={} created mods/separators={}/{} deleted mods/separators={}/{} renamed={}",
+            summary.matched,
+            summary.fs_created_mods,
+            summary.fs_created_separators,
+            summary.fs_deleted_mods,
+            summary.fs_deleted_separators,
+            summary.fs_renamed
+        );
+        summary
+    };
+
     let from_cache = outcomes.iter().filter(|o| o.from_cache).count();
     let missing = outcomes
         .iter()
@@ -376,6 +447,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .collect();
     let report = Report {
         instance: info,
+        sync,
         mods_scanned: jobs.len(),
         from_cache,
         missing,
