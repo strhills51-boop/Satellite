@@ -1,0 +1,17 @@
+[package]
+name = "sat-devserver"
+description = "Satellite dev shell: loads an MO2 build and serves the list window over local HTTP (ADR 0004)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sat-app.workspace = true
+sat-core.workspace = true
+sat-mo2.workspace = true
+sat-scan.workspace = true
+serde_json.workspace = true
+tiny_http = "0.12"
+
+[lints]
+workspace = true

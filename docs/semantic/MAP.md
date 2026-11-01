@@ -25,6 +25,7 @@
 | Перезапись по требованию: пересчёт только после изменения канона или фактов | `@sat:session.overwrite` → проекции `conflicts` (факты) и `priorities` (канон, факты) → `overwrite` (`conflicts`, `priorities` по ключам — `Input::Keyed`) | декорации и виды её не трогают |
 | Статусы пробега, поколения, печати | `@sat:run.status`, `@sat:run.authority`, `@sat:run.seal` | — |
 | API приложения: команды, запросы, события поверх сессии, без транспорта (ADR 0004) | `@sat:app` (`@sat:app.command`, `@sat:app.query`, `@sat:app.event`, `@sat:app.dispatch`) | транспорт — оболочки (`apps/`) |
+| Оболочка разработки: сборка MO2 в браузере на localhost, песочница | `@sat:devserver`, `@sat:devserver.load`, `@sat:devserver.http` | смысл команд — `@sat:app` |
 | Ресурс: манифест (данные, без кода), род, id без доверия | `@sat:resource` (`@sat:resource.manifest`, `@sat:resource.kind`, `@sat:resource.digest`) | анализатор как контракт — `@sat:scan.analyzer` |
 | Источник загрузки → доверие; возможности на ресурс | `@sat:resource.source`, `@sat:resource.capability` | id-префикс `core.` ничего не даёт |
 | Политика и реестр: решения Active / NeedsApproval / Blocked, зависимости | `@sat:resource.policy`, `@sat:resource.registry`, `@sat:resource.decision` | — |
@@ -118,6 +119,10 @@
 ### `crates/sat-app` — API приложения (ADR 0004)
 
 - `crates/sat-app/src/lib.rs` — `@sat:app`: `Command` / `Query` / `Reply` / `Event`, `App` — диспетчер над сессией и реестром ресурсов; строки окна со счётчиками карточки мода.
+
+### `apps/devserver` — оболочка разработки (ADR 0004)
+
+- `apps/devserver/src/main.rs` — `@sat:devserver`: загрузка сборки MO2 только на чтение (`@sat:devserver.load`), HTTP на `127.0.0.1` (`@sat:devserver.http`: `POST /command`, `POST /query`, `GET /`). Страница — `apps/devserver/src/index.html` (окно списка модов и плагинов; истины не держит).
 
 ### `crates/sat-formats` — форматы файлов игры, без файловой системы
 - `crates/sat-formats/src/lib.rs` — `@sat:formats`: `FormatError`, `normalize_path`, реэкспорты.

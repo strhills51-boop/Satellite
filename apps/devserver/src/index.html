@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Satellite NG</title>
+<!-- Part of @sat:devserver: the list window of the dev shell. It holds no truth: every key or click is a command,
+     every change comes back as an event, and the page re-reads only the rows it shows (ADR 0004 §4). -->
+<style>
+:root {
+  --bg: #f1f3f6; --panel: #ffffff; --fg: #1c2230; --muted: #6a7385; --line: #d7dce4;
+  --accent: #2f6fb3; --sel: #dbe8f6; --sep: #e6e9ef; --off: #9aa3b2;
+  --win: #2f8f5b; --lose: #c2413b; --mid: #c08a1a; --uniq: #2f6fb3; --x: #7b52b9;
+  --c0: #c2413b; --c1: #2f8f5b; --c2: #c08a1a; --c3: #7b52b9;
+  --black: #2b2f36; --red: #c2413b; --yellow: #c08a1a; --white: #b9c0cc; --blue: #2f6fb3; --green: #2f8f5b;
+  --row: 44px; --sep-row: 30px;
+  --ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #14171d; --panel: #1b1f27; --fg: #dde2ea; --muted: #8b94a5; --line: #2b313c;
+  --accent: #6ea8e6; --sel: #22354a; --sep: #222731; --off: #5f6878;
+  --win: #4fbf83; --lose: #e0645d; --mid: #e0b04a; --uniq: #6ea8e6; --x: #a888e0;
+  --black: #0d0f12; --white: #6b7280; color-scheme: dark } }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 13px/1.35 var(--ui); display: flex; flex-direction: column; padding: 10px 16px; gap: 8px; }
+header { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; }
+h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.note { color: var(--muted); font-size: 12px; }
+.tabs { display: flex; gap: 4px; }
+.tabs button, input { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 4px 10px; }
+.tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+.stats { display: flex; flex-wrap: wrap; gap: 4px 16px; font: 12px var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; }
+.stats b { color: var(--accent); font-weight: 500; }
+.bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+input[type="search"] { width: 18em; max-width: 100%; }
+#list { flex: 1; min-height: 200px; overflow-y: auto; position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; outline: none; }
+#list:focus-visible { border-color: var(--accent); }
+#spacer { width: 1px; }
+#layer { position: sticky; top: 0; height: 0; }
+.row { position: absolute; left: 0; right: 0; height: var(--row); border-bottom: 1px solid var(--line); cursor: default; user-select: none; }
+.row.sel { background: var(--sel); }
+/* mod card (owner's layout): toggle top-left, name centred and cut on the right, counters bottom-right */
+.card { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: 22px 18px; height: 100%; padding: 2px 10px 2px 6px; }
+.toggle { grid-row: 1; grid-column: 1; width: 12px; height: 12px; margin: 5px 0 0 3px; border-radius: 50%; border: 1.5px solid var(--off); }
+.on .toggle { background: var(--accent); border-color: var(--accent); }
+.name { grid-row: 1; grid-column: 2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 2px; }
+.off .name { color: var(--off); }
+.counters { grid-row: 2; grid-column: 1 / 3; display: flex; justify-content: flex-end; gap: 10px; font: 11px var(--mono); color: var(--muted); }
+.counters .w { color: var(--win); } .counters .l { color: var(--lose); } .counters .m { color: var(--mid); } .counters .u { color: var(--uniq); } .counters .x { color: var(--x); font-weight: 600; }
+.prio { position: absolute; left: 8px; bottom: 3px; font: 10px var(--mono); color: var(--muted); }
+.row.sep { height: var(--sep-row); background: var(--sep); font-weight: 600; display: flex; align-items: center; gap: 6px; padding: 0 10px; }
+.row.sep .size { margin-left: auto; font: 11px var(--mono); color: var(--muted); font-weight: 400; }
+.row.foreign .name { font-style: italic; color: var(--muted); }
+.row[data-color="0"] { box-shadow: inset 4px 0 var(--c0); } .row[data-color="1"] { box-shadow: inset 4px 0 var(--c1); }
+.row[data-color="2"] { box-shadow: inset 4px 0 var(--c2); } .row[data-color="3"] { box-shadow: inset 4px 0 var(--c3); }
+.d1 .card { padding-left: 20px; }
+/* keyboard focus: two opposite corners (monolith) */
+.row.focus::before, .row.focus::after { content: ""; position: absolute; width: 10px; height: 10px; border: 2px solid var(--accent); pointer-events: none; }
+.row.focus::before { top: 2px; left: 2px; border-right: 0; border-bottom: 0; }
+.row.focus::after { bottom: 2px; right: 2px; border-left: 0; border-top: 0; }
+#plugins { flex: 1; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 500; }
+td.idx { font-family: var(--mono); }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+footer { color: var(--muted); font-size: 12px; }
+kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; background: var(--panel); }
+#err { color: var(--lose); font-size: 12px; min-height: 1em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Satellite NG</h1>
+  <span class="note">песочница: изменения живут в памяти и никуда не пишутся</span>
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tMods" aria-selected="true">Моды</button>
+    <button role="tab" id="tPlugins" aria-selected="false">Плагины</button>
+  </div>
+</header>
+<div class="stats" id="stats">загрузка…</div>
+<div class="bar" id="modbar">
+  <input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени">
+  <span id="err" role="status"></span>
+</div>
+<div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
+<div id="plugins" hidden></div>
+<footer>
+  <kbd>↑</kbd><kbd>↓</kbd> фокус · <kbd>Shift</kbd> расширить · <kbd>Ctrl</kbd> только фокус · <kbd>Пробел</kbd> в выделение ·
+  <kbd>Alt</kbd>+<kbd>↑↓</kbd> двигать выделенное · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>↑↓</kbd> к краю блока ·
+  <kbd>←</kbd><kbd>→</kbd> свернуть / развернуть · <kbd>Enter</kbd> вкл/выкл · <kbd>Ctrl</kbd>+<kbd>A</kbd> · <kbd>Esc</kbd> ·
+  <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd> · счётчики: <span style="color:var(--win)">W</span> выигрывает,
+  <span style="color:var(--lose)">L</span> проигрывает, <span style="color:var(--mid)">M</span> в середине стека, <span style="color:var(--uniq)">+n</span> уникальные, <span style="color:var(--x)">X</span> не виден в игре
+</footer>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const list = $("list"), layer = $("layer"), spacer = $("spacer");
+const ROW = 44, VIEW = 0, MAXPX = 8_000_000;
+let len = 0, pool = [], busy = false, again = false;
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const command = c => post("/command", c);
+const query = q => post("/query", q);
+
+function scale() { const t = len * ROW; return t > MAXPX ? (t - list.clientHeight) / (MAXPX - list.clientHeight) : 1; }
+function vtop() { return list.scrollTop * scale(); }
+
+function ensurePool() {
+  const need = Math.ceil(list.clientHeight / ROW) + 2;
+  while (pool.length < need) { const el = document.createElement("div"); el.className = "row"; layer.appendChild(el); pool.push(el); }
+}
+
+function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+function paint(el, r) {
+  if (!r) { el.hidden = true; return; }
+  el.hidden = false; el._row = r;
+  const cls = ["row"];
+  if (r.selected) cls.push("sel");
+  if (r.focused) cls.push("focus");
+  if (r.color !== null && r.color !== undefined) el.dataset.color = r.color % 4; else delete el.dataset.color;
+  if (r.kind === "separator" || r.kind === "group") {
+    cls.push("sep");
+    el.className = cls.join(" ");
+    el.innerHTML = `<span>${r.collapsed ? "▸" : "▾"}</span><span>${esc(r.name.replace(/_separator$/, ""))}</span><span class="size">${r.size}</span>`;
+    return;
+  }
+  cls.push(r.kind, `d${Math.min(r.depth, 1)}`, r.enabled ? "on" : "off");
+  el.className = cls.join(" ");
+  const c = r.counters;
+  const counters = c ? [
+    c.x ? `<span class="x">X</span>` : "",
+    c.plugins ? `<span>${c.plugins} esp</span>` : "",
+    c.win ? `<span class="w">W${c.win}</span>` : "",
+    c.lose ? `<span class="l">L${c.lose}</span>` : "",
+    c.mid ? `<span class="m">M${c.mid}</span>` : "",
+    c.unique ? `<span class="u">+${c.unique}</span>` : "",
+  ].join("") : "";
+  el.innerHTML = `<div class="card"><span class="toggle"></span><span class="name">${esc(r.name)}</span><div class="counters">${counters}</div></div><span class="prio">${r.pos}</span>`;
+}
+
+/** Re-reads only the rows in the window. */
+async function sync(follow) {
+  if (busy) { again = true; return; }
+  busy = true;
+  try {
+    ensurePool();
+    const first = Math.floor(vtop() / ROW);
+    const rep = await query({ type: "rows", view: VIEW, start: first, count: pool.length });
+    len = rep.len;
+    spacer.style.height = Math.min(len * ROW, MAXPX) + "px";
+    if (follow && rep.focus_row !== null) {
+      const top = rep.focus_row * ROW, vt = vtop(), h = list.clientHeight;
+      if (top < vt || top + ROW > vt + h) {
+        list.scrollTop = Math.max(0, (top < vt ? top : top + ROW - h)) / scale();
+        busy = false; return sync(false);
+      }
+    }
+    const off = -(vtop() - first * ROW);
+    pool.forEach((el, i) => { el.style.transform = `translateY(${off + i * ROW}px)`; paint(el, rep.rows[i]); });
+  } catch (e) { $("err").textContent = e.message; }
+  busy = false;
+  if (again) { again = false; sync(false); }
+}
+
+async function totals() {
+  const t = await query({ type: "totals" });
+  const o = t.overwrite, p = t.plugins;
+  $("stats").innerHTML = [
+    `строк <b>${len.toLocaleString("ru-RU")}</b>`,
+    `конфликтных путей <b>${o.conflict_paths.toLocaleString("ru-RU")}</b>`,
+    `цепочек <b>${o.chains.toLocaleString("ru-RU")}</b>`,
+    `контекстов <b>${o.contexts}</b>`,
+    `X <b>${o.fully_overridden}</b>`,
+    `плагинов <b>${p.active_full}</b> полных + <b>${p.active_light}</b> лёгких`,
+    p.overflow_full + p.overflow_light ? `сверх лимита <b>${p.overflow_full}/${p.overflow_light}</b>` : "",
+    `в нескольких модах <b>${p.versioned}</b>`,
+    `без мастеров <b>${p.with_missing_masters}</b>`,
+  ].filter(Boolean).join("<span></span>");
+}
+
+async function run(c) {
+  $("err").textContent = "";
+  try {
+    const ev = await command(c);
+    if (ev.type === "changed") { await sync(true); if (ev.canon) totals(); }
+  } catch (e) { $("err").textContent = e.message; }
+}
+
+function chord(ev) {
+  const named = { " ": "Space", ArrowUp: "ArrowUp", ArrowDown: "ArrowDown", ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight",
+    PageUp: "PageUp", PageDown: "PageDown", Home: "Home", End: "End", Enter: "Enter", Escape: "Escape" };
+  let key = named[ev.key] || (ev.key.length === 1 ? ev.key.toUpperCase() : null);
+  if (!key) return null;
+  return (ev.ctrlKey || ev.metaKey ? "Ctrl+" : "") + (ev.altKey ? "Alt+" : "") + (ev.shiftKey ? "Shift+" : "") + key;
+}
+
+list.addEventListener("keydown", ev => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); return run({ type: ev.shiftKey ? "redo" : "undo" }); }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "y") { ev.preventDefault(); return run({ type: "redo" }); }
+  const c = chord(ev);
+  if (!c) return;
+  ev.preventDefault();
+  run({ type: "key", view: VIEW, chord: c });
+});
+list.addEventListener("click", ev => {
+  const el = ev.target.closest(".row"); if (!el || !el._row) return;
+  const r = el._row, row = Math.floor((vtop() + (el.getBoundingClientRect().top - list.getBoundingClientRect().top) + 1) / ROW);
+  if (ev.target.classList.contains("toggle")) return run({ type: "set-enabled", keys: [r.key], enabled: null });
+  if ((r.kind === "separator" || r.kind === "group") && ev.offsetX < 24) return run({ type: "set-collapsed", view: VIEW, separator: r.key, collapsed: !r.collapsed });
+  const select = ev.shiftKey ? "extend" : (ev.ctrlKey || ev.metaKey) ? "toggle" : "replace";
+  run({ type: "navigate", view: VIEW, nav: { row: row }, select });
+});
+list.addEventListener("scroll", () => sync(false), { passive: true });
+window.addEventListener("resize", () => sync(false));
+let ft;
+$("filter").addEventListener("input", ev => {
+  clearTimeout(ft);
+  ft = setTimeout(() => run({ type: "set-filter", view: VIEW, filter: { text: ev.target.value, enabled: null, color: null, show_muted: false } }), 150);
+});
+
+async function showPlugins() {
+  const { plugins } = await query({ type: "plugins" });
+  const rows = plugins.map(p => `<tr><td class="idx">${p.index ?? "—"}</td><td><span class="dot" style="background:var(--${p.colour})"></span>${esc(p.name)}</td>` +
+    `<td>${({ enabled: "отмечен", disabled: "снят", implicit: "неявно (игра)", unlisted: "нет в списках" })[p.listed] ?? p.listed}</td><td>${esc(p.owner ?? "")}</td><td>${p.versions > 1 ? p.versions + " версии" : ""}</td><td>${esc(p.missing_masters.join(", "))}</td></tr>`).join("");
+  $("plugins").innerHTML = `<table><thead><tr><th>Индекс</th><th>Плагин</th><th>В списках MO2</th><th>Из мода</th><th>Версии</th><th>Нет мастеров</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function tab(plugins) {
+  $("tMods").setAttribute("aria-selected", !plugins); $("tPlugins").setAttribute("aria-selected", plugins);
+  list.hidden = plugins; $("modbar").hidden = plugins; $("plugins").hidden = !plugins;
+  if (plugins) showPlugins(); else { sync(false); list.focus(); }
+}
+$("tMods").onclick = () => tab(false);
+$("tPlugins").onclick = () => tab(true);
+
+(async () => { await sync(false); await totals(); list.focus(); })();
+</script>
+</body>
+</html>

@@ -55,8 +55,10 @@ jobs:
             echo "::error title=windows tests failed::$msg"
             exit 1
           fi
-      - run: cargo build --release -p sat-cli
+      - run: cargo build --release -p sat-cli -p sat-devserver
       - uses: actions/upload-artifact@v4
         with:
           name: sat-cli-windows
-          path: target/release/sat-cli.exe
+          path: |
+            target/release/sat-cli.exe
+            target/release/sat-devserver.exe

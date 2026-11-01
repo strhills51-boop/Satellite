@@ -137,9 +137,11 @@ pub struct PluginView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Reply {
+    /// `focus_row`: the row of the keyboard focus in this view (the window scrolls to keep it visible).
     Rows {
         view: ViewId,
         len: usize,
+        focus_row: Option<usize>,
         rows: Vec<RowView>,
     },
     Totals {
@@ -331,7 +333,12 @@ impl App {
                         }
                     })
                     .collect();
-                Reply::Rows { view, len, rows }
+                Reply::Rows {
+                    view,
+                    len,
+                    focus_row: book.focus_row(view),
+                    rows,
+                }
             }
             Query::Totals => {
                 let ow = self.session.overwrite();

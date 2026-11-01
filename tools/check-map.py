@@ -2,7 +2,7 @@
 """Semantic layer guard (ADR 0010 §«Семантический слой», PHILOSOPHY §5).
 
 Checks, failing CI on any violation:
-1. every Rust source under crates/ and tools/ is listed in docs/semantic/MAP.md;
+1. every Rust source under crates/, tools/ and apps/ is listed in docs/semantic/MAP.md;
 2. every source path the map mentions exists;
 3. every Rust source starts with a `//!` header whose first line carries a module anchor `@sat:<id>`
    and which has an `Owns:` line;
@@ -21,7 +21,7 @@ BLOCK = re.compile(r"^//\s*@sat:[a-z0-9][a-z0-9._-]*[a-z0-9]\s*$")
 
 
 def sources():
-    for top in ("crates", "tools"):
+    for top in ("crates", "tools", "apps"):
         for dirpath, dirnames, files in os.walk(os.path.join(ROOT, top)):
             dirnames[:] = [d for d in dirnames if d not in ("target", "node_modules")]
             for f in files:
@@ -42,7 +42,7 @@ def main():
         if f"`{f}`" not in text:
             error(f, "not listed in docs/semantic/MAP.md")
             fail = True
-    for p in sorted(set(re.findall(r"`((?:crates|tools)/[^` ]+\.rs)`", text))):
+    for p in sorted(set(re.findall(r"`((?:crates|tools|apps)/[^` ]+\.rs)`", text))):
         if not os.path.exists(os.path.join(ROOT, p)):
             error("docs/semantic/MAP.md", f"mentions missing path {p}")
             fail = True
