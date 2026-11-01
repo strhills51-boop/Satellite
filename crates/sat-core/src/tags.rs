@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Neutral tag colour (monolith `DEFAULT_TAG_COLOR`).
-pub const DEFAULT_TAG_COLOR: u32 = 0x47_55_69;
+pub const DEFAULT_TAG_COLOR: u32 = 0x475569;
 
 /// One tag definition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,7 +116,7 @@ impl Default for TagCatalog {
 /// Semantic groups: a tag whose words include one of these gets the group's colour (monolith, first match wins).
 const GROUPS: &[(u32, &[&str])] = &[
     (
-        0xf9_73_16,
+        0xf97316,
         &[
             "skse",
             "dll",
@@ -128,7 +128,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0x64_74_8b,
+        0x64748b,
         &[
             "patch",
             "compat",
@@ -144,7 +144,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0x8b_5c_f6,
+        0x8b5cf6,
         &[
             "oar",
             "dar",
@@ -160,7 +160,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0xef_44_44,
+        0xef4444,
         &[
             "combat",
             "mco",
@@ -175,7 +175,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0x3b_82_f6,
+        0x3b82f6,
         &[
             "ui",
             "hud",
@@ -193,7 +193,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0x22_c5_5e,
+        0x22c55e,
         &[
             "enb",
             "reshade",
@@ -214,7 +214,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0x14_b8_a6,
+        0x14b8a6,
         &[
             "world",
             "landscape",
@@ -234,7 +234,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0xec_48_99,
+        0xec4899,
         &[
             "racemenu",
             "character",
@@ -263,7 +263,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0xf5_9e_0b,
+        0xf59e0b,
         &[
             "equipment",
             "armor",
@@ -280,7 +280,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0xa8_55_f7,
+        0xa855f7,
         &[
             "quest",
             "dialogue",
@@ -293,11 +293,11 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0xfa_cc_15,
+        0xfacc15,
         &["audio", "voice", "voiced", "dbvo", "xvasynth", "music", "dolby"],
     ),
     (
-        0x63_66_f1,
+        0x6366f1,
         &[
             "perk",
             "magic",
@@ -314,7 +314,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0x92_40_0e,
+        0x92400e,
         &[
             "survival",
             "economy",
@@ -327,7 +327,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0xf9_73_16,
+        0xf97316,
         &[
             "enemies",
             "creatures",
@@ -344,7 +344,7 @@ const GROUPS: &[(u32, &[&str])] = &[
         ],
     ),
     (
-        0xe1_1d_48,
+        0xe11d48,
         &[
             "sexlab",
             "slal",
@@ -362,7 +362,7 @@ const GROUPS: &[(u32, &[&str])] = &[
 
 /// Colours the monolith treats as "no colour chosen" (its neutral greys).
 fn neutral(c: u32) -> bool {
-    matches!(c, DEFAULT_TAG_COLOR | 0x64_74_8b | 0x33_41_55 | 0x37_41_51)
+    matches!(c, DEFAULT_TAG_COLOR | 0x64748b | 0x334155 | 0x374151)
 }
 
 /// Words of a tag: `_` and `-` are spaces (monolith `normalizeTagNameKey`), lower case.
@@ -413,35 +413,35 @@ mod tests {
     #[test]
     fn colours_come_from_the_catalog_then_the_group() {
         let mut cat = TagCatalog::default();
-        assert_eq!(cat.color("SKSE"), 0xf9_73_16);
+        assert_eq!(cat.color("SKSE"), 0xf97316);
         assert_eq!(
             cat.color("character-assets"),
-            0xec_48_99,
+            0xec4899,
             "`-` is a space: the word `character`"
         );
         assert_eq!(
             cat.color("texture landscape"),
-            0x22_c5_5e,
+            0x22c55e,
             "first group wins (texture before landscape)"
         );
         assert_eq!(
             cat.color("Textures Landscape"),
-            0x14_b8_a6,
+            0x14b8a6,
             "whole words: `textures` is not `texture`"
         );
         assert_eq!(
             cat.color("ui_fix"),
-            0x64_74_8b,
+            0x64748b,
             "`fix` comes before `ui` in the monolith's order"
         );
         assert_eq!(cat.color("my stuff"), DEFAULT_TAG_COLOR);
         assert_eq!(cat.color("skyuiish"), DEFAULT_TAG_COLOR, "whole words only");
         cat.0[0].tags.push(TagDef {
             name: "My Stuff".into(),
-            color: Some(0x12_34_56),
+            color: Some(0x123456),
             short: None,
         });
-        assert_eq!(cat.color("my_stuff"), 0x12_34_56);
+        assert_eq!(cat.color("my_stuff"), 0x123456);
         // the stickers are there by default
         assert_eq!(cat.find("⭐").and_then(|t| t.short.as_deref()), Some("Избранное"));
     }

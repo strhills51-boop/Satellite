@@ -228,9 +228,9 @@ fn merge_style(cur: Option<&CardStyle>, patch: &serde_json::Value) -> Result<Opt
     }
     fn part_default(k: &str) -> serde_json::Value {
         match k {
-            "fill" => serde_json::json!({"kind": "solid", "color": 0x3b_82_f6}),
-            "outline" => serde_json::json!({"radius": 8, "width": 1, "style": "solid", "color": 0x94_a3_b8}),
-            "accent" => serde_json::json!({"color": 0xfa_cc_15, "width": 4}),
+            "fill" => serde_json::json!({"kind": "solid", "color": 0x3b82f6}),
+            "outline" => serde_json::json!({"radius": 8, "width": 1, "style": "solid", "color": 0x94a3b8}),
+            "accent" => serde_json::json!({"color": 0xfacc15, "width": 4}),
             "watermark" => {
                 serde_json::json!({"emoji": "✨", "position": "right", "size": 28, "opacity": 35, "blur": 0})
             }
@@ -1689,7 +1689,7 @@ mod tests {
         };
         assert_eq!(
             (tags[0].name.as_str(), tags[0].entries, tags[0].color),
-            ("UI", 1, 0x3b_82_f6)
+            ("UI", 1, 0x3b82f6)
         );
         assert!(catalog.find("SKSE").is_some());
         a.command(Command::Undo).unwrap();
