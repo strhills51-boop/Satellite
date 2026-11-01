@@ -593,3 +593,53 @@ fn card_style_is_undoable_interned_and_travels_with_the_project() {
     m.assert_eq(&b, "after undo");
     assert_eq!(b.style(mods[0]), None);
 }
+
+#[test]
+fn marks_are_undoable_normalized_and_travel_with_the_project() {
+    use super::decor::Marks;
+    let mut rng = Rng(12);
+    let mut b = OrderBook::from_modlist(&list(40, &mut rng));
+    let mut m = Mirror::new(&b, MAIN);
+    let mods: Vec<Key> = b
+        .rows(MAIN, 0, usize::MAX)
+        .iter()
+        .filter(|r| r.kind == RowKind::Mod)
+        .map(|r| r.key)
+        .take(2)
+        .collect();
+    // add a tag to two mods, a note to one: each mod keeps what it had
+    let add = |tag: &'static str| {
+        move |mut mk: Marks| {
+            mk.tags.push(tag.into());
+            mk
+        }
+    };
+    let c = b.patch_marks(&mods, add(" UI ")).unwrap().expect("changed");
+    m.apply(&b, &c);
+    b.patch_marks(&mods[..1], |mut mk| {
+        mk.note = "line 1\r\nline 2".into();
+        mk.tags.push("ui".into()); // same tag, other case: kept once
+        mk.tags.push("Armor".into());
+        mk
+    })
+    .unwrap();
+    assert_eq!(b.marks(mods[0]).unwrap().tags, ["Armor", "UI"]);
+    assert_eq!(b.marks(mods[0]).unwrap().note, "line 1\nline 2");
+    assert_eq!(b.marks(mods[1]).unwrap().tags, ["UI"]);
+    assert_eq!(b.tags_in_use(), [("Armor".to_string(), 1), ("UI".to_string(), 2)]);
+    // project round trip
+    let d = b.decor();
+    let json = serde_json::to_string(&d).unwrap();
+    let mut b2 = OrderBook::from_modlist(&b.to_modlist());
+    b2.apply_decor(&serde_json::from_str(&json).unwrap());
+    assert_eq!(b2.marks(mods[0]), b.marks(mods[0]));
+    // undo the note edit, then the tag: nothing left
+    b.undo();
+    assert_eq!(b.marks(mods[0]).unwrap().tags, ["UI"]);
+    b.undo();
+    assert!(b.marks(mods[0]).is_none() && b.marks(mods[1]).is_none());
+    // a patch that empties the marks removes them
+    b.redo();
+    b.patch_marks(&mods, |_| Marks::default()).unwrap();
+    assert!(b.marks(mods[1]).is_none());
+}

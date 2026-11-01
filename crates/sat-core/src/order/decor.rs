@@ -31,6 +31,9 @@ pub struct Decor {
     /// Card styles (names → style), ADR 0012.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub styles: BTreeMap<String, CardStyle>,
+    /// Tags, stickers and notes by entry name (`@sat:order.decor.marks`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub marks: BTreeMap<String, Marks>,
 }
 
 // @sat:order.decor.style
@@ -92,6 +95,48 @@ impl CardStyle {
             other.margin_top,
             other.margin_bottom,
         )
+    }
+}
+
+// @sat:order.decor.marks
+/// What the user writes on an entry: tags, stickers (emoji) and a note. Manual only: tags found by analysis or
+/// rules are another layer (facts), so a re-run can never wipe what the user wrote — the monolith kept all of them
+/// in one bag (`mod.derived.tags`) and cleared it on every reset of a mod's run state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Marks {
+    /// Sorted, unique by case-folded name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stickers: Vec<String>,
+    /// Up to [`NOTE_LIMIT`] characters, `\n` line ends (monolith `normalizeEntityNote`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+
+/// Longest note kept (characters).
+pub const NOTE_LIMIT: usize = 4000;
+
+impl Marks {
+    pub fn is_empty(&self) -> bool {
+        self.tags.is_empty() && self.stickers.is_empty() && self.note.is_empty()
+    }
+    /// Puts the marks in their normal form: tags trimmed, unique by case and sorted; stickers unique in order;
+    /// the note with `\n` line ends, cut at [`NOTE_LIMIT`].
+    pub fn normalized(mut self) -> Self {
+        let mut seen = std::collections::HashSet::new();
+        self.tags = self
+            .tags
+            .iter()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty() && seen.insert(t.to_lowercase()))
+            .collect();
+        self.tags.sort_by_key(|t| t.to_lowercase());
+        let mut seen = std::collections::HashSet::new();
+        self.stickers
+            .retain(|t| !t.trim().is_empty() && seen.insert(t.clone()));
+        self.note = self.note.replace("\r\n", "\n").chars().take(NOTE_LIMIT).collect();
+        self
     }
 }
 
@@ -200,6 +245,7 @@ impl Decor {
             && self.collapsed.is_empty()
             && self.muted.is_empty()
             && self.styles.is_empty()
+            && self.marks.is_empty()
     }
 }
 

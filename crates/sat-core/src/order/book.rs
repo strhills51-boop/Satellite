@@ -18,7 +18,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use super::cursor::Cursor;
-use super::decor::{CardStyle, Decor, DecorIssue, GroupDef};
+use super::decor::{CardStyle, Decor, DecorIssue, GroupDef, Marks};
 use super::seq::{Key, Layer, Seq};
 use crate::canon::{Entry, EntryKind, Modlist};
 use crate::engine::{self, Keys, Truth};
@@ -126,6 +126,8 @@ pub struct Row<'a> {
     pub muted: bool,
     /// Card style (ADR 0012), if the entry has one.
     pub style: Option<&'a CardStyle>,
+    /// Tags, stickers, note.
+    pub marks: Option<&'a Marks>,
     /// The keyboard cursor is on this row.
     pub focused: bool,
     pub selected: bool,
@@ -154,6 +156,8 @@ pub(super) struct Item {
     pub(super) muted: bool,
     /// Index into the book's interned card styles (ADR 0012).
     pub(super) style: Option<u32>,
+    /// Index into the book's interned marks (tags, stickers, note).
+    pub(super) marks: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -176,6 +180,8 @@ enum Op {
     Color(Vec<(Key, Option<u32>)>),
     /// Card style by interned id.
     Style(Vec<(Key, Option<u32>)>),
+    /// Marks by interned id.
+    Marks(Vec<(Key, Option<u32>)>),
     Muted(Vec<(Key, bool)>),
     MakeGroup {
         id: GroupId,
@@ -290,6 +296,9 @@ pub struct OrderBook {
     style_ids: FxHashMap<CardStyle, u32>,
     /// Entries that have a style (the flow layout lays out only their blocks entry by entry).
     pub(super) styled: FxHashSet<Key>,
+    /// Interned marks (most entries share none; tag sets repeat).
+    marks: Vec<Marks>,
+    mark_ids: FxHashMap<Marks, u32>,
     revision: u64,
     undo: Vec<(Op, Op)>,
     redo: Vec<(Op, Op)>,
@@ -310,6 +319,7 @@ impl OrderBook {
                 group: None,
                 muted: false,
                 style: None,
+                marks: None,
             })
             .collect();
         let by_name = items
@@ -332,6 +342,8 @@ impl OrderBook {
             styles: Vec::new(),
             style_ids: FxHashMap::default(),
             styled: FxHashSet::default(),
+            marks: Vec::new(),
+            mark_ids: FxHashMap::default(),
             revision: 0,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -705,6 +717,52 @@ impl OrderBook {
             .map_err(PatchStyleError::Order)
     }
 
+    // @sat:order.book.marks
+    /// Changes the marks of each entry by `f(current)` in one undoable step (add a tag to a selection, edit a note).
+    /// The result is normalized; empty marks are removed.
+    pub fn patch_marks(
+        &mut self,
+        keys: &[Key],
+        mut f: impl FnMut(Marks) -> Marks,
+    ) -> Result<Option<Change>, OrderError> {
+        let mut each = Vec::with_capacity(keys.len());
+        for &k in keys {
+            self.check_key(k)?;
+            let next = f(self.marks(k).cloned().unwrap_or_default()).normalized();
+            let id = (!next.is_empty()).then(|| self.intern_marks(next));
+            each.push((k, id));
+        }
+        self.apply_recorded(Op::Marks(each))
+    }
+
+    /// Marks of an entry.
+    pub fn marks(&self, k: Key) -> Option<&Marks> {
+        self.items[k as usize].marks.map(|i| &self.marks[i as usize])
+    }
+
+    fn intern_marks(&mut self, m: Marks) -> u32 {
+        if let Some(&i) = self.mark_ids.get(&m) {
+            return i;
+        }
+        let i = self.marks.len() as u32;
+        self.marks.push(m.clone());
+        self.mark_ids.insert(m, i);
+        i
+    }
+
+    /// Every tag in use, with the number of entries carrying it (for a tag list and filters).
+    pub fn tags_in_use(&self) -> Vec<(String, usize)> {
+        let mut count: std::collections::BTreeMap<String, (String, usize)> = Default::default();
+        for it in &self.items {
+            if let Some(i) = it.marks {
+                for t in &self.marks[i as usize].tags {
+                    count.entry(t.to_lowercase()).or_insert_with(|| (t.clone(), 0)).1 += 1;
+                }
+            }
+        }
+        count.into_values().collect()
+    }
+
     /// Card style of an entry.
     pub fn style(&self, k: Key) -> Option<&CardStyle> {
         self.items[k as usize].style.map(|i| &self.styles[i as usize])
@@ -813,6 +871,7 @@ impl OrderBook {
                     group: None,
                     muted: false,
                     style: None,
+                    marks: None,
                 });
                 (self.items.len() - 1) as Key
             })
@@ -958,6 +1017,21 @@ impl OrderBook {
                 p.truth(Truth::Decoration, touched.iter().copied());
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Style(inv))
+            }
+            Op::Marks(each) => {
+                let mut inv = Vec::new();
+                let mut touched = HashSet::new();
+                for &(k, m) in each {
+                    let it = &mut self.items[k as usize];
+                    if it.marks != m {
+                        inv.push((k, it.marks));
+                        it.marks = m;
+                        touched.insert(k);
+                    }
+                }
+                p.truth(Truth::Decoration, touched.iter().copied());
+                self.after_content_change(touched, p);
+                (!inv.is_empty()).then_some(Op::Marks(inv))
             }
             Op::Muted(each) => {
                 let mut inv = Vec::new();
@@ -1249,6 +1323,9 @@ impl OrderBook {
             if let Some(i) = it.style {
                 d.styles.insert(it.name.clone(), self.styles[i as usize].clone());
             }
+            if let Some(i) = it.marks {
+                d.marks.insert(it.name.clone(), self.marks[i as usize].clone());
+            }
         }
         for (g, gr) in self.groups.iter().enumerate() {
             let Some(gr) = gr else { continue };
@@ -1276,6 +1353,7 @@ impl OrderBook {
             it.group = None;
             it.muted = false;
             it.style = None;
+            it.marks = None;
         }
         self.styled.clear();
         let mut collapsed: FxHashSet<Key> = FxHashSet::default();
@@ -1296,6 +1374,18 @@ impl OrderBook {
                     let id = self.intern_style(st.clone());
                     self.items[k as usize].style = Some(id);
                     self.styled.insert(k);
+                }
+                None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+            }
+        }
+        for (name, m) in &d.marks {
+            match self.key_of(name) {
+                Some(k) => {
+                    let m = m.clone().normalized();
+                    if !m.is_empty() {
+                        let id = self.intern_marks(m);
+                        self.items[k as usize].marks = Some(id);
+                    }
                 }
                 None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
             }
@@ -1485,6 +1575,7 @@ impl OrderBook {
             group: it.group,
             muted: it.muted,
             style: it.style.map(|i| &self.styles[i as usize]),
+            marks: it.marks.map(|i| &self.marks[i as usize]),
             focused: focus == Some(k),
             selected: self.view(v).cursor.selected.contains(&k),
         };

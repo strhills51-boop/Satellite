@@ -100,6 +100,11 @@ pub enum Command {
         name: String,
         checked: bool,
     },
+    /// Edit tags, stickers or the note of entries; each entry keeps its other marks. One undo step.
+    EditMarks {
+        keys: Vec<Key>,
+        edit: MarksEdit,
+    },
     /// Replace the conflict ignore rules (`meta.ini`, `docs/`, `a/b.dds`): conflicts and chains are recomputed.
     SetConflictIgnore {
         rules: Vec<String>,
@@ -125,6 +130,17 @@ pub enum Command {
 }
 
 // @sat:app.query
+/// One change of marks (`@sat:order.decor.marks`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "kebab-case")]
+pub enum MarksEdit {
+    AddTag { tag: String },
+    RemoveTag { tag: String },
+    AddSticker { sticker: String },
+    RemoveSticker { sticker: String },
+    SetNote { note: String },
+}
+
 /// A read of a projection window.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -149,6 +165,8 @@ pub enum Query {
     },
     /// Separator tiles of the left column.
     Separators,
+    /// Tags in use with how many entries carry each.
+    Tags,
     /// Sync records of the last analysis with their answers, and the commit plan they make now.
     Sync,
     /// Conflict contexts for the table's selector, largest first.
@@ -315,6 +333,9 @@ pub struct ModDetail {
     /// Chains not listed (the list keeps the largest).
     pub more_chains: usize,
     pub plugins: Vec<PluginView>,
+    /// Tags, stickers and note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marks: Option<sat_core::order::Marks>,
 }
 
 /// One row as a window shows it (ADR 0008 row + the mod card counters).
@@ -340,6 +361,9 @@ pub struct RowView {
     /// Overwrite badges, one per context of the mod (empty when not asked or no conflicts).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub badges: Vec<ContextBadge>,
+    /// Tags, stickers and note of the entry (`@sat:order.decor.marks`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marks: Option<sat_core::order::Marks>,
 }
 
 // @sat:app.badges
@@ -429,6 +453,9 @@ pub enum Reply {
     },
     Contexts {
         contexts: Vec<ContextItem>,
+    },
+    Tags {
+        tags: Vec<(String, usize)>,
     },
     Sync {
         records: Vec<RecordView>,
@@ -546,6 +573,23 @@ impl App {
             C::SetEnabled { keys, enabled } => self.session.command(|b| b.set_enabled(&keys, enabled))?,
             C::SetColor { keys, color } => self.session.command(|b| b.set_color(&keys, color))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
+            // @sat:app.marks
+            C::EditMarks { keys, edit } => self.session.command(|b| {
+                b.patch_marks(&keys, |mut m| {
+                    match &edit {
+                        MarksEdit::AddTag { tag } => m.tags.push(tag.clone()),
+                        MarksEdit::RemoveTag { tag } => {
+                            // case-folded like the normal form (Cyrillic too)
+                            let gone = tag.trim().to_lowercase();
+                            m.tags.retain(|t| t.to_lowercase() != gone)
+                        }
+                        MarksEdit::AddSticker { sticker } => m.stickers.push(sticker.clone()),
+                        MarksEdit::RemoveSticker { sticker } => m.stickers.retain(|s| s != sticker),
+                        MarksEdit::SetNote { note } => m.note = note.clone(),
+                    }
+                    m
+                })
+            })?,
             C::PatchStyle { keys, patch } => {
                 let mut bad = None;
                 let r = self.session.command(|b| {
@@ -764,6 +808,7 @@ impl App {
                     focused: r.focused,
                     selected: r.selected,
                     style: r.style.cloned(),
+                    marks: r.marks.cloned(),
                     badges: match (badges, index.get(&r.name.to_lowercase())) {
                         (n, Some(&m)) if n > 0 && r.kind == RowKind::Mod => {
                             mod_badges(&ow, &heads, &names, self.session.decisions(), m, n)
@@ -895,6 +940,9 @@ impl App {
             Query::Sync => Reply::Sync {
                 records: self.record_views(),
                 plan: Box::new(self.commit_plan()),
+            },
+            Query::Tags => Reply::Tags {
+                tags: self.session.book().tags_in_use(),
             },
             Query::Contexts => Reply::Contexts {
                 contexts: self.contexts(),
@@ -1074,6 +1122,7 @@ impl App {
                 chains: Vec::new(),
                 more_chains: 0,
                 plugins: Vec::new(),
+                marks: self.session.book().marks(key).cloned(),
             };
         };
         // opponents over every exact chain (exact counts); the list and the teeth over normalized chains
@@ -1195,6 +1244,7 @@ impl App {
             chains: chain_views,
             more_chains,
             plugins: mod_plugins,
+            marks: self.session.book().marks(key).cloned(),
         }
     }
 }
@@ -1576,5 +1626,55 @@ mod tests {
         a.command(Command::CascadePlugins).unwrap();
         assert!(state(&mut a, "D.esp").1, "cascade turns it back on: no masters");
         assert!(!state(&mut a, "A.esp").1, "hidden stays off");
+    }
+
+    #[test]
+    fn marks_are_edited_by_command_and_shown_on_rows_and_in_the_summary() {
+        let mut a = app();
+        let k = a.session().book().key_of("A").unwrap();
+        for edit in [
+            MarksEdit::AddTag { tag: "UI".into() },
+            MarksEdit::AddSticker {
+                sticker: "⭐".into()
+            },
+            MarksEdit::SetNote {
+                note: "check after update".into(),
+            },
+        ] {
+            a.command(Command::EditMarks { keys: vec![k], edit }).unwrap();
+        }
+        let Reply::ModDetail { detail } = a.query(Query::ModDetail { key: k }).unwrap() else {
+            panic!()
+        };
+        let m = detail.marks.unwrap();
+        assert_eq!(
+            (m.tags, m.stickers, m.note.as_str()),
+            (
+                vec!["UI".to_string()],
+                vec!["⭐".to_string()],
+                "check after update"
+            )
+        );
+        let Reply::Tags { tags } = a.query(Query::Tags).unwrap() else {
+            panic!()
+        };
+        assert_eq!(tags, [("UI".to_string(), 1)]);
+        a.command(Command::Undo).unwrap();
+        let Reply::Rows { rows, .. } = a
+            .query(Query::Rows {
+                view: order::MAIN,
+                start: 0,
+                count: 3,
+                badges: 0,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        let m = rows.iter().find(|r| r.key == k).unwrap().marks.clone().unwrap();
+        assert!(
+            m.note.is_empty() && m.tags == ["UI"],
+            "undo took back the note only"
+        );
     }
 }
