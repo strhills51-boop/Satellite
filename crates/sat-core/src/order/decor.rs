@@ -239,6 +239,45 @@ pub enum Effect {
 }
 
 impl Decor {
+    // @sat:order.decor.rekey
+    /// The same decoration with every entry reference mapped by `f` (name → entity id when a project stores it,
+    /// id → name when a book applies it). References `f` does not know are dropped and returned.
+    pub fn rekey(&self, f: impl Fn(&str) -> Option<String>) -> (Decor, Vec<String>) {
+        let mut lost = Vec::new();
+        let mut map = |k: &str| {
+            let m = f(k);
+            if m.is_none() {
+                lost.push(k.to_string());
+            }
+            m
+        };
+        let mut d = Decor::default();
+        for (k, v) in &self.colors {
+            if let Some(n) = map(k) {
+                d.colors.insert(n, *v);
+            }
+        }
+        for g in &self.groups {
+            d.groups.push(GroupDef {
+                members: g.members.iter().filter_map(|m| map(m)).collect(),
+                ..g.clone()
+            });
+        }
+        d.collapsed = self.collapsed.iter().filter_map(|k| map(k)).collect();
+        d.muted = self.muted.iter().filter_map(|k| map(k)).collect();
+        for (k, v) in &self.styles {
+            if let Some(n) = map(k) {
+                d.styles.insert(n, v.clone());
+            }
+        }
+        for (k, v) in &self.marks {
+            if let Some(n) = map(k) {
+                d.marks.insert(n, v.clone());
+            }
+        }
+        (d, lost)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.colors.is_empty()
             && self.groups.is_empty()

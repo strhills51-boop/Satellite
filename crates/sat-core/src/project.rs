@@ -17,25 +17,30 @@ use serde::{Deserialize, Serialize};
 
 use crate::canon::{EntryKind, Modlist};
 use crate::decisions::ChainDecisions;
+use crate::entity::Entities;
 #[cfg(test)]
 use crate::order::MAIN;
 use crate::order::{Decor, DecorIssue, OrderBook};
 use crate::sync::records::{DiskFolder, EntityKind, ProjectEntity, Reconcile, SyncRecord, reconcile};
 
 /// Version of the serialized shape. Bump with a migration when fields change meaning.
-pub const PROJECT_SCHEMA: u32 = 1;
+/// 2: entities with stable ids; decoration and content signatures keyed by entity id (`@sat:entity`).
+pub const PROJECT_SCHEMA: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
     pub schema: u32,
     /// Order, enabled flags, separators — the canon.
     pub canon: Modlist,
-    /// Content signature of each entity's folder the last time it matched (key: entry name, case-folded).
+    /// Every entity of the canon with its stable id (`@sat:entity`); sections below are keyed by id.
+    #[serde(default)]
+    pub entities: Entities,
+    /// Content signature of each entity's folder the last time it matched (key: entity id).
     /// Lets the next reconcile recognise a renamed folder by its content.
     pub signatures: BTreeMap<String, u64>,
     /// Current sync records with the user's decisions.
     pub sync: Vec<SyncRecord>,
-    /// Colours, logical groups, collapsed separators (ADR 0008). Absent in older files.
+    /// Colours, logical groups, collapsed separators, styles, marks (ADR 0008, 0012), keyed by entity id.
     #[serde(default, skip_serializing_if = "Decor::is_empty")]
     pub decor: Decor,
     /// Conflict decisions: settled chains by content signature. Absent in older files.
@@ -85,9 +90,12 @@ fn fold(name: &str) -> String {
 impl Project {
     /// First open of a build: the canon is taken from the manager's list as is.
     pub fn import(list: Modlist) -> Self {
+        let mut entities = Entities::default();
+        entities.follow(&list);
         Self {
             schema: PROJECT_SCHEMA,
             canon: list,
+            entities,
             signatures: BTreeMap::new(),
             sync: Vec::new(),
             decor: Decor::default(),
@@ -98,22 +106,85 @@ impl Project {
         }
     }
 
+    // @sat:project.load
+    /// Reads a project file of any known schema; older ones are migrated (1 → 2: entities get ids, name-keyed
+    /// sections are re-keyed by id).
+    pub fn from_json(bytes: &[u8]) -> Result<Self, String> {
+        let mut p: Project = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        match p.schema {
+            1 => {
+                p.entities.follow(&p.canon);
+                let by_name = |k: &str| p.entities.id_of(k).map(|i| i.0.clone());
+                p.decor = p.decor.rekey(by_name).0;
+                let signatures = std::mem::take(&mut p.signatures);
+                for (name, sig) in signatures {
+                    if let Some(id) = p.entities.id_of(&name) {
+                        p.signatures.insert(id.0.clone(), sig);
+                    }
+                }
+                p.schema = PROJECT_SCHEMA;
+            }
+            PROJECT_SCHEMA => p.entities.follow(&p.canon),
+            s => {
+                return Err(format!(
+                    "project schema {s} is newer than this build reads ({PROJECT_SCHEMA})"
+                ));
+            }
+        }
+        Ok(p)
+    }
+
+    pub fn to_json(&self) -> Result<Vec<u8>, String> {
+        serde_json::to_vec_pretty(self).map_err(|e| e.to_string())
+    }
+
     // @sat:project.book
-    /// The live book of this project: canon plus decoration. Decoration that no longer fits is reported.
+    /// The live book of this project: canon plus decoration (re-keyed from ids to the names the book uses).
+    /// Decoration that no longer fits is reported.
     pub fn book(&self) -> (OrderBook, Vec<DecorIssue>) {
         let mut book = OrderBook::from_modlist(&self.canon);
         let issues = if self.decor.is_empty() {
             Vec::new()
         } else {
-            book.apply_decor(&self.decor).1
+            let names = self.decor.rekey(|id| {
+                self.entities
+                    .name_of(&crate::entity::EntityId(id.to_string()))
+                    .map(str::to_string)
+            });
+            book.apply_decor(&names.0).1
         };
         (book, issues)
     }
 
-    /// Takes canon and decoration back from a book after editing.
+    /// Takes canon and decoration back from a book after editing (decoration re-keyed by entity id).
     pub fn commit_book(&mut self, book: &OrderBook) {
         self.canon = book.to_modlist();
-        self.decor = book.decor();
+        self.entities.follow(&self.canon);
+        let entities = &self.entities;
+        self.decor = book.decor().rekey(|n| entities.id_of(n).map(|i| i.0.clone())).0;
+    }
+
+    // @sat:project.apply-plan
+    /// Applies a committed plan to the project: renames keep the entity (and its decoration, marks, signature),
+    /// adopted folders become entities, removed ones leave; settled records are closed.
+    pub fn apply_plan(&mut self, plan: &crate::sync::plan::Plan) {
+        use crate::sync::plan::ProjectOp;
+        for op in &plan.project_ops {
+            match op {
+                ProjectOp::Rename { from, to } => {
+                    self.entities.rename(from, to);
+                }
+                ProjectOp::Adopt { .. } => {}
+                ProjectOp::Remove { name } => {
+                    if let Some(id) = self.entities.remove(name) {
+                        self.signatures.remove(&id.0);
+                    }
+                }
+            }
+        }
+        self.canon = plan.canon_after.clone();
+        self.entities.follow(&self.canon);
+        self.sync.retain(|r| !plan.settles.contains(&r.fingerprint));
     }
 
     /// Mods and separators of the canon as reconcile entities (foreign manager entries are not folders).
@@ -129,7 +200,11 @@ impl Project {
                 } else {
                     EntityKind::Mod
                 },
-                signature: self.signatures.get(&fold(&e.name)).copied(),
+                signature: self
+                    .entities
+                    .id_of(&e.name)
+                    .and_then(|id| self.signatures.get(&id.0))
+                    .copied(),
             })
             .collect()
     }
@@ -143,18 +218,22 @@ impl Project {
             .iter()
             .filter_map(|d| d.signature.map(|s| (d.name.as_str(), s)))
             .collect();
+        self.entities.follow(&self.canon);
         for (project_name, folder) in &r.matched {
+            let Some(id) = self.entities.id_of(project_name).map(|i| i.0.clone()) else {
+                continue;
+            };
             match sig.get(folder.as_str()) {
                 Some(&s) => {
-                    self.signatures.insert(fold(project_name), s);
+                    self.signatures.insert(id, s);
                 }
                 None => {
-                    self.signatures.remove(&fold(project_name));
+                    self.signatures.remove(&id);
                 }
             }
         }
         // Signatures of entities no longer in the canon are dropped.
-        let live: HashSet<String> = self.canon.entries.iter().map(|e| fold(&e.name)).collect();
+        let live: HashSet<String> = self.entities.iter().map(|e| e.id.0.clone()).collect();
         self.signatures.retain(|k, _| live.contains(k));
         self.sync = r.records.clone();
         r
@@ -233,8 +312,9 @@ mod tests {
             d("Old Name", Some(42)),
         ]);
         assert!(r1.records.is_empty());
-        assert_eq!(p.signatures.get("old name"), Some(&42));
-        assert!(!p.signatures.contains_key("ui_separator"));
+        let id = |p: &Project, n: &str| p.entities.id_of(n).unwrap().0.clone();
+        assert_eq!(p.signatures.get(&id(&p, "Old Name")), Some(&42));
+        assert!(!p.signatures.contains_key(&id(&p, "UI_separator")));
         // run 2: the folder was renamed on disk
         let r2 = p.observe(&[
             d("UI_separator", None),
@@ -311,5 +391,59 @@ mod tests {
         let back: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(back, p);
         assert_eq!(back.schema, PROJECT_SCHEMA);
+    }
+
+    #[test]
+    fn a_committed_rename_keeps_the_entity_and_its_decoration() {
+        use crate::order::Marks;
+        use crate::sync::plan::plan;
+        use crate::sync::records::Resolution;
+        let mut p = Project::import(list(&["A", "Old"]));
+        // the user tags and colours "Old" in a book; the project keeps it by id
+        let (mut book, _) = p.book();
+        let k = book.key_of("Old").unwrap();
+        book.set_color(&[k], Some(7)).unwrap();
+        book.patch_marks(&[k], |mut m: Marks| {
+            m.tags.push("keep me".into());
+            m
+        })
+        .unwrap();
+        p.commit_book(&book);
+        let id = p.entities.id_of("Old").unwrap().clone();
+        assert!(p.decor.colors.contains_key(&id.0), "stored by id, not by name");
+        // the folder was renamed on disk; the user accepts the new name; the commit applies it
+        p.observe(&[d("A", Some(1)), d("Old", Some(9))]);
+        p.observe(&[d("A", Some(1)), d("New", Some(9))]);
+        p.sync[0].status = Status::Confirmed;
+        p.sync[0].resolution = Some(Resolution::AcceptFsName);
+        let pl = plan(&p.canon, &p.sync, &["A".into(), "New".into()]);
+        assert!(!pl.blocked(), "{:?}", pl.blockers);
+        p.apply_plan(&pl);
+        assert_eq!(p.entities.id_of("New"), Some(&id), "same entity");
+        assert_eq!(p.signatures.get(&id.0), Some(&9), "its signature too");
+        assert!(p.sync.is_empty());
+        let (book, issues) = p.book();
+        assert!(issues.is_empty());
+        let k = book.key_of("New").unwrap();
+        assert_eq!(book.marks(k).unwrap().tags, ["keep me"]);
+    }
+
+    #[test]
+    fn a_schema_1_file_is_migrated_to_ids() {
+        let v1 = r#"{"schema":1,"canon":{"entries":[{"name":"A","kind":"Mod","enabled":true}]},
+            "signatures":{"a":5},"sync":[],"decor":{"colors":{"A":3},"groups":[],"collapsed":[],"muted":[]}}"#;
+        let p = Project::from_json(v1.as_bytes()).unwrap();
+        assert_eq!(p.schema, PROJECT_SCHEMA);
+        let id = p.entities.id_of("A").unwrap().0.clone();
+        assert_eq!(
+            (p.signatures.get(&id), p.decor.colors.get(&id)),
+            (Some(&5), Some(&3))
+        );
+        // and survives a round trip with the same ids
+        let back = Project::from_json(&p.to_json().unwrap()).unwrap();
+        assert_eq!(back.entities.id_of("A").map(|i| &i.0), Some(&id));
+        assert!(
+            Project::from_json(br#"{"schema":99,"canon":{"entries":[]},"signatures":{},"sync":[]}"#).is_err()
+        );
     }
 }

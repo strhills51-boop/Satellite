@@ -53,7 +53,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut tags = sat_core::tags::TagCatalog::default();
     let book = match std::fs::read(&project_file)
         .ok()
-        .and_then(|b| serde_json::from_slice::<Project>(&b).ok())
+        .and_then(|b| Project::from_json(&b).ok())
     {
         Some(p) if p.schema == PROJECT_SCHEMA => {
             eprintln!(

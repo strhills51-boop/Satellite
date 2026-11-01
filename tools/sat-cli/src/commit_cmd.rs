@@ -26,14 +26,12 @@ fn load(args: &[String]) -> Result<(sat_mo2::Instance, Layout, Project, Vec<u8>)
             layout.project_file.display()
         )
     })?;
-    let project: Project =
-        serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", layout.project_file.display()))?;
-    if project.schema != PROJECT_SCHEMA {
-        return Err(format!(
-            "project schema {} (this build reads {PROJECT_SCHEMA})",
-            project.schema
-        ));
-    }
+    let project = Project::from_json(&bytes).map_err(|e| {
+        format!(
+            "{}: {e} (this build reads schema {PROJECT_SCHEMA})",
+            layout.project_file.display()
+        )
+    })?;
     Ok((inst, layout, project, bytes))
 }
 
@@ -113,7 +111,7 @@ pub fn sync(args: &[String]) -> Result<(), String> {
         }
     }
     if !decisions.is_empty() {
-        let bytes = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
+        let bytes = project.to_json()?;
         sat_mo2::write_atomic(&layout.project_file, &bytes).map_err(|e| e.to_string())?;
         eprintln!("decisions saved to {}", layout.project_file.display());
     }
@@ -171,13 +169,12 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         .map(|d| profile::parse_modlist(&d).1)
         .unwrap_or_default();
     let mut after = project.clone();
-    after.canon = p.canon_after.clone();
-    after.sync.retain(|r| !p.settles.contains(&r.fingerprint));
+    after.apply_plan(&p);
     let payload = Payload {
         plan: &p,
         modlist: profile::serialize_modlist(&p.canon_after, &style),
         project_before,
-        project_after: serde_json::to_vec_pretty(&after).map_err(|e| e.to_string())?,
+        project_after: after.to_json()?,
         plugin_files: None,
     };
     let stamp = flag_value(args, "--stamp").map_or_else(stamp_now, str::to_string);

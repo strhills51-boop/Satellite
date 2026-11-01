@@ -21,6 +21,7 @@
 pub mod canon;
 pub mod decisions;
 pub mod engine;
+pub mod entity;
 pub mod expr;
 pub mod facts;
 pub mod identity;

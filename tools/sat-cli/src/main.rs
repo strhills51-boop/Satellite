@@ -256,15 +256,12 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .unwrap_or_else(|| inst.profile_dir().join("satellite").join(PROJECT_FILE));
     let mut project = match std::fs::read(&project_path) {
         Ok(bytes) if !has(args, "--reimport") => {
-            let p: Project =
-                serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", project_path.display()))?;
-            if p.schema != PROJECT_SCHEMA {
-                return Err(format!(
-                    "{}: project schema {} (this build reads {PROJECT_SCHEMA}); use --reimport",
-                    project_path.display(),
-                    p.schema
-                ));
-            }
+            let p = Project::from_json(&bytes).map_err(|e| {
+                format!(
+                    "{}: {e} (this build reads schema {PROJECT_SCHEMA})",
+                    project_path.display()
+                )
+            })?;
             eprintln!("project: {}", project_path.display());
             p
         }
@@ -272,9 +269,12 @@ fn analyze(args: &[String]) -> Result<(), String> {
             // Re-import keeps what the project learned and what the user decided (signatures, sync decisions,
             // decoration, settled chains), replaces only the canon. Decoration of names no longer in the canon is
             // reported when the book applies it.
-            let old: Option<Project> = serde_json::from_slice(&bytes).ok();
+            let old: Option<Project> = Project::from_json(&bytes).ok();
             let mut p = Project::import(manager.clone());
             if let Some(old) = old {
+                // entities keep their ids by name, so everything keyed by id still finds them
+                p.entities = old.entities;
+                p.entities.follow(&p.canon);
                 p.signatures = old.signatures;
                 p.sync = old.sync;
                 p.decor = old.decor;
@@ -800,7 +800,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     }
     if publish {
-        let bytes = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
+        let bytes = project.to_json()?;
         sat_mo2::write_atomic(&project_path, &bytes).map_err(|e| e.to_string())?;
     }
     Ok(())

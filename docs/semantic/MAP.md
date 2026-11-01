@@ -100,6 +100,7 @@
 | Скан пачками в таблицу | `@sat:scan.batched` | — |
 | Перезапуск анализаторов по кешированному индексу | `@sat:scan.walk.reanalyze` | — |
 | Донор: соответствие, категории, оценка | `@sat:sync.donor` | — |
+| Устойчивые id сущностей (ADR 0007): имя — атрибут; переименование не теряет декорацию, метки, подпись | `@sat:entity` (`EntityId`, `@sat:entity.mint`), `@sat:entity.registry` (`Entities`: id ↔ имя, `follow`), `@sat:entity.rename`; проект — схема 2, разделы по id: `@sat:project.load` (миграция 1 → 2), `@sat:project.apply-plan`; перекладка ключей декорации — `@sat:order.decor.rekey` | книга порядка внутри сессии — по именам и `Key`; перевод на границе проекта |
 | Записи SYNC и сверка диска с проектом | `@sat:sync.records.reconcile` | ключ сопоставления — `normalize_name`, ключ отпечатка — точное имя в нижнем регистре |
 | Фиксация (техпроцесс «скан/синхронизация → обработка → фиксация», NG-D003 §7): решения по записям, план, бэкап, журнал, откат | ответы — `@sat:sync.records.resolution`; план — `@sat:sync.plan`, `@sat:sync.plan.build`, `@sat:sync.plan.canon`, `@sat:sync.plan.order`; исполнение — `@sat:mo2.commit`, `@sat:mo2.commit.execute`, `@sat:mo2.commit.undo`; API приложения — `@sat:app.sync`, `@sat:app.sync.decide` (`Command::Decide`, `Query::Sync`: записи, ответы, план; исполнения нет); командная строка — `@sat:cli.commit`, `@sat:cli.commit.sync`, `@sat:cli.commit.run` | сверка — `@sat:sync.records.reconcile`; запись файлов — `@sat:mo2.write-atomic` |
 
@@ -109,6 +110,7 @@
 - `crates/sat-core/src/lib.rs` — `@sat:core`, оглавление слоёв.
 - `crates/sat-core/src/decisions.rs` — `@sat:decisions`: решённые цепочки по подписи содержимого.
 - `crates/sat-core/src/engine.rs` — `@sat:engine`: виды истины, наборы изменений, граф проекций (ADR 0010).
+- `crates/sat-core/src/entity.rs` — `@sat:entity`: устойчивые id сущностей и реестр id ↔ имя.
 - `crates/sat-core/src/identity.rs` — `@sat:identity`: эмодзи и оттенок цепочек и контекстов из состава.
 - `crates/sat-core/src/ignore.rs` — `@sat:ignore`: правила игнор-листа конфликтов, нормальная форма, сопоставление.
 - `crates/sat-core/src/ids.rs` — `@sat:ids`: типизированные `u32`-идентификаторы.

@@ -15,8 +15,7 @@ pub fn ignore(args: &[String]) -> Result<(), String> {
     let path = Layout::of(&inst).project_file;
     let bytes =
         std::fs::read(&path).map_err(|e| format!("{}: {e} — run `sat-cli analyze` first", path.display()))?;
-    let mut project: Project =
-        serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut project = Project::from_json(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     let (add, remove) = (flag_values(args, "--add"), flag_values(args, "--remove"));
     if !add.is_empty() || !remove.is_empty() {
         let gone = IgnoreRules::new(remove);
@@ -29,7 +28,7 @@ pub fn ignore(args: &[String]) -> Result<(), String> {
             .chain(add)
             .collect::<Vec<_>>();
         project.conflict_ignore = IgnoreRules::new(rules);
-        let out = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
+        let out = project.to_json()?;
         sat_mo2::write_atomic(&path, &out).map_err(|e| e.to_string())?;
         eprintln!("saved to {} — run `sat-cli analyze` to apply", path.display());
     }
