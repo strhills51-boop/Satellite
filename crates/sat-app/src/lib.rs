@@ -260,6 +260,7 @@ pub struct Opponent {
 /// One exact chain of the focused mod.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChainView {
+    /// Normalized chain (`@sat:routes`) — valid until the overwrite projection is recomputed.
     pub id: u32,
     pub signature: String,
     pub done: bool,

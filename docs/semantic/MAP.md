@@ -131,13 +131,13 @@
 
 ### `crates/sat-app` — API приложения (ADR 0004)
 
-- `crates/sat-app/src/lib.rs` — `@sat:app`: `Command` / `Query` / `Reply` / `Event`, `App` — диспетчер над сессией и реестром ресурсов; строки окна со счётчиками карточки мода.
+- `crates/sat-app/src/lib.rs` — `@sat:app`: `Command` / `Query` / `Reply` / `Event`, `App` — диспетчер над сессией и реестром ресурсов; строки окна со счётчиками и бейджами карточки, окно рядов потока (`@sat:app.lines`), сводка мода, редактор декорации (`@sat:app.decoration`, `@sat:app.patch-style`).
 - `crates/sat-app/src/chains.rs` — `@sat:app.chains`: заголовки нормализованных цепочек (значок, имя, «решено»).
 - `crates/sat-app/src/context.rs` — `@sat:app.context-table`: таблица конфликтов контекста, окно строк × столбцов.
 
 ### `apps/devserver` — оболочка разработки (ADR 0004)
 
-- `apps/devserver/src/main.rs` — `@sat:devserver`: загрузка сборки MO2 только на чтение (`@sat:devserver.load`), HTTP на `127.0.0.1` (`@sat:devserver.http`: `POST /command`, `POST /query`, `GET /`). Страница — `apps/devserver/src/index.html` (окно списка модов и плагинов; истины не держит).
+- `apps/devserver/src/main.rs` — `@sat:devserver`: загрузка сборки MO2 только на чтение (`@sat:devserver.load`), HTTP на `127.0.0.1` (`@sat:devserver.http`: `POST /command`, `POST /query`, `GET /`). Страница — `apps/devserver/src/index.html` (истины не держит): поток карточек по окну рядов, контекстное меню и палитра, сводка («Мод», «Декорация мода», «Конфликты» с участниками), таблица контекста на canvas, плагины.
 
 ### `crates/sat-formats` — форматы файлов игры, без файловой системы
 - `crates/sat-formats/src/lib.rs` — `@sat:formats`: `FormatError`, `normalize_path`, реэкспорты.

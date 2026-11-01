@@ -1,6 +1,7 @@
 //! What the window shows of a normalized chain: icon, colour, generated name, settled or not. @sat:app.chains
 //!
-//! Owns: the headings of the normalized chains (`@sat:routes`) of the current projection, cached per app revision;
+//! Owns: the headings of the normalized chains (`@sat:routes`) of the current projection, rebuilt only when the
+//! overwrite projection is recomputed;
 //! a mod's view of them (its files and place in each); "settled" of a normalized chain from its exact chains.
 //! Not here: grouping exact chains (`@sat:routes`), decisions (`@sat:decisions`).
 //!
