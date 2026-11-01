@@ -54,11 +54,12 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
   border-radius: 10px; background: var(--panel); }
 #list:focus { border-color: var(--primary-line); }
 #spacer { width: 1px; }
-#layer { position: sticky; top: 0; height: 0; }
-.row { position: absolute; left: 0; right: 0; height: var(--row); border-bottom: 1px solid var(--line); cursor: default; user-select: none; }
+#layer { position: sticky; top: 0; height: 0; margin: 0 6px; }
+.row { position: absolute; left: 0; top: 0; height: var(--row); border: 1px solid var(--line); border-radius: 8px; cursor: default; user-select: none;
+  background: var(--panel); overflow: hidden; contain: layout paint; }
 .row.sel { background: color-mix(in srgb, var(--primary) 26%, transparent); }
 /* mod card (owner's layout): toggle top-left, centred name cut on the right, counter group bottom-right */
-.card { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: 22px 18px; height: 100%; padding: 2px 10px 2px 8px; }
+.card { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: minmax(22px, 1fr) 18px; height: 100%; padding: 2px 10px 2px 8px; }
 .toggle { width: 11px; height: 11px; margin: 6px 0 0 2px; border-radius: 50%; background: var(--miss); cursor: pointer; }
 .on .toggle { background: var(--ok); }
 .name { grid-column: 2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 2px; }
@@ -78,7 +79,7 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .owpill b { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--h) 70% 60%); }
 .counters .w { color: var(--w-txt); } .counters .l { color: var(--l-txt); } .counters .m { color: var(--m-txt); } .counters .x { color: var(--x-txt); font-weight: 600; }
 .prio { color: var(--muted); }
-.row.sep { height: var(--row); background: var(--bg2); font-weight: 600; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+.row.sep { background: var(--bg2); font-weight: 600; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
 .row.sep .size { margin-left: auto; font: 11px var(--mono); color: var(--muted); font-weight: 400; }
 .row.foreign .name { font-style: italic; color: var(--muted); }
 /* card style (ADR 0012): the look is inline per card; the watermark is a pseudo-element fed by variables */
@@ -93,7 +94,7 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #ctx .it:hover { background: color-mix(in srgb, var(--primary) 30%, transparent); }
 #ctx hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
 #palette { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.45); }
-#palette[hidden], #ctx[hidden] { display: none; }
+#palette[hidden], #ctx[hidden], .row[hidden] { display: none; }
 #palette > div { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: 0 10px 28px rgba(0,0,0,.4); }
 #palette h4 { margin: 0 0 10px; }
 #palette .sw { display: grid; grid-template-columns: repeat(16, 32px); gap: 8px; }
@@ -163,6 +164,7 @@ footer b { color: var(--accent2); font-weight: 500; }
     <h2>Моды <small id="modcount"></small></h2>
     <div class="tools"><input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени">
       <select id="badgeModel" aria-label="Модель бейджей"><option value="classic">Коллекция цепочек</option><option value="summary">OW N</option></select>
+      <select id="cols" aria-label="Колонки"><option value="340">Поток · 340</option><option value="260">Поток · 260</option><option value="0">Одна колонка</option></select>
       <select id="density" aria-label="Плотность"><option value="3">Плотно · 3</option><option value="6">Обычно · 6</option><option value="12">Свободно · 12</option></select>
       <span id="err" role="status"></span></div>
     <div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
@@ -180,10 +182,13 @@ footer b { color: var(--accent2); font-weight: 500; }
 "use strict";
 const $ = id => document.getElementById(id);
 const list = $("list"), layer = $("layer"), spacer = $("spacer");
-const ROW = 44, VIEW = 0, MAXPX = 8_000_000, CHAINS_SHOWN = 6;
-let len = 0, pool = [], busy = false, again = false, shownKey = null, detailSeq = 0, shownChains = [];
-let badgeModel = "classic", density = 6;
-try { badgeModel = localStorage.getItem("sat-badges") || "classic"; density = +(localStorage.getItem("sat-density") || 6); } catch (_) {}
+const ROW = 44, GAP = 4, VIEW = 0, MAXPX = 8_000_000, CHAINS_SHOWN = 6;
+let len = 0, total = 0, busy = false, again = false, shownKey = null, detailSeq = 0, shownChains = [];
+/** Cards on screen by entry key (ADR 0012: the page keeps what is visible; a card is rewritten only when it changed). */
+const cards = new Map(), spare = [];
+let badgeModel = "classic", density = 6, cols = 340;
+try { badgeModel = localStorage.getItem("sat-badges") || "classic"; density = +(localStorage.getItem("sat-density") || 6);
+  cols = +(localStorage.getItem("sat-cols") ?? 340); } catch (_) {}
 
 async function post(path, body) {
   const r = await fetch(path, { method: "POST", body: JSON.stringify(body) });
@@ -196,11 +201,16 @@ const query = q => post("/query", q);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const num = n => n.toLocaleString("ru-RU");
 
-function scale() { const t = len * ROW; return t > MAXPX ? (t - list.clientHeight) / (MAXPX - list.clientHeight) : 1; }
+function scale() { return total > MAXPX ? (total - list.clientHeight) / (MAXPX - list.clientHeight) : 1; }
 function vtop() { return list.scrollTop * scale(); }
-function ensurePool() {
-  const need = Math.ceil(list.clientHeight / ROW) + 2;
-  while (pool.length < need) { const el = document.createElement("div"); el.className = "row"; layer.appendChild(el); pool.push(el); }
+function flowWidth() { return Math.max(200, list.clientWidth - 12); }
+function flow() { const w = flowWidth(); return { width: w, card_width: cols || w, card_height: ROW, header_height: ROW + GAP, gap: GAP }; }
+/** Position only: scrolling moves cards without rewriting them. */
+function place(el) { if (el._pos) { [el.style.transform, el.style.width, el.style.height] = el._pos; } }
+function cardEl(key) {
+  let el = cards.get(key);
+  if (!el) { el = spare.pop() || layer.appendChild(document.createElement("div")); el.hidden = false; el._sig = null; cards.set(key, el); }
+  return el;
 }
 
 /** Writes a row element only when what it shows changed. */
@@ -213,9 +223,8 @@ function paint(el, r) {
   const cls = ["row"];
   if (r.selected) cls.push("sel");
   if (r.focused) cls.push("focus");
-  const tr = el.style.transform;
   el.style.cssText = cardLook(r);
-  el.style.transform = tr;
+  place(el);
   if (r.kind === "separator" || r.kind === "group") {
     cls.push("sep"); el.className = cls.join(" ");
     el.innerHTML = `<span>${r.collapsed ? "▸" : "▾"}</span><span>${esc(r.name.replace(/_separator$/, ""))}</span><span class="size">${r.size}</span>`;
@@ -292,28 +301,36 @@ function strip(r) {
     (b.more ? `<i>+${b.more}</i>` : "") + `</span>`).join("") + `</span>`;
 }
 
-/** Re-reads only the rows in the window; `follow` keeps the keyboard focus visible. */
+/** Re-reads only the lines in the window (flow layout of ADR 0012); `follow` keeps the keyboard focus visible. */
 async function sync(follow) {
   if (busy) { again = true; return; }
   busy = true;
   try {
-    ensurePool();
-    const first = Math.floor(vtop() / ROW);
-    const rep = await query({ type: "rows", view: VIEW, start: first, count: pool.length, badges: density });
-    len = rep.len;
-    spacer.style.height = Math.min(len * ROW, MAXPX) + "px";
+    const h = list.clientHeight, vt0 = vtop();
+    const rep = await query({ type: "lines", view: VIEW, y: Math.floor(vt0), height: h + ROW, flow: flow(), badges: density });
+    len = rep.len; total = rep.total_height;
+    spacer.style.height = Math.min(total, MAXPX) + "px";
     $("modcount").textContent = num(len) + " строк";
-    if (follow && rep.focus_row !== null) {
-      const top = rep.focus_row * ROW, vt = vtop(), h = list.clientHeight;
-      if (top < vt || top + ROW > vt + h) {
-        list.scrollTop = Math.max(0, top < vt ? top : top + ROW - h) / scale();
+    if (follow && rep.focus) {
+      const [top, fh] = rep.focus, vt = vtop();
+      if (top < vt || top + fh > vt + h) {
+        list.scrollTop = Math.max(0, top < vt ? top : top + fh - h) / scale();
         busy = false; return sync(false);
       }
     }
-    const off = -(vtop() - first * ROW);
-    pool.forEach((el, i) => { el.style.transform = `translateY(${off + i * ROW}px)`; paint(el, rep.rows[i]); });
-    const f = rep.rows.find(r => r.focused);
-    if (f && f.kind === "mod" && f.key !== shownKey) detail(f.key);
+    const vt = vtop(), seen = new Set();
+    let focused = null;
+    for (const l of rep.lines) for (const c of l.cards) {
+      const r = c.row, el = cardEl(r.key);
+      seen.add(r.key);
+      r.index = c.index;
+      const pos = [`translate(${c.x}px,${Math.round(l.y - vt)}px)`, c.width + "px", (l.header ? ROW : c.height) + "px"];
+      if (!el._pos || el._pos.join() !== pos.join()) { el._pos = pos; place(el); }
+      paint(el, r);
+      if (r.focused) focused = r;
+    }
+    for (const [k, el] of cards) if (!seen.has(k)) { cards.delete(k); el.hidden = true; el._sig = ""; el._row = null; spare.push(el); }
+    if (focused && focused.kind === "mod" && focused.key !== shownKey) detail(focused.key);
   } catch (e) { $("err").textContent = e.message; }
   busy = false;
   if (again) { again = false; sync(false); }
@@ -385,7 +402,7 @@ async function run(c) {
   $("err").textContent = "";
   try {
     const ev = await command(c);
-    if (ev.type === "decided") { pool.forEach(el => { el._sig = null; }); await sync(false); if (shownKey !== null) detail(shownKey); return; }
+    if (ev.type === "decided") { cards.forEach(el => { el._sig = null; }); await sync(false); if (shownKey !== null) detail(shownKey); return; }
     if (ev.type === "changed") {
       await sync(true);
       if (ev.canon) { totals(); tiles(); if (shownKey !== null) detail(shownKey); }
@@ -475,7 +492,7 @@ document.addEventListener("click", ev => { if (!$("ctx").hidden && !ev.target.cl
 
 list.addEventListener("click", ev => {
   const el = ev.target.closest(".row"); if (!el || !el._row) return;
-  const r = el._row, row = Math.floor((vtop() + (el.getBoundingClientRect().top - list.getBoundingClientRect().top) + 1) / ROW);
+  const r = el._row, row = r.index;
   if (ev.target.classList.contains("toggle")) return run({ type: "set-enabled", keys: [r.key], enabled: null });
   if ((r.kind === "separator" || r.kind === "group") && ev.offsetX < 28) return run({ type: "set-collapsed", view: VIEW, separator: r.key, collapsed: !r.collapsed });
   const select = ev.shiftKey ? "extend" : (ev.ctrlKey || ev.metaKey) ? "toggle" : "replace";
@@ -511,7 +528,9 @@ $("filter").addEventListener("input", ev => {
   ft = setTimeout(() => run({ type: "set-filter", view: VIEW, filter: { text: ev.target.value, enabled: null, color: null, show_muted: false } }), 150);
 });
 $("badgeModel").value = badgeModel; $("density").value = String(density);
-const repaint = () => { pool.forEach(el => { el._sig = null; }); sync(false); };
+const repaint = () => { cards.forEach(el => { el._sig = null; }); sync(false); };
+$("cols").value = String(cols);
+$("cols").onchange = ev => { cols = +ev.target.value; try { localStorage.setItem("sat-cols", cols); } catch (_) {} sync(true); };
 $("badgeModel").onchange = ev => { badgeModel = ev.target.value; try { localStorage.setItem("sat-badges", badgeModel); } catch (_) {} repaint(); };
 $("density").onchange = ev => { density = +ev.target.value; try { localStorage.setItem("sat-density", density); } catch (_) {} repaint(); };
 $("theme").onclick = () => {

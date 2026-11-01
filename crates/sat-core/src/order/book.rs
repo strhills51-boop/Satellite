@@ -288,6 +288,8 @@ pub struct OrderBook {
     /// Interned card styles: thousands of entries share a handful of styles (ADR 0012).
     styles: Vec<CardStyle>,
     style_ids: FxHashMap<CardStyle, u32>,
+    /// Entries that have a style (the flow layout lays out only their blocks entry by entry).
+    pub(super) styled: FxHashSet<Key>,
     revision: u64,
     undo: Vec<(Op, Op)>,
     redo: Vec<(Op, Op)>,
@@ -329,6 +331,7 @@ impl OrderBook {
             views: vec![Some(View::default())],
             styles: Vec::new(),
             style_ids: FxHashMap::default(),
+            styled: FxHashSet::default(),
             revision: 0,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -923,6 +926,11 @@ impl OrderBook {
                         inv.push((k, it.style));
                         it.style = st;
                         touched.insert(k);
+                        if st.is_some() {
+                            self.styled.insert(k);
+                        } else {
+                            self.styled.remove(&k);
+                        }
                     }
                 }
                 p.truth(Truth::Decoration, touched.iter().copied());
@@ -1247,6 +1255,7 @@ impl OrderBook {
             it.muted = false;
             it.style = None;
         }
+        self.styled.clear();
         let mut collapsed: FxHashSet<Key> = FxHashSet::default();
         let mut open_groups: FxHashSet<GroupId> = FxHashSet::default();
         self.groups.clear();
@@ -1264,6 +1273,7 @@ impl OrderBook {
                 Some(k) => {
                     let id = self.intern_style(st.clone());
                     self.items[k as usize].style = Some(id);
+                    self.styled.insert(k);
                 }
                 None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
             }

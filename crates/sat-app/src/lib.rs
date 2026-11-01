@@ -13,6 +13,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use sat_core::ids::ModId;
+use sat_core::order::flow::{FlowIndex, FlowParams};
 use sat_core::order::{
     self, CardStyle, Filter, Key, MAIN, Nav, OrderError, RowKind, Select, Shift, ViewChange, ViewId,
 };
@@ -115,6 +116,35 @@ pub enum Query {
     },
     /// Separator tiles of the left column.
     Separators,
+    /// The flow layout window of a view (ADR 0012 §2): lines of cards that cross `[y, y + height)`.
+    Lines {
+        view: ViewId,
+        y: u32,
+        height: u32,
+        flow: FlowParams,
+        #[serde(default)]
+        badges: u8,
+    },
+}
+
+/// One placed card of a flow line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CardView {
+    /// Row of the card in the view (what `Navigate { row }` takes).
+    pub index: u32,
+    pub x: u32,
+    pub width: u32,
+    pub height: u32,
+    pub row: RowView,
+}
+
+/// One line of the flow layout: a separator header or a line of cards.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LineView {
+    pub y: u32,
+    pub height: u32,
+    pub header: bool,
+    pub cards: Vec<CardView>,
 }
 
 /// One separator tile: its block's size and how many mods in it are on.
@@ -291,6 +321,14 @@ pub enum Reply {
     Separators {
         tiles: Vec<SeparatorTile>,
     },
+    /// `focus`: the line (y, height) of the keyboard focus, so the page keeps it in view.
+    Lines {
+        view: ViewId,
+        total_height: u32,
+        len: usize,
+        focus: Option<(u32, u32)>,
+        lines: Vec<LineView>,
+    },
 }
 
 // @sat:app.event
@@ -337,6 +375,8 @@ pub struct App {
     session: Session,
     registry: Registry,
     revision: u64,
+    /// Flow index per view, valid for one book revision and one set of parameters.
+    flows: std::collections::HashMap<ViewId, FlowIndex>,
 }
 
 impl App {
@@ -345,6 +385,7 @@ impl App {
             session,
             registry,
             revision: 0,
+            flows: Default::default(),
         }
     }
 
@@ -429,6 +470,67 @@ impl App {
         })
     }
 
+    /// Row views `[start, start + count)` of a view: what a card shows, counters and badges included.
+    fn row_views(&mut self, view: ViewId, start: usize, count: usize, badges: u8) -> Vec<RowView> {
+        let ow = self.session.overwrite();
+        let plugins = self.session.plugins();
+        let names = self.session.table().clone();
+        let index: std::collections::HashMap<String, ModId> = names
+            .mod_names()
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.to_lowercase(), ModId::from_idx(i)))
+            .collect();
+        let mut per_mod = vec![0u32; names.mod_count()];
+        for p in &plugins.plugins {
+            if let Some(w) = p.winner {
+                per_mod[p.versions[w].owner.idx()] += 1;
+            }
+        }
+        let book = self.session.book();
+        book.rows(view, start, count)
+            .into_iter()
+            .map(|r| {
+                let counters = (r.kind == RowKind::Mod)
+                    .then(|| index.get(&r.name.to_lowercase()))
+                    .flatten()
+                    .map(|&m| {
+                        let s = ow.stat(m);
+                        Counters {
+                            win: s.win,
+                            lose: s.lose,
+                            mid: s.mid,
+                            unique: s.unique,
+                            x: s.fully_overridden,
+                            plugins: per_mod[m.idx()],
+                        }
+                    });
+                RowView {
+                    key: r.key,
+                    pos: r.pos,
+                    kind: r.kind,
+                    name: r.name.to_string(),
+                    enabled: r.enabled,
+                    depth: r.depth,
+                    collapsed: r.collapsed,
+                    color: r.color,
+                    size: r.size,
+                    muted: r.muted,
+                    focused: r.focused,
+                    selected: r.selected,
+                    style: r.style.cloned(),
+                    badges: match (badges, index.get(&r.name.to_lowercase())) {
+                        (n, Some(&m)) if n > 0 && r.kind == RowKind::Mod => {
+                            mod_badges(&ow, &names, self.session.decisions(), m, n)
+                        }
+                        _ => Vec::new(),
+                    },
+                    counters,
+                }
+            })
+            .collect()
+    }
+
     /// Answers a query (projections are brought up to date lazily, only what the query needs).
     pub fn query(&mut self, q: Query) -> Result<Reply, AppError> {
         Ok(match q {
@@ -438,65 +540,9 @@ impl App {
                 count,
                 badges,
             } => {
-                let ow = self.session.overwrite();
-                let plugins = self.session.plugins();
-                let names = self.session.table().clone();
-                let index: std::collections::HashMap<String, ModId> = names
-                    .mod_names()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, n)| (n.to_lowercase(), ModId::from_idx(i)))
-                    .collect();
-                let mut per_mod = vec![0u32; names.mod_count()];
-                for p in &plugins.plugins {
-                    if let Some(w) = p.winner {
-                        per_mod[p.versions[w].owner.idx()] += 1;
-                    }
-                }
+                let rows = self.row_views(view, start, count, badges);
                 let book = self.session.book();
                 let len = book.row_count(view);
-                let rows = book
-                    .rows(view, start, count)
-                    .into_iter()
-                    .map(|r| {
-                        let counters = (r.kind == RowKind::Mod)
-                            .then(|| index.get(&r.name.to_lowercase()))
-                            .flatten()
-                            .map(|&m| {
-                                let s = ow.stat(m);
-                                Counters {
-                                    win: s.win,
-                                    lose: s.lose,
-                                    mid: s.mid,
-                                    unique: s.unique,
-                                    x: s.fully_overridden,
-                                    plugins: per_mod[m.idx()],
-                                }
-                            });
-                        RowView {
-                            key: r.key,
-                            pos: r.pos,
-                            kind: r.kind,
-                            name: r.name.to_string(),
-                            enabled: r.enabled,
-                            depth: r.depth,
-                            collapsed: r.collapsed,
-                            color: r.color,
-                            size: r.size,
-                            muted: r.muted,
-                            focused: r.focused,
-                            selected: r.selected,
-                            style: r.style.cloned(),
-                            badges: match (badges, index.get(&r.name.to_lowercase())) {
-                                (n, Some(&m)) if n > 0 && r.kind == RowKind::Mod => {
-                                    mod_badges(&ow, &names, self.session.decisions(), m, n)
-                                }
-                                _ => Vec::new(),
-                            },
-                            counters,
-                        }
-                    })
-                    .collect();
                 Reply::Rows {
                     view,
                     len,
@@ -535,6 +581,72 @@ impl App {
             Query::ModDetail { key } => Reply::ModDetail {
                 detail: Box::new(self.mod_detail(key)),
             },
+            // @sat:app.lines
+            Query::Lines {
+                view,
+                y,
+                height,
+                flow,
+                badges,
+            } => {
+                let book = self.session.book();
+                let rev = book.revision();
+                let fresh = self
+                    .flows
+                    .get(&view)
+                    .is_some_and(|i| i.revision == rev && i.params == flow);
+                if !fresh {
+                    let idx = book.flow_index(view, flow);
+                    self.flows.insert(view, idx);
+                }
+                let idx = &self.flows[&view];
+                let lines = book.flow_lines(view, idx, y, height);
+                let focus = book
+                    .focus_row(view)
+                    .and_then(|r| book.flow_row_y(view, idx, r as u32));
+                let total_height = idx.total_height;
+                let len = book.row_count(view);
+                let (lo, hi) = lines
+                    .iter()
+                    .flat_map(|l| l.cards.iter().map(|c| c.row))
+                    .fold((u32::MAX, 0), |(lo, hi), r| (lo.min(r), hi.max(r)));
+                let mut rows: Vec<Option<RowView>> = if lo <= hi {
+                    self.row_views(view, lo as usize, (hi - lo + 1) as usize, badges)
+                        .into_iter()
+                        .map(Some)
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                // every row of the window is on exactly one line
+                let mut take = |r: u32| rows[(r - lo) as usize].take().expect("row placed once");
+                let lines = lines
+                    .into_iter()
+                    .map(|l| LineView {
+                        y: l.y,
+                        height: l.height,
+                        header: l.header,
+                        cards: l
+                            .cards
+                            .into_iter()
+                            .map(|c| CardView {
+                                index: c.row,
+                                x: c.x,
+                                width: c.width,
+                                height: c.height,
+                                row: take(c.row),
+                            })
+                            .collect(),
+                    })
+                    .collect();
+                Reply::Lines {
+                    view,
+                    total_height,
+                    len,
+                    focus,
+                    lines,
+                }
+            }
             Query::Separators => {
                 let book = self.session.book();
                 let mut tiles: Vec<SeparatorTile> = Vec::new();
@@ -986,5 +1098,69 @@ mod tests {
             panic!()
         };
         assert_eq!(focus_row, Some(2), "B is below A after the move");
+    }
+
+    #[test]
+    fn lines_place_every_card_once_and_follow_styles() {
+        let mut a = app();
+        let flow = FlowParams {
+            width: 500,
+            card_width: 240,
+            card_height: 40,
+            header_height: 30,
+            gap: 4,
+        };
+        let q = Query::Lines {
+            view: order::MAIN,
+            y: 0,
+            height: 10_000,
+            flow,
+            badges: 3,
+        };
+        let Reply::Lines {
+            lines,
+            total_height,
+            len,
+            ..
+        } = a.query(q.clone()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(len, 3);
+        // header + one line with A and B side by side
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].header && lines[0].cards[0].row.name == "S_separator");
+        assert_eq!(
+            lines[1]
+                .cards
+                .iter()
+                .map(|c| c.row.name.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B"]
+        );
+        assert!(
+            lines[1].cards[0].row.counters.is_some(),
+            "cards carry the row view"
+        );
+        assert_eq!(total_height, 30 + 44);
+        // a full-width style breaks the line; the cached index is rebuilt on the new revision
+        let b = lines[1].cards[1].row.key;
+        a.command(Command::SetStyle {
+            keys: vec![b],
+            style: Some(CardStyle {
+                full_width: true,
+                ..CardStyle::default()
+            }),
+        })
+        .unwrap();
+        let Reply::Lines {
+            lines, total_height, ..
+        } = a.query(q).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[2].cards[0].width, 500);
+        assert_eq!(total_height, 30 + 44 + 44);
     }
 }

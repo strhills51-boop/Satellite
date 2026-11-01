@@ -311,7 +311,7 @@ impl Seq {
     }
 
     /// The `n`-th separator (0-based) and its position.
-    fn nth_separator(&self, n: u32) -> (Key, usize) {
+    pub fn nth_separator(&self, n: u32) -> (Key, usize) {
         let (r, base) = self.f_sep.select(n);
         let id = self.order[r] as usize;
         let start = self.f_len.prefix(r) as usize;

@@ -15,6 +15,7 @@
 pub mod book;
 pub mod cursor;
 pub mod decor;
+pub mod flow;
 pub mod seq;
 
 pub use book::{
