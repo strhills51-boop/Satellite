@@ -27,6 +27,7 @@
 | API приложения: команды, запросы, события поверх сессии, без транспорта (ADR 0004) | `@sat:app` (`@sat:app.command`, `@sat:app.query`, `@sat:app.event`, `@sat:app.dispatch`) | транспорт — оболочки (`apps/`) |
 | Стиль карточки (контейнер записи, ADR 0012): раскладка и вид, интернирование, отмена, в проекте | `@sat:order.decor.style` (`CardStyle`), `@sat:order.book.style` (`set_style`, `Op::Style`), `@sat:order.book.patch-style` (одно поле на многих, один шаг отмены), команды `SetStyle` / `PatchStyle` (`@sat:app.patch-style`, merge patch), редактор — `@sat:app.decoration` (`Query::Decoration`: выделение и его стили для «mixed») | цвет записи — `set_color` |
 | Теги, стикеры, заметка записи (ручной слой; найденные анализом — отдельный слой фактов) | `@sat:order.decor.marks` (`Marks`, нормальная форма), `@sat:order.book.marks` (`patch_marks`, `Op::Marks`, `tags_in_use`); команда окна — `@sat:app.marks` (`EditMarks`, `Query::Tags`) | в проекте — `Decor::marks` |
+| Каталог тегов: коллекции («Системные теги», «Стикеры», свои), цвет тега — явный, иначе по смысловой группе | `@sat:tags`, `@sat:tags.catalog`, `@sat:tags.color` (`group_color`); в проекте — `tags`; окно — `Query::Tags` (`TagView`: имя, записей, цвет) | какие теги у записи — `@sat:order.decor.marks` |
 | Раскладка потоком (ADR 0012 §2): блоки разделителей, ряды карточек, окно рядов по высоте, ряд фокуса | `@sat:order.flow` (`FlowParams`, `flow_lines`), `@sat:order.flow.index` (`flow_index`), `@sat:order.flow.row-y` (`flow_row_y`), охват блоков (`@sat:order.flow.scope`, `flow_index_in`: классический вид монолита — текущий разделитель или выбранные стопкой), запрос страницы `@sat:app.lines` (`Query::Lines`) | стиль как данные — `@sat:order.decor.style` |
 | Внешний вид цепочки и контекста: эмодзи и оттенок из состава (не из порядка) | `@sat:identity` (`@sat:identity.of`) | сами цепочки — `@sat:overwrite.projection` |
 | Игнор-лист конфликтов (монолит `conflictIgnorePaths`): `meta.ini` — файл где угодно, `docs/` — папка где угодно, `a/b.dds` — один путь | `@sat:ignore`, `@sat:ignore.matches`; применение — `ConflictIndex::build_with` (`@sat:overwrite.conflicts`); в сессии — `@sat:session.ignore` (истина Settings); в проекте — `conflict_ignore`; команда окна `SetConflictIgnore`; строка — `@sat:cli.ignore` | проверяются только оспариваемые пути |
@@ -111,6 +112,7 @@
 - `crates/sat-core/src/interner.rs` — `@sat:interner`: арена строк, свёртка регистра, каталоги, `file_key`.
 - `crates/sat-core/src/facts.rs` — `@sat:facts`: факты сканера.
 - `crates/sat-core/src/table.rs` — `@sat:table`: колонки провайдеров, CSR по путям и модам.
+- `crates/sat-core/src/tags.rs` — `@sat:tags`: каталог тегов и их цвета.
 - `crates/sat-core/src/overwrite.rs` — `@sat:overwrite`: проекция перезаписи (параллельно по путям), статистика.
 - `crates/sat-core/src/canon.rs` — `@sat:canon`: снимок канона, блоки, приоритеты.
 - `crates/sat-core/src/plugin_edit.rs` — `@sat:plugins.edit`: правка канона плагинов и файлы менеджера.

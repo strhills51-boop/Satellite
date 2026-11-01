@@ -50,6 +50,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut records = Vec::new();
     let mut blacklist = Vec::new();
     let mut ignore = Default::default();
+    let mut tags = sat_core::tags::TagCatalog::default();
     let book = match std::fs::read(&project_file)
         .ok()
         .and_then(|b| serde_json::from_slice::<Project>(&b).ok())
@@ -64,6 +65,7 @@ fn load(args: &[String]) -> Result<App, String> {
             records = p.sync.clone();
             blacklist = p.plugin_blacklist.clone();
             ignore = p.conflict_ignore.clone();
+            tags = p.tags.clone();
             p.book().0
         }
         _ => {
@@ -137,6 +139,7 @@ fn load(args: &[String]) -> Result<App, String> {
         .unwrap_or_default();
     eprintln!("sync: {} record(s) from the project", records.len());
     app.set_sync(records, disk);
+    app.set_tag_catalog(tags);
     Ok(app)
 }
 

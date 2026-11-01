@@ -130,6 +130,14 @@ pub enum Command {
 }
 
 // @sat:app.query
+/// A tag in use.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagView {
+    pub name: String,
+    pub entries: usize,
+    pub color: u32,
+}
+
 /// One change of marks (`@sat:order.decor.marks`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
@@ -454,8 +462,10 @@ pub enum Reply {
     Contexts {
         contexts: Vec<ContextItem>,
     },
+    /// Tags in use (name, entries, colour) and the catalog of collections.
     Tags {
-        tags: Vec<(String, usize)>,
+        tags: Vec<TagView>,
+        catalog: sat_core::tags::TagCatalog,
     },
     Sync {
         records: Vec<RecordView>,
@@ -531,6 +541,8 @@ pub struct App {
     open_context: Option<context::OpenContext>,
     /// Sync records and the folder names they were found against.
     sync: sync::SyncState,
+    /// Tag collections and colours (`@sat:tags`).
+    tags: sat_core::tags::TagCatalog,
     /// Headings of the normalized chains, per overwrite computation.
     heads: Option<(u64, Arc<Vec<chains::Head>>)>,
 }
@@ -545,7 +557,13 @@ impl App {
             open_context: None,
             heads: None,
             sync: Default::default(),
+            tags: Default::default(),
         }
+    }
+
+    /// The shell hands over the project's tag catalog.
+    pub fn set_tag_catalog(&mut self, catalog: sat_core::tags::TagCatalog) {
+        self.tags = catalog;
     }
 
     pub fn session(&mut self) -> &mut Session {
@@ -942,7 +960,18 @@ impl App {
                 plan: Box::new(self.commit_plan()),
             },
             Query::Tags => Reply::Tags {
-                tags: self.session.book().tags_in_use(),
+                tags: self
+                    .session
+                    .book()
+                    .tags_in_use()
+                    .into_iter()
+                    .map(|(name, entries)| TagView {
+                        color: self.tags.color(&name),
+                        name,
+                        entries,
+                    })
+                    .collect(),
+                catalog: self.tags.clone(),
             },
             Query::Contexts => Reply::Contexts {
                 contexts: self.contexts(),
@@ -1655,10 +1684,14 @@ mod tests {
                 "check after update"
             )
         );
-        let Reply::Tags { tags } = a.query(Query::Tags).unwrap() else {
+        let Reply::Tags { tags, catalog } = a.query(Query::Tags).unwrap() else {
             panic!()
         };
-        assert_eq!(tags, [("UI".to_string(), 1)]);
+        assert_eq!(
+            (tags[0].name.as_str(), tags[0].entries, tags[0].color),
+            ("UI", 1, 0x3b_82_f6)
+        );
+        assert!(catalog.find("SKSE").is_some());
         a.command(Command::Undo).unwrap();
         let Reply::Rows { rows, .. } = a
             .query(Query::Rows {

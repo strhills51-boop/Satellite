@@ -47,6 +47,13 @@ pub struct Project {
     /// Paths that are no conflict (`@sat:ignore`). Absent in older files.
     #[serde(default, skip_serializing_if = "crate::ignore::IgnoreRules::is_empty")]
     pub conflict_ignore: crate::ignore::IgnoreRules,
+    /// Tag collections with colours (`@sat:tags`); the built-in ones when absent.
+    #[serde(default, skip_serializing_if = "is_default_catalog")]
+    pub tags: crate::tags::TagCatalog,
+}
+
+fn is_default_catalog(c: &crate::tags::TagCatalog) -> bool {
+    *c == crate::tags::TagCatalog::default()
 }
 
 /// How the manager's list differs from the project canon.
@@ -87,6 +94,7 @@ impl Project {
             decisions: ChainDecisions::default(),
             plugin_blacklist: Vec::new(),
             conflict_ignore: Default::default(),
+            tags: Default::default(),
         }
     }
 
