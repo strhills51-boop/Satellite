@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 
+mod chains;
 mod context;
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
 
@@ -467,6 +468,8 @@ pub struct App {
     flows: std::collections::HashMap<ViewId, FlowIndex>,
     /// Sorted columns of the context table that is open.
     open_context: Option<context::OpenContext>,
+    /// Headings of the normalized chains, per revision.
+    heads: Option<(u64, Arc<Vec<chains::Head>>)>,
 }
 
 impl App {
@@ -477,6 +480,7 @@ impl App {
             revision: 0,
             flows: Default::default(),
             open_context: None,
+            heads: None,
         }
     }
 
@@ -534,7 +538,17 @@ impl App {
             C::SetChainDone { signature, done } => {
                 let sig = u64::from_str_radix(&signature, 16)
                     .map_err(|_| AppError::Signature(signature.clone()))?;
-                return Ok(if self.session.set_chain_done(sig, done) {
+                // a normalized chain settles (or reopens) every exact chain in it
+                let heads = self.heads();
+                let sources = heads
+                    .iter()
+                    .find(|h| h.signature == sig)
+                    .map_or_else(|| vec![sig], |h| h.sources.clone());
+                let mut changed = false;
+                for s in sources {
+                    changed |= self.session.set_chain_done(s, done);
+                }
+                return Ok(if changed {
                     self.revision += 1;
                     Event::Decided
                 } else {
@@ -580,6 +594,7 @@ impl App {
 
     /// Row views `[start, start + count)` of a view: what a card shows, counters and badges included.
     fn row_views(&mut self, view: ViewId, start: usize, count: usize, badges: u8) -> Vec<RowView> {
+        let heads = if badges > 0 { self.heads() } else { Arc::default() };
         let ow = self.session.overwrite();
         let plugins = self.session.plugins();
         let names = self.session.table().clone();
@@ -629,7 +644,7 @@ impl App {
                     style: r.style.cloned(),
                     badges: match (badges, index.get(&r.name.to_lowercase())) {
                         (n, Some(&m)) if n > 0 && r.kind == RowKind::Mod => {
-                            mod_badges(&ow, &names, self.session.decisions(), m, n)
+                            mod_badges(&ow, &heads, &names, self.session.decisions(), m, n)
                         }
                         _ => Vec::new(),
                     },
@@ -831,56 +846,55 @@ impl App {
     }
 }
 
-/// Context badges of one mod: chains grouped by context, largest first, `limit` icons per context.
+// @sat:app.badges.normalized
+/// Context badges of one mod: its normalized chains grouped by context, largest first, `limit` icons per context.
 fn mod_badges(
     ow: &sat_core::overwrite::OverwriteProjection,
+    heads: &[chains::Head],
     table: &sat_core::table::ProviderTable,
     decisions: &sat_core::decisions::ChainDecisions,
     m: ModId,
     limit: u8,
 ) -> Vec<ContextBadge> {
-    let mut chains = ow.mod_chains(m);
-    if chains.is_empty() {
+    let parts = chains::parts(ow, heads, m);
+    if parts.is_empty() {
         return Vec::new();
     }
-    chains.sort_by_key(|&c| std::cmp::Reverse((ow.chain(c).files, c.0)));
-    let mut by_ctx: Vec<(Option<sat_core::ids::ContextId>, Vec<sat_core::ids::ChainId>)> = Vec::new();
-    for c in chains {
-        let ctx = ow.chain_context(c);
+    let mut by_ctx: Vec<(Option<sat_core::ids::ContextId>, Vec<chains::Part>)> = Vec::new();
+    for p in parts {
+        let ctx = ow.chain_context(heads[p.group as usize].chains[0]);
         match by_ctx.iter_mut().find(|(k, _)| *k == ctx) {
-            Some((_, v)) => v.push(c),
-            None => by_ctx.push((ctx, vec![c])),
+            Some((_, v)) => v.push(p),
+            None => by_ctx.push((ctx, vec![p])),
         }
     }
     let name = |x: ModId| table.mod_name(x);
     by_ctx
         .into_iter()
-        .map(|(ctx, cs)| {
+        .map(|(ctx, ps)| {
             let hue = ctx.map_or(210, |k| {
                 sat_core::identity::identity(ow.contexts()[k.idx()].mods.iter().map(|&x| name(x))).hue
             });
-            let files = cs.iter().map(|&c| ow.chain(c).files).sum();
-            let shown: Vec<ChainBadge> = cs
+            let shown: Vec<ChainBadge> = ps
                 .iter()
                 .take(limit as usize)
-                .map(|&c| {
-                    let stack = ow.chain_mods(c);
-                    let id = sat_core::identity::identity(stack.iter().map(|&x| name(x)));
+                .map(|p| {
+                    let h = &heads[p.group as usize];
                     ChainBadge {
-                        signature: format!("{:016x}", id.signature),
-                        done: decisions.is_done(id.signature),
-                        emoji: id.emoji.to_string(),
-                        hue: id.hue,
-                        files: ow.chain(c).files,
-                        place: stack.iter().position(|&x| x == m).unwrap_or(0) as u8,
-                        stack: stack.iter().map(|&x| name(x).to_string()).collect(),
+                        signature: h.hex(),
+                        done: h.done(decisions),
+                        emoji: h.emoji.to_string(),
+                        hue: h.hue,
+                        files: p.files,
+                        place: p.place.min(255) as u8,
+                        stack: h.route.iter().map(|&x| name(x).to_string()).collect(),
                     }
                 })
                 .collect();
             ContextBadge {
                 hue,
-                more: (cs.len() - shown.len()) as u32,
-                files,
+                more: (ps.len() - shown.len()) as u32,
+                files: ps.iter().map(|p| p.files).sum(),
                 chains: shown,
             }
         })
@@ -936,10 +950,8 @@ impl App {
                 plugins: Vec::new(),
             };
         };
-        let mut chains = ow.mod_chains(m);
-        chains.sort_by_key(|&c| std::cmp::Reverse((ow.chain(c).files, c.0)));
-        let more_chains = chains.len().saturating_sub(CHAIN_LIMIT);
-        // opponents over every chain; teeth over the listed ones
+        // opponents over every exact chain (exact counts); the list and the teeth over normalized chains
+        let chains = ow.mod_chains(m);
         let mut opp: std::collections::HashMap<ModId, (u32, u32)> = Default::default();
         for &c in &chains {
             let stack = ow.chain_mods(c);
@@ -957,38 +969,41 @@ impl App {
                 }
             }
         }
-        let listed: Vec<_> = chains.iter().copied().take(CHAIN_LIMIT).collect();
-        let chain_views: Vec<ChainView> = listed
+        let heads = self.heads();
+        let parts = chains::parts(&ow, &heads, m);
+        let more_chains = parts.len().saturating_sub(CHAIN_LIMIT);
+        let listed: Vec<&chains::Head> = parts
             .iter()
-            .map(|&c| {
-                let stack = ow.chain_mods(c);
-                let paths: Vec<String> = ow
-                    .chain_paths(c)
+            .take(CHAIN_LIMIT)
+            .map(|p| &heads[p.group as usize])
+            .collect();
+        let routes = ow.routes();
+        let chain_views: Vec<ChainView> = parts
+            .iter()
+            .take(CHAIN_LIMIT)
+            .map(|p| {
+                let h = &heads[p.group as usize];
+                // sample paths where this mod takes part
+                let samples: Vec<String> = chains
                     .iter()
-                    .take(64)
-                    .map(|&p| table.path_string(p))
+                    .filter(|&&c| routes.of_chain(c) == Some(p.group))
+                    .flat_map(|&c| ow.chain_paths(c))
+                    .take(SAMPLE_LIMIT)
+                    .map(|q| table.path_string(q))
                     .collect();
-                let id = sat_core::identity::identity(stack.iter().map(|&x| table.mod_name(x)));
-                let title = chain_title(&paths);
-                let first = table.mod_name(stack[stack.len() - 1]);
-                let last = table.mod_name(stack[0]);
                 ChainView {
-                    id: c.0,
-                    signature: format!("{:016x}", id.signature),
-                    done: self.session.decisions().is_done(id.signature),
-                    emoji: id.emoji.to_string(),
-                    hue: id.hue,
-                    name: if title.is_empty() {
-                        format!("{first} → {last}")
-                    } else {
-                        format!("{title} · {first} → {last}")
-                    },
-                    title,
-                    files: ow.chain(c).files,
-                    bytes: ow.chain(c).bytes,
-                    stack: stack.iter().map(|&x| table.mod_name(x).to_string()).collect(),
-                    place: stack.iter().position(|&x| x == m).unwrap_or(0),
-                    samples: paths.into_iter().take(SAMPLE_LIMIT).collect(),
+                    id: p.group,
+                    signature: h.hex(),
+                    done: h.done(self.session.decisions()),
+                    emoji: h.emoji.to_string(),
+                    hue: h.hue,
+                    title: h.title.clone(),
+                    name: h.name.clone(),
+                    files: h.files,
+                    bytes: h.bytes,
+                    stack: h.route.iter().map(|&x| table.mod_name(x).to_string()).collect(),
+                    place: p.place,
+                    samples,
                 }
             })
             .collect();
@@ -1001,7 +1016,7 @@ impl App {
                 let okey = book.key_of(&oname);
                 let teeth = listed
                     .iter()
-                    .map(|&c| match ow.chain_mods(c).iter().position(|&x| x == o) {
+                    .map(|h| match h.route.iter().position(|&x| x == o) {
                         Some(0) => 'w',
                         Some(_) => 'l',
                         None => '-',

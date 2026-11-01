@@ -381,7 +381,7 @@ async function sync(follow) {
 async function totals() {
   const t = await query({ type: "totals" }), o = t.overwrite, p = t.plugins;
   $("stats").innerHTML = [
-    `конфликтных путей <b>${num(o.conflict_paths)}</b>`, `цепочек <b>${num(o.chains)}</b>`, `контекстов <b>${o.contexts}</b>`,
+    `конфликтных путей <b>${num(o.conflict_paths)}</b>`, `цепочек <b>${num(o.normalized)}</b> <span title="точных стеков">(точных ${num(o.chains)})</span>`, `контекстов <b>${o.contexts}</b>`,
     `X <b>${o.fully_overridden}</b>`, `плагинов <b>${p.active_full}</b> полных + <b>${p.active_light}</b> лёгких`,
     p.overflow_full + p.overflow_light ? `сверх лимита <b>${p.overflow_full}/${p.overflow_light}</b>` : "",
     `в нескольких модах <b>${p.versioned}</b>`, `без мастеров <b>${p.with_missing_masters}</b>`,

@@ -28,6 +28,7 @@
 | Стиль карточки (контейнер записи, ADR 0012): раскладка и вид, интернирование, отмена, в проекте | `@sat:order.decor.style` (`CardStyle`), `@sat:order.book.style` (`set_style`, `Op::Style`), `@sat:order.book.patch-style` (одно поле на многих, один шаг отмены), команды `SetStyle` / `PatchStyle` (`@sat:app.patch-style`, merge patch), редактор — `@sat:app.decoration` (`Query::Decoration`: выделение и его стили для «mixed») | цвет записи — `set_color` |
 | Раскладка потоком (ADR 0012 §2): блоки разделителей, ряды карточек, окно рядов по высоте, ряд фокуса | `@sat:order.flow` (`FlowParams`, `flow_lines`), `@sat:order.flow.index` (`flow_index`), `@sat:order.flow.row-y` (`flow_row_y`), запрос страницы `@sat:app.lines` (`Query::Lines`) | стиль как данные — `@sat:order.decor.style` |
 | Внешний вид цепочки и контекста: эмодзи и оттенок из состава (не из порядка) | `@sat:identity` (`@sat:identity.of`) | сами цепочки — `@sat:overwrite.projection` |
+| Нормализованные цепочки (слой монолита v499–v501): точные цепочки одного победителя → одна, супер-маршрут, без циклов, капы 256 / 128 | `@sat:routes` (`RouteGroups`, `OverwriteProjection::routes`), `@sat:routes.groups`, `@sat:routes.of-mod`; заголовки и «решено» — `@sat:app.chains`, `@sat:app.chains.heads`; бейджи — `@sat:app.badges.normalized` | точные стеки — `@sat:overwrite.projection`; решения — на точных (`@sat:decisions`) |
 | Бейджи перезаписи на карточке (модель «коллекция цепочек» монолита): по контексту, значки крупнейших цепочек, `+N` | `@sat:app.badges` (`Query::Rows { badges }`) | модель `OW N` — та же выдача, другой показ на странице |
 | Таблица конфликтов контекста (монолит, флажок «цветные типы»): моды × файлы окнами по обеим осям, группы по разделителям, порядок «цепочка / сила» | `@sat:app.context-table` (`Query::Contexts`), `@sat:app.context-table.window` (`Query::ContextTable`) | цепочки и стеки — `@sat:overwrite.projection`; цвет типа файла — страница |
 | Решения по конфликтам: цепочка «решена» на подписи содержимого, переживает перестановку и пробег | `@sat:decisions` (`@sat:decisions.chains`), в сессии `@sat:session.decide`, команда `SetChainDone` | хранение в проекте — следующий шаг (контейнер, ADR 0007) |
@@ -108,6 +109,7 @@
 - `crates/sat-core/src/overwrite.rs` — `@sat:overwrite`: проекция перезаписи (параллельно по путям), статистика.
 - `crates/sat-core/src/canon.rs` — `@sat:canon`: снимок канона, блоки, приоритеты.
 - `crates/sat-core/src/plugins.rs` — `@sat:plugins`: канон плагинов, версии по модам, список плагинов как его видит игра.
+- `crates/sat-core/src/routes.rs` — `@sat:routes`: нормализованные цепочки (группы маршрутов точных цепочек).
 - `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`.
 - `crates/sat-core/src/run.rs` — `@sat:run`: статусы пробега, `Authority`, `seal`.
 - `crates/sat-core/src/session.rs` — `@sat:session`: книга порядка + таблица фактов + граф проекций; ленивые `priorities()` / `overwrite()`.
@@ -130,6 +132,7 @@
 ### `crates/sat-app` — API приложения (ADR 0004)
 
 - `crates/sat-app/src/lib.rs` — `@sat:app`: `Command` / `Query` / `Reply` / `Event`, `App` — диспетчер над сессией и реестром ресурсов; строки окна со счётчиками карточки мода.
+- `crates/sat-app/src/chains.rs` — `@sat:app.chains`: заголовки нормализованных цепочек (значок, имя, «решено»).
 - `crates/sat-app/src/context.rs` — `@sat:app.context-table`: таблица конфликтов контекста, окно строк × столбцов.
 
 ### `apps/devserver` — оболочка разработки (ADR 0004)

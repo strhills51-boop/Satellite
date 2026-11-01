@@ -172,6 +172,8 @@ struct Report {
     providers: usize,
     conflict_paths: usize,
     chains: usize,
+    /// Normalized chains (route groups; the monolith's chain count).
+    normalized: usize,
     contexts: usize,
     fully_overridden: usize,
     plugins: sat_core::plugins::PluginStats,
@@ -642,6 +644,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         providers: ts.providers,
         conflict_paths: totals.conflict_paths,
         chains: totals.chains,
+        normalized: totals.normalized,
         contexts: totals.contexts,
         fully_overridden: totals.fully_overridden,
         plugins: ps,
@@ -655,7 +658,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         degraded,
     };
     eprintln!(
-        "mods={} cache={} missing={} files={} archive={} paths={} providers={} conflicts={} chains={} contexts={} X={}",
+        "mods={} cache={} missing={} files={} archive={} paths={} providers={} conflicts={} chains={} normalized={} contexts={} X={}",
         report.mods_scanned,
         report.from_cache,
         report.missing,
@@ -665,6 +668,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         report.providers,
         report.conflict_paths,
         report.chains,
+        report.normalized,
         report.contexts,
         report.fully_overridden
     );

@@ -92,6 +92,9 @@ pub struct OverwriteStats {
     pub active_paths: usize,
     pub conflict_paths: usize,
     pub chains: usize,
+    /// Normalized chains (route groups of exact chains, `@sat:routes`).
+    #[serde(default)]
+    pub normalized: usize,
     pub contexts: usize,
     pub fully_overridden: usize,
     pub vram_win_kib: u64,
@@ -334,6 +337,7 @@ pub struct OverwriteProjection {
     conflict_paths: usize,
     fully: usize,
     contexts: std::sync::OnceLock<Contexts>,
+    routes: std::sync::OnceLock<crate::routes::RouteGroups>,
 }
 
 const PART: usize = 1 << 14;
@@ -377,6 +381,7 @@ impl OverwriteProjection {
             conflict_paths: 0,
             fully: 0,
             contexts: std::sync::OnceLock::new(),
+            routes: std::sync::OnceLock::new(),
             index,
         };
         let all: Vec<u32> = (0..slots as u32).collect();
@@ -474,6 +479,7 @@ impl OverwriteProjection {
             self.compact();
         }
         self.contexts = std::sync::OnceLock::new();
+        self.routes = std::sync::OnceLock::new();
     }
 
     fn stack(&self, slot: usize) -> &[ModId] {
@@ -724,6 +730,12 @@ impl OverwriteProjection {
         })
     }
 
+    /// Normalized chains (route groups, `@sat:routes`): lazy, like contexts.
+    pub fn routes(&self) -> &crate::routes::RouteGroups {
+        self.routes
+            .get_or_init(|| crate::routes::RouteGroups::build(self))
+    }
+
     pub fn index(&self) -> &Arc<ConflictIndex> {
         &self.index
     }
@@ -735,6 +747,7 @@ impl OverwriteProjection {
             active_paths: self.active_paths,
             conflict_paths: self.conflict_paths,
             chains: self.alive,
+            normalized: self.routes().len(),
             contexts: self.contexts_data().contexts.len(),
             fully_overridden: self.fully,
             vram_win_kib: self.stats.iter().map(|s| s.vram_win_kib).sum(),

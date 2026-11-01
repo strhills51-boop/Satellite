@@ -30,6 +30,7 @@ pub mod overwrite;
 pub mod plugins;
 pub mod project;
 pub mod resource;
+pub mod routes;
 pub mod run;
 pub mod session;
 pub mod sync;

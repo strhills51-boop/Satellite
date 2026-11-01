@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use sat_core::ids::{ChainId, ContextId, ModId, PathId};
 use sat_core::order::Key;
 
-use crate::{App, chain_title};
+use crate::App;
 
 /// Column order of the table (monolith: "Сила конфликта" / "Релевантность цепочке").
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -102,11 +102,10 @@ pub(crate) struct OpenContext {
     revision: u64,
     context: ContextId,
     order: ColumnOrder,
-    /// Chains in column order, and their headings (names cost a path scan: made once per revision).
-    chains: Vec<ChainId>,
+    /// Normalized chains in column order, and their headings.
     heads: Vec<TableChain>,
-    /// Columns: (path, index into `chains`).
-    cols: Vec<(PathId, u32)>,
+    /// Columns: (path, index into `heads`, the path's exact chain — its stack gives the cells).
+    cols: Vec<(PathId, u32, ChainId)>,
     chain_starts: Vec<u32>,
     /// Rows: separator headings and context mods with wins / loses.
     rows: Vec<RowItem>,
@@ -136,7 +135,16 @@ impl App {
                     name: format!("{first} → {last}"),
                     hue: id.hue,
                     mods: cx.mods.len(),
-                    chains: cx.chains.len(),
+                    chains: {
+                        let mut gs: Vec<u32> = cx
+                            .chains
+                            .iter()
+                            .filter_map(|&c| ow.routes().of_chain(c))
+                            .collect();
+                        gs.sort_unstable();
+                        gs.dedup();
+                        gs.len()
+                    },
                     files: cx.files,
                 }
             })
@@ -171,10 +179,20 @@ impl App {
             .as_ref()
             .is_some_and(|o| o.revision == self.revision && o.context == cx && o.order == order);
         if !fresh {
+            let heads = self.heads();
             let decisions = self.session.decisions();
             let book = self.session.book();
             let sep_of = |m: ModId| book.key_of(table.mod_name(m)).and_then(|k| book.separator_of(k));
-            self.open_context = Some(open(&ow, &table, decisions, &sep_of, cx, order, self.revision));
+            self.open_context = Some(open(
+                &ow,
+                &table,
+                &heads,
+                decisions,
+                &sep_of,
+                cx,
+                order,
+                self.revision,
+            ));
         }
         let oc = self.open_context.as_ref().expect("opened");
         let context = &ow.contexts()[cx.idx()];
@@ -188,7 +206,6 @@ impl App {
             rows.0.min(oc.rows.len()),
             rows.0.saturating_add(rows.1).min(oc.rows.len()),
         );
-        let stacks: Vec<&[ModId]> = oc.chains.iter().map(|&c| ow.chain_mods(c)).collect();
         let sep_name = |k: Key| book.name(k).trim_end_matches("_separator").to_string();
         let row_views = oc.rows[r0..r1]
             .iter()
@@ -214,7 +231,7 @@ impl App {
                 let cells = window
                     .iter()
                     .map(
-                        |&(_, ci)| match stacks[ci as usize].iter().position(|&x| x == rm) {
+                        |&(_, _, c)| match ow.chain_mods(c).iter().position(|&x| x == rm) {
                             Some(0) => 'w',
                             Some(_) => 'l',
                             None => '-',
@@ -243,7 +260,7 @@ impl App {
             rows_total: oc.rows.len(),
             cols_total: oc.cols.len(),
             chains: {
-                let mut ids: Vec<u32> = window.iter().map(|&(_, ci)| ci).collect();
+                let mut ids: Vec<u32> = window.iter().map(|&(_, ci, _)| ci).collect();
                 ids.sort_unstable();
                 ids.dedup();
                 ids.into_iter().map(|i| oc.heads[i as usize].clone()).collect()
@@ -253,7 +270,7 @@ impl App {
             rows: row_views,
             cols: window
                 .iter()
-                .map(|&(p, ci)| TableCol {
+                .map(|&(p, ci, _)| TableCol {
                     path: table.path_string(p),
                     chain: ci,
                 })
@@ -262,9 +279,11 @@ impl App {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn open(
     ow: &sat_core::overwrite::OverwriteProjection,
     table: &sat_core::table::ProviderTable,
+    heads: &[crate::chains::Head],
     decisions: &sat_core::decisions::ChainDecisions,
     sep_of: &dyn Fn(ModId) -> Option<Key>,
     cx: ContextId,
@@ -272,28 +291,37 @@ fn open(
     revision: u64,
 ) -> OpenContext {
     let context = &ow.contexts()[cx.idx()];
-    let mut chains = context.chains.clone();
-    chains.sort_by_key(|&c| (std::cmp::Reverse(ow.chain(c).files), c.0));
-    let mut cols: Vec<(PathId, u32)> = Vec::new();
-    let mut chain_starts = Vec::with_capacity(chains.len());
-    for (i, &c) in chains.iter().enumerate() {
+    let routes = ow.routes();
+    // normalized chains of the context, larger first
+    let mut groups: Vec<u32> = context
+        .chains
+        .iter()
+        .filter_map(|&c| routes.of_chain(c))
+        .collect();
+    groups.sort_unstable();
+    groups.dedup();
+    groups.sort_by_key(|&g| (std::cmp::Reverse(heads[g as usize].files), g));
+    let mut cols: Vec<(PathId, u32, ChainId)> = Vec::new();
+    let mut chain_starts = Vec::with_capacity(groups.len());
+    for (i, &g) in groups.iter().enumerate() {
         chain_starts.push(cols.len() as u32);
-        let mut ps: Vec<(String, PathId)> = ow
-            .chain_paths(c)
-            .into_iter()
-            .map(|p| (table.path_string(p), p))
+        let mut ps: Vec<(String, PathId, ChainId)> = heads[g as usize]
+            .chains
+            .iter()
+            .flat_map(|&c| ow.chain_paths(c).into_iter().map(move |p| (p, c)))
+            .map(|(p, c)| (table.path_string(p), p, c))
             .collect();
         ps.sort_unstable();
-        cols.extend(ps.into_iter().map(|(_, p)| (p, i as u32)));
+        cols.extend(ps.into_iter().map(|(_, p, c)| (p, i as u32, c)));
     }
     if order == ColumnOrder::Strength {
-        // stable: within a depth the chain order stays
-        cols.sort_by_key(|&(_, ci)| std::cmp::Reverse(ow.chain_mods(chains[ci as usize]).len()));
+        // deeper stacks first; stable, so within a depth the chain order stays
+        cols.sort_by_key(|&(_, _, c)| std::cmp::Reverse(ow.chain_mods(c).len()));
         chain_starts.clear();
     }
-    // wins / loses per member over the whole context
+    // wins / loses per member over the whole context (exact stacks)
     let mut tally: std::collections::HashMap<ModId, (u32, u32)> = Default::default();
-    for &c in &chains {
+    for &c in &context.chains {
         let files = ow.chain(c).files;
         for (i, &m) in ow.chain_mods(c).iter().enumerate() {
             let e = tally.entry(m).or_insert((0, 0));
@@ -316,34 +344,20 @@ fn open(
         let (w, l) = tally.get(&m).copied().unwrap_or((0, 0));
         rows.push(RowItem::Mod(m, w, l));
     }
-    let heads: Vec<TableChain> = chains
+    let heads: Vec<TableChain> = groups
         .iter()
         .enumerate()
-        .map(|(i, &c)| {
-            let stack = ow.chain_mods(c);
-            let id = sat_core::identity::identity(stack.iter().map(|&x| table.mod_name(x)));
-            let paths: Vec<String> = ow
-                .chain_paths(c)
-                .iter()
-                .take(64)
-                .map(|&p| table.path_string(p))
-                .collect();
-            let title = chain_title(&paths);
-            let first = table.mod_name(stack[stack.len() - 1]);
-            let last = table.mod_name(stack[0]);
+        .map(|(i, &g)| {
+            let h = &heads[g as usize];
             TableChain {
                 index: i as u32,
-                signature: format!("{:016x}", id.signature),
-                done: decisions.is_done(id.signature),
-                emoji: id.emoji.to_string(),
-                hue: id.hue,
-                name: if title.is_empty() {
-                    format!("{first} → {last}")
-                } else {
-                    format!("{title} · {first} → {last}")
-                },
-                files: ow.chain(c).files,
-                depth: stack.len(),
+                signature: h.hex(),
+                done: h.done(decisions),
+                emoji: h.emoji.to_string(),
+                hue: h.hue,
+                name: h.name.clone(),
+                files: h.files,
+                depth: h.route.len(),
             }
         })
         .collect();
@@ -352,7 +366,6 @@ fn open(
         revision,
         context: cx,
         order,
-        chains,
         cols,
         chain_starts,
         rows,
@@ -439,7 +452,11 @@ mod tests {
         let Reply::Contexts { contexts } = a.query(Query::Contexts).unwrap() else {
             panic!()
         };
-        assert_eq!((contexts.len(), contexts[0].mods, contexts[0].chains), (1, 3, 2));
+        assert_eq!(
+            (contexts.len(), contexts[0].mods, contexts[0].chains),
+            (1, 3, 1),
+            "x and y are both won by C: one normalized chain"
+        );
         let t = window(&mut a, ColumnOrder::Strength, (0, 10));
         // a separator heading, then the three mods
         assert_eq!((t.rows_total, t.cols_total), (4, 2));
@@ -490,5 +507,38 @@ mod tests {
             ['l', 'w', 'w', '-']
         );
         assert_eq!(t.chain_starts.len(), t.chains.len());
+    }
+
+    #[test]
+    fn settling_a_normalized_chain_settles_its_exact_chains() {
+        let mut a = app(&[
+            ("A", &["x.nif", "y.nif"]),
+            ("B", &["x.nif"]),
+            ("C", &["x.nif", "y.nif"]),
+        ]);
+        let key = a.session().book().key_of("A").unwrap();
+        let detail = |a: &mut App| {
+            let Reply::ModDetail { detail } = a.query(Query::ModDetail { key }).unwrap() else {
+                panic!()
+            };
+            detail
+        };
+        let d = detail(&mut a);
+        assert_eq!(d.chains.len(), 1, "C → B → A and C → A are one normalized chain");
+        assert_eq!(d.chains[0].stack, ["C", "B", "A"]);
+        assert_eq!(d.chains[0].files, 2);
+        a.command(crate::Command::SetChainDone {
+            signature: d.chains[0].signature.clone(),
+            done: true,
+        })
+        .unwrap();
+        assert_eq!(a.session().decisions().len(), 2, "both exact chains settled");
+        assert!(detail(&mut a).chains[0].done);
+        a.command(crate::Command::SetChainDone {
+            signature: detail(&mut a).chains[0].signature.clone(),
+            done: false,
+        })
+        .unwrap();
+        assert!(a.session().decisions().is_empty());
     }
 }
