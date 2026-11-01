@@ -16,11 +16,21 @@ use rustc_hash::FxHashMap;
 use crate::engine::{Change, Graph, Input, Keys, ProjectionId, Truth};
 use crate::ids::ModId;
 use crate::order::{self, OrderBook, OrderError};
-use crate::overwrite::{OverwriteProjection, Priorities};
+use crate::overwrite::{ConflictIndex, OverwriteProjection, Priorities};
 use crate::table::ProviderTable;
 
 /// Name of the manager's output folder treated as the highest priority (MO2 `overwrite`).
 pub const OVERWRITE: &str = "Overwrite";
+
+/// How a projection was brought up to date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recompute {
+    Full,
+    /// Only stacks of paths provided by `touched` mods were recomputed.
+    Incremental {
+        touched: usize,
+    },
+}
 
 // @sat:session.state
 /// A build being worked on: canon, facts, and the projections derived from them.
@@ -31,10 +41,14 @@ pub struct Session {
     /// Folded mod name → table id.
     index: FxHashMap<String, ModId>,
     graph: Graph,
+    p_conflicts: ProjectionId,
     p_priorities: ProjectionId,
     p_overwrite: ProjectionId,
+    conflicts: Option<Arc<ConflictIndex>>,
     priorities: Option<Arc<Priorities>>,
     overwrite: Option<Arc<OverwriteProjection>>,
+    /// How the last overwrite was brought up to date (observability, tests).
+    last_overwrite: Recompute,
     /// How many times each projection was computed (observability, tests).
     computed: FxHashMap<ProjectionId, u64>,
 }
@@ -51,6 +65,9 @@ fn index_of(table: &ProviderTable) -> FxHashMap<String, ModId> {
 impl Session {
     pub fn new(book: OrderBook, table: Arc<ProviderTable>) -> Self {
         let mut graph = Graph::new();
+        let p_conflicts = graph
+            .register("conflicts", &[Input::Truth(Truth::Facts)])
+            .expect("fresh graph");
         let p_priorities = graph
             .register(
                 "priorities",
@@ -60,7 +77,7 @@ impl Session {
         let p_overwrite = graph
             .register(
                 "overwrite",
-                &[Input::Truth(Truth::Facts), Input::Projection(p_priorities)],
+                &[Input::Projection(p_conflicts), Input::Keyed(p_priorities)],
             )
             .expect("fresh graph");
         Self {
@@ -68,10 +85,13 @@ impl Session {
             book,
             table,
             graph,
+            p_conflicts,
             p_priorities,
             p_overwrite,
+            conflicts: None,
             priorities: None,
             overwrite: None,
+            last_overwrite: Recompute::Full,
             computed: FxHashMap::default(),
         }
     }
@@ -147,9 +167,33 @@ impl Session {
             .unwrap_or(0)
     }
 
+    /// How the last overwrite recomputation went.
+    pub fn last_overwrite(&self) -> Recompute {
+        self.last_overwrite
+    }
+
+    /// Mods whose stacks may have changed since `old`: the mods of the changed canon keys, plus every mod
+    /// whose active state flipped (renames, membership). Other mods keep their relative order.
+    fn touched_mods(&self, keys: &[u32], old: &Priorities, new: &Priorities) -> Vec<ModId> {
+        let mut out: Vec<ModId> = keys
+            .iter()
+            .filter_map(|&k| self.index.get(&self.book.name(k).to_lowercase()).copied())
+            .collect();
+        out.extend(
+            (0..new.0.len())
+                .map(ModId::from_idx)
+                .filter(|&m| old.is_active(m) != new.is_active(m)),
+        );
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     fn bring_up_to_date(&mut self, id: ProjectionId) {
         for p in self.graph.plan(&[id]) {
-            if p == self.p_priorities {
+            if p == self.p_conflicts {
+                self.conflicts = Some(Arc::new(ConflictIndex::build(&self.table)));
+            } else if p == self.p_priorities {
                 let top = self.index.get(&OVERWRITE.to_lowercase()).copied();
                 let index = &self.index;
                 let prio = crate::canon::priorities(
@@ -161,7 +205,22 @@ impl Session {
                 self.priorities = Some(Arc::new(prio));
             } else if p == self.p_overwrite {
                 let prio = self.priorities.as_ref().expect("inputs first").as_ref().clone();
-                self.overwrite = Some(Arc::new(OverwriteProjection::compute(&self.table, prio)));
+                let index = self.conflicts.clone().expect("inputs first");
+                let keys = self.graph.pending(p).cloned();
+                let next = match (&self.overwrite, keys) {
+                    (Some(prev), Some(Keys::Some(keys))) if Arc::ptr_eq(prev.index(), &index) => {
+                        let touched = self.touched_mods(&keys, prev.priorities(), &prio);
+                        self.last_overwrite = Recompute::Incremental {
+                            touched: touched.len(),
+                        };
+                        prev.update(&self.table, prio, &touched)
+                    }
+                    _ => {
+                        self.last_overwrite = Recompute::Full;
+                        OverwriteProjection::compute_with(index, &self.table, prio)
+                    }
+                };
+                self.overwrite = Some(Arc::new(next));
             }
             *self.computed.entry(p).or_default() += 1;
             self.graph.done(p);
@@ -230,6 +289,16 @@ mod tests {
         assert_eq!(s.table().mod_name(ow.path_winner(path).unwrap()), "A");
         assert_eq!(s.computed("overwrite"), 3);
         assert_eq!(s.computed("priorities"), 3);
+        assert_eq!(s.last_overwrite(), Recompute::Incremental { touched: 1 });
+        assert_eq!(
+            s.computed("conflicts"),
+            1,
+            "the conflict structure is built once per facts"
+        );
+        let prio = s.priorities().as_ref().clone();
+        let full = OverwriteProjection::compute(s.table(), prio);
+        assert_eq!(full.stats(), ow.stats());
+        assert_eq!(full.totals(), ow.totals());
     }
 
     #[test]
@@ -255,6 +324,8 @@ mod tests {
         s.set_facts(Arc::new(t));
         let ow = s.overwrite();
         assert_eq!(s.computed("overwrite"), 2);
+        assert_eq!(s.computed("conflicts"), 2);
+        assert_eq!(s.last_overwrite(), Recompute::Full);
         assert_eq!(ow.totals().conflict_paths, 1);
     }
 }

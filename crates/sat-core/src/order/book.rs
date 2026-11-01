@@ -440,6 +440,11 @@ impl OrderBook {
     pub fn key_at(&self, pos: usize) -> Key {
         self.seq.at(pos)
     }
+    /// Name of an entry (kept after the entry is taken out of the list, for undo).
+    pub fn name(&self, k: Key) -> &str {
+        &self.items[k as usize].name
+    }
+
     pub fn kind(&self, k: Key) -> EntryKind {
         self.items[k as usize].kind
     }

@@ -72,7 +72,21 @@ pub type ProjectionId = usize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Input {
     Truth(Truth),
+    /// Reads another projection's output as a whole: any change upstream dirties this one with `All`.
     Projection(ProjectionId),
+    /// Reads a projection whose output is keyed by the same entity keys as its own inputs (e.g. priorities:
+    /// one value per canon entry). Upstream keys pass through, so a downstream projection can recompute only
+    /// what those keys touch.
+    Keyed(ProjectionId),
+}
+
+impl Input {
+    fn upstream(self) -> Option<ProjectionId> {
+        match self {
+            Input::Projection(p) | Input::Keyed(p) => Some(p),
+            Input::Truth(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -118,7 +132,7 @@ impl Graph {
         }
         let id = self.nodes.len();
         for i in inputs {
-            if let Input::Projection(p) = *i
+            if let Some(p) = i.upstream()
                 && p >= id
             {
                 return Err(GraphError::UnknownInput {
@@ -128,7 +142,7 @@ impl Graph {
             }
         }
         for i in inputs {
-            if let Input::Projection(p) = *i
+            if let Some(p) = i.upstream()
                 && !self.nodes[p].dependents.contains(&id)
             {
                 self.nodes[p].dependents.push(id);
@@ -169,35 +183,44 @@ impl Graph {
     }
 
     /// Marks every projection that depends on the changed truth dirty, transitively. Direct readers of the
-    /// truth get the changed keys; projections reading other projections get `All` (their own outputs are not
-    /// keyed by entity). Returns the projections that became dirty or got more keys.
+    /// truth get the changed keys; readers through [`Input::Keyed`] get the keys their upstream got in this
+    /// change; readers through [`Input::Projection`] get `All`. Returns the projections that became dirty or
+    /// got more keys.
     pub fn apply(&mut self, change: &Change) -> Vec<ProjectionId> {
-        let mut touched = Vec::new();
+        // keys each projection received from this change (registration order is topological)
+        let mut got: Vec<Option<Keys>> = vec![None; self.nodes.len()];
         for id in 0..self.nodes.len() {
-            if self.nodes[id].inputs.contains(&Input::Truth(change.truth)) {
-                self.mark(id, &change.keys, &mut touched);
+            let mut keys: Option<Keys> = None;
+            let mut add = |k: &Keys| match &mut keys {
+                Some(acc) => acc.merge(k),
+                None => keys = Some(k.clone()),
+            };
+            for &i in &self.nodes[id].inputs {
+                match i {
+                    Input::Truth(t) if t == change.truth => add(&change.keys),
+                    Input::Truth(_) => {}
+                    Input::Keyed(p) => {
+                        if let Some(k) = &got[p] {
+                            add(k);
+                        }
+                    }
+                    Input::Projection(p) => {
+                        if got[p].is_some() {
+                            add(&Keys::All);
+                        }
+                    }
+                }
             }
-            // registration order is topological: dependents come after their inputs
-            let upstream_dirty = self.nodes[id]
-                .inputs
-                .iter()
-                .any(|i| matches!(i, Input::Projection(p) if touched.contains(p)));
-            if upstream_dirty {
-                self.mark(id, &Keys::All, &mut touched);
+            if let Some(k) = keys {
+                let node = &mut self.nodes[id];
+                match &mut node.dirty {
+                    Some(d) => d.merge(&k),
+                    None => node.dirty = Some(k.clone()),
+                }
+                got[id] = Some(k);
             }
         }
-        touched
-    }
-
-    fn mark(&mut self, id: ProjectionId, keys: &Keys, touched: &mut Vec<ProjectionId>) {
-        let node = &mut self.nodes[id];
-        match &mut node.dirty {
-            Some(k) => k.merge(keys),
-            None => node.dirty = Some(keys.clone()),
-        }
-        if !touched.contains(&id) {
-            touched.push(id);
-        }
+        (0..self.nodes.len()).filter(|&i| got[i].is_some()).collect()
     }
 
     /// The dirty projections needed to bring `wanted` up to date, in dependency order: every dirty
@@ -212,7 +235,7 @@ impl Graph {
             }
             need[id] = true;
             for i in &self.nodes[id].inputs {
-                if let Input::Projection(p) = *i {
+                if let Some(p) = i.upstream() {
                     stack.push(p);
                 }
             }
@@ -228,7 +251,7 @@ impl Graph {
             self.nodes[id]
                 .inputs
                 .iter()
-                .all(|i| !matches!(i, Input::Projection(p) if self.nodes[*p].dirty.is_some())),
+                .all(|i| i.upstream().is_none_or(|p| self.nodes[p].dirty.is_none())),
             "{} computed before its inputs",
             self.nodes[id].name
         );
@@ -261,6 +284,48 @@ mod tests {
             g.done(id);
         }
         (g, [table, prio, overwrite, rows])
+    }
+
+    #[test]
+    fn keyed_inputs_pass_keys_through() {
+        let mut g = Graph::new();
+        let conflicts = g.register("conflicts", &[Input::Truth(Truth::Facts)]).unwrap();
+        let prio = g
+            .register(
+                "priorities",
+                &[Input::Truth(Truth::Canon), Input::Truth(Truth::Facts)],
+            )
+            .unwrap();
+        let ow = g
+            .register("overwrite", &[Input::Projection(conflicts), Input::Keyed(prio)])
+            .unwrap();
+        for id in [conflicts, prio, ow] {
+            g.done(id);
+        }
+        g.apply(&Change {
+            truth: Truth::Canon,
+            keys: Keys::some(vec![7, 3]),
+        });
+        g.apply(&Change {
+            truth: Truth::Canon,
+            keys: Keys::some(vec![9]),
+        });
+        assert_eq!(
+            g.pending(ow),
+            Some(&Keys::Some(vec![3, 7, 9])),
+            "keys accumulate through Keyed"
+        );
+        assert!(!g.is_dirty(conflicts));
+        g.apply(&Change {
+            truth: Truth::Facts,
+            keys: Keys::All,
+        });
+        assert_eq!(
+            g.pending(ow),
+            Some(&Keys::All),
+            "a whole-input change absorbs keys"
+        );
+        assert_eq!(g.plan(&[ow]), vec![conflicts, prio, ow]);
     }
 
     #[test]

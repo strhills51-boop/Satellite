@@ -16,7 +16,7 @@ use std::time::Instant;
 use sat_core::canon::{EntryKind, Modlist};
 use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::ids::ModId;
-use sat_core::overwrite::{OverwriteProjection, Priorities};
+use sat_core::overwrite::{ConflictIndex, OverwriteProjection, Priorities};
 use sat_core::project::{ManagerDiff, PROJECT_SCHEMA, Project};
 use sat_core::sync::donor;
 use sat_core::table::{ProviderTable, TableBuilder};
@@ -1003,6 +1003,39 @@ fn bench_synth(args: &[String]) -> Result<(), String> {
         );
         // reorder deterministically, like the Go benchmark
         prio = Priorities((0..mods).map(|i| ((i * 7919 + round) % mods) as i32).collect());
+    }
+    // incremental: facts-only conflict index once, then updates touching a few mods
+    let t = Instant::now();
+    let index = std::sync::Arc::new(ConflictIndex::build(&table));
+    eprintln!(
+        "conflict index: contested={} in {:?}",
+        index.contested_count(),
+        t.elapsed()
+    );
+    let base: Vec<i32> = (0..mods as i32).collect();
+    let t = Instant::now();
+    let full = OverwriteProjection::compute_with(index.clone(), &table, Priorities(base.clone()));
+    eprintln!("compute over index: {:?}", t.elapsed());
+    // move mod 10 to the top: ranks of everything above it shift, relative order of others is kept
+    let moved = 10usize;
+    let mut order: Vec<usize> = (0..mods).collect();
+    order.remove(moved);
+    order.push(moved);
+    let mut moved_prio = vec![0i32; mods];
+    for (rank, &m) in order.iter().enumerate() {
+        moved_prio[m] = rank as i32;
+    }
+    let t = Instant::now();
+    let inc = full.update(&table, Priorities(moved_prio.clone()), &[ModId::from_idx(moved)]);
+    eprintln!("update: move one mod in {:?}", t.elapsed());
+    let mut off = base.clone();
+    off[moved] = Priorities::INACTIVE;
+    let t = Instant::now();
+    let _ = inc.update(&table, Priorities(off), &[ModId::from_idx(moved)]);
+    eprintln!("update: disable one mod in {:?}", t.elapsed());
+    let check = OverwriteProjection::compute(&table, Priorities(moved_prio));
+    if check.totals() != inc.totals() || check.stats() != inc.stats() {
+        return Err("incremental update differs from full compute".into());
     }
     eprintln!(
         "after compute: rss={:?}MiB peak={:?}MiB threads={}",

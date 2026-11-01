@@ -22,7 +22,7 @@
 | Набор изменений команды | `@sat:engine.change` (`Change`, `Keys`); книга порядка отдаёт его в `order::Change::truth` | патч строк вида — `@sat:order.book.patch` |
 | Граф проекций: входы, инвалидация, ленивый план | `@sat:engine.graph` (`Graph::register / apply / plan / done`) | — |
 | Сессия сборки: канон и факты, связанные с графом; команды только через неё | `@sat:session` (`@sat:session.state`, `@sat:session.command`) | граф сам (`@sat:engine.graph`) |
-| Перезапись по требованию: пересчёт только после изменения канона или фактов | `@sat:session.overwrite` → проекции `priorities` (канон, факты) → `overwrite` (факты, `priorities`) | декорации и виды её не трогают |
+| Перезапись по требованию: пересчёт только после изменения канона или фактов | `@sat:session.overwrite` → проекции `conflicts` (факты) и `priorities` (канон, факты) → `overwrite` (`conflicts`, `priorities` по ключам — `Input::Keyed`) | декорации и виды её не трогают |
 | Статусы пробега, поколения, печати | `@sat:run.status`, `@sat:run.authority`, `@sat:run.seal` | — |
 | Ресурс: манифест (данные, без кода), род, id без доверия | `@sat:resource` (`@sat:resource.manifest`, `@sat:resource.kind`, `@sat:resource.digest`) | анализатор как контракт — `@sat:scan.analyzer` |
 | Источник загрузки → доверие; возможности на ресурс | `@sat:resource.source`, `@sat:resource.capability` | id-префикс `core.` ничего не даёт |
@@ -60,7 +60,9 @@
 | Позиции и строки в списке любого размера | `@sat:order.seq` (`Seq`) | — |
 | Клавиатурный курсор: навигация, выделение | `@sat:order.cursor.navigate` | — |
 | Перемещение выделения с клавиатуры | `@sat:order.cursor.shift` | — |
+| Структура конфликтов (только факты): спорные пути, мод → спорные пути, пути одного мода | `@sat:overwrite.conflicts` (`ConflictIndex`) | порядок здесь не участвует |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `@sat:overwrite.projection` | — |
+| Инкрементальный пересчёт перезаписи по затронутым модам; модельный тест «инкремент = полный» | `@sat:overwrite.update`, `@sat:overwrite.tests.incremental` | — |
 | Таблица провайдеров (тёплый ярус) | `@sat:table.provider-table`; сборка по модам — `@sat:table.builder` | — |
 | Факты обхода мода | `@sat:facts` (`ModFacts`, `ModMetrics`) | — |
 | Разбор BSA/BA2 | `@sat:formats.archive` | — |
