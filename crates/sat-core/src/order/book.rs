@@ -683,6 +683,25 @@ impl OrderBook {
         self.apply_recorded(Op::Style(keys.iter().map(|&k| (k, id)).collect()))
     }
 
+    // @sat:order.book.patch-style
+    /// Changes the card style of each entry by `f(current)` in one undoable step: an editor changes one field on
+    /// many entries and keeps their other fields. A result equal to the default style clears the style.
+    pub fn patch_style<E>(
+        &mut self,
+        keys: &[Key],
+        mut f: impl FnMut(Option<&CardStyle>) -> Result<Option<CardStyle>, E>,
+    ) -> Result<Option<Change>, PatchStyleError<E>> {
+        let mut each = Vec::with_capacity(keys.len());
+        for &k in keys {
+            self.check_key(k).map_err(PatchStyleError::Order)?;
+            let next = f(self.style(k)).map_err(PatchStyleError::Patch)?;
+            let next = next.filter(|st| *st != CardStyle::default());
+            each.push((k, next.map(|st| self.intern_style(st))));
+        }
+        self.apply_recorded(Op::Style(each))
+            .map_err(PatchStyleError::Order)
+    }
+
     /// Card style of an entry.
     pub fn style(&self, k: Key) -> Option<&CardStyle> {
         self.items[k as usize].style.map(|i| &self.styles[i as usize])
@@ -1538,4 +1557,11 @@ impl OrderBook {
             .filter(|&g| self.groups[g as usize].is_some())
             .collect()
     }
+}
+
+/// Why [`OrderBook::patch_style`] refused: a bad key, or the patch did not apply to an entry's style.
+#[derive(Debug)]
+pub enum PatchStyleError<E> {
+    Order(OrderError),
+    Patch(E),
 }

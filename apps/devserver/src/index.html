@@ -56,7 +56,7 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #spacer { width: 1px; }
 #layer { position: sticky; top: 0; height: 0; margin: 0 6px; }
 .row { position: absolute; left: 0; top: 0; height: var(--row); border: 1px solid var(--line); border-radius: 8px; cursor: default; user-select: none;
-  background: var(--panel); overflow: hidden; contain: layout paint; }
+  background: var(--panel); overflow: hidden; contain: layout style; }
 .row.sel { background: color-mix(in srgb, var(--primary) 26%, transparent); }
 /* mod card (owner's layout): toggle top-left, centred name cut on the right, counter group bottom-right */
 .card { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: minmax(22px, 1fr) 18px; height: 100%; padding: 2px 10px 2px 8px; }
@@ -146,6 +146,22 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .plug { display: grid; grid-template-columns: 56px 1fr; gap: 6px; font-size: 12px; padding: 2px 0; }
 .plug .idx { font-family: var(--mono); color: var(--muted); }
 .dotc { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+/* decoration editor (monolith "Декорация мода"): sections of compact fields, "mixed" when the selection differs */
+.dec-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.dec-top button { padding: 2px 10px; border-radius: 999px; font-size: 12px; }
+.pill-recent { width: 26px; height: 22px; padding: 0 !important; border: 1px solid var(--line); }
+.dec-sec { border-top: 1px solid var(--line); padding: 6px 0 2px; }
+.dec-sec > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--muted); list-style: none; }
+.dec-sec > summary::before { content: "▸ "; } .dec-sec[open] > summary::before { content: "▾ "; }
+.dec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; padding: 6px 0 4px; }
+.dec-grid label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); min-width: 0; }
+.dec-grid label.tg { flex-direction: row; align-items: center; gap: 6px; }
+.dec-grid input[type=number], .dec-grid select, .dec-grid input[type=text] { width: 100%; min-width: 0; padding: 3px 6px; font-size: 12px; }
+.dec-grid input[type=color] { width: 100%; height: 24px; padding: 0 2px; border-radius: 6px; border: 1px solid var(--line); background: transparent; }
+.mixed { color: var(--m-txt); margin-left: 4px; font-size: 10px; }
+.emojis { grid-column: 1 / 3; display: flex; flex-wrap: wrap; gap: 2px; }
+.emojis button { width: 26px; height: 26px; padding: 0; font-size: 15px; border-radius: 6px; }
+.emojis button.cur { outline: 2px solid var(--accent); }
 footer { display: flex; gap: 14px; flex-wrap: wrap; padding: 6px 14px; border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
 footer b { color: var(--accent2); font-weight: 500; }
 @media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) 340px; } #tilesec { display: none; } }
@@ -171,6 +187,7 @@ footer b { color: var(--accent2); font-weight: 500; }
   </section>
   <section id="summary" aria-label="Сводка">
     <div class="block empty" id="bMod"><h3>Мод</h3><div class="muted">Наведи фокус на мод — стрелками или кликом.</div></div>
+    <div class="block empty" id="bDecor"><h3>Декорация мода</h3><div class="muted">Выдели один или несколько модов.</div></div>
     <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
     <div class="block empty" id="bPlug"><h3>Плагины</h3></div>
   </section>
@@ -398,6 +415,99 @@ async function detail(key) {
     : `<div class="muted">Нет плагинов.</div>`);
 }
 
+// ---------------------------------------------------------------- decoration editor (monolith: summary block)
+const EMOJIS = "✨🔥⚔️🛡️🏹🐉🌲🏔️🌙☀️❄️💀👑💎🧪📜🗡️🏰🌊⚡🎯🧩🔧🎨".match(/\p{Extended_Pictographic}\uFE0F?/gu);
+const FILLS = [["", "—"], ["solid", "Цвет"], ["gradient-right", "Градиент →"], ["gradient-down", "Градиент ↓"], ["radial", "Радиальный"],
+  ["conic", "Конический"], ["stripes", "Полосы"], ["diagonal", "Диагональ"], ["checker", "Шахматка"], ["dots", "Точки"]];
+let decorKeys = [], decorSig = "", lastStyle = null, recent = [], openSecs = new Set(["Раскраска фона", "Размеры / flow"]);
+try { const o = localStorage.getItem("sat-decor-open"); if (o) openSecs = new Set(JSON.parse(o)); } catch (_) {}
+try { recent = JSON.parse(localStorage.getItem("sat-recent-decor") || "[]"); } catch (_) {}
+/** Field accessors over a style: [path, read]. `mixed` when the selection's styles disagree. */
+const get = (st, path) => path.split(".").reduce((o, k) => o == null ? undefined : o[k], st || {});
+async function decor() {
+  const box = $("bDecor");
+  let rep;
+  try { rep = await query({ type: "decoration", view: VIEW }); } catch (_) { return; }
+  // the last decoration is kept when the selection moves on (monolith: "сохраняется при смене выделения")
+  const sig = rep.keys.join();
+  if (sig !== decorSig && lastStyle) remember(lastStyle);
+  decorSig = sig;
+  lastStyle = rep.styles.length === 1 ? rep.styles[0].style : null;
+  decorKeys = rep.keys;
+  if (!rep.keys.length) { box.className = "block empty"; box.innerHTML = `<h3>Декорация мода</h3><div class="muted">Выдели один или несколько модов.</div>`; return; }
+  const styles = rep.styles.map(s => s.style);
+  const val = path => { const vs = [...new Set(styles.map(s => JSON.stringify(get(s, path) ?? null)))]; return { v: JSON.parse(vs[0]), mixed: vs.length > 1 }; };
+  const mx = f => f.mixed ? `<span class="mixed">mixed</span>` : "";
+  const num = (path, label, min, max, ph) => { const f = val(path); return `<label>${label}${mx(f)}<input type="number" data-p="${path}" min="${min}" max="${max}" placeholder="${ph}" value="${f.v ?? ""}"></label>`; };
+  const tog = (path, label) => { const f = val(path); return `<label class="tg"><input type="checkbox" data-p="${path}" ${f.v ? "checked" : ""}>${label}${mx(f)}</label>`; };
+  const col = (path, label, def) => { const f = val(path); return `<label>${label}${mx(f)}<input type="color" data-p="${path}" value="${hex(f.v ?? def)}"></label>`; };
+  const sel = (path, label, opts) => { const f = val(path); const cur = typeof f.v === "object" && f.v ? Object.keys(f.v)[0] : (f.v ?? "");
+    return `<label>${label}${mx(f)}<select data-p="${path}">${opts.map(([v, t]) => `<option value="${v}"${String(cur) === v ? " selected" : ""}>${t}</option>`).join("")}</select></label>`; };
+  const sec = title => (body) => `<details class="dec-sec" data-sec="${title}"${openSecs.has(title) ? " open" : ""}><summary>${title}</summary><div class="dec-grid">${body}</div></details>`;
+  const wm = val("watermark.emoji").v;
+  box.className = "block ok";
+  box.innerHTML = `<h3>Декорация мода</h3><div class="dec-top"><button data-act="default" title="Снять декорацию с выделенных">Default</button>` +
+    recent.map((r, i) => `<button class="pill-recent" data-recent="${i}" title="Скопировать эту декорацию на выделенные" style="${cardLook({ style: r, enabled: true })}">${r.watermark ? esc(r.watermark.emoji) : ""}</button>`).join("") +
+    `<span class="muted">${rep.keys.length > 1 ? `модов: ${rep.keys.length}` : ""}</span></div>` +
+    sec("Раскраска фона")(sel("fill.kind", "Тип раскраски", FILLS) + col("fill.color", "Фон", 0x1f2937) + col("fill.color2", "Фон 2", 0x334155)) +
+    sec("Размеры / flow")(num("width", "Width", 120, 1200, cols || "авто") + num("height", "Height", 24, 200, ROW) +
+      tog("break_before", "Новая строка до") + tog("break_after", "Новая строка после") + tog("full_width", "Вся ширина") + "<span></span>" +
+      num("margin_top", "Margin top", 0, 40, 0) + num("margin_bottom", "Margin bottom", 0, 40, 0)) +
+    sec("Форма / обводка")(sel("outline.style", "Стиль", [["", "—"], ["solid", "Solid"], ["dashed", "Dashed"], ["dotted", "Dotted"], ["double", "Double"]]) +
+      col("outline.color", "Цвет обводки", 0x3b82f6) + num("outline.radius", "Скругление", 0, 48, 8) + num("outline.width", "Толщина", 1, 8, 1)) +
+    sec("Текст")(col("text.color", "Цвет текста", 0xe5e7eb) + num("text.size", "Размер", 8, 22, 14) +
+      sel("text.weight", "Жирность", [["", "—"], ["400", "400"], ["500", "500"], ["600", "600"], ["700", "700"], ["800", "800"]]) +
+      num("text.spacing", "Разрядка (×0,1)", -10, 30, 0) + sel("text.case", "Регистр", [["", "Normal"], ["upper", "UPPER"], ["lower", "lower"], ["title", "Title"]])) +
+    sec("Акцент")(col("accent.color", "Цвет акцента", 0x60a5fa) + num("accent.width", "Ширина", 0, 14, 4)) +
+    sec("Эмодзи watermark")(`<div class="emojis"><button data-emoji="" title="без эмодзи">∅</button>${EMOJIS.map(e => `<button data-emoji="${e}"${e === wm ? ' class="cur"' : ""}>${e}</button>`).join("")}</div>` +
+      sel("watermark.position", "Позиция", [["right", "Right"], ["left", "Left"], ["center", "Center"]]) + num("watermark.size", "Размер", 12, 220, 28) +
+      num("watermark.opacity", "Opacity, %", 2, 100, 35) + num("watermark.blur", "Blur", 0, 12, 0)) +
+    sec("Эффекты декорации")(sel("effect", "Эффект", [["", "—"], ["shadow-soft", "Тень soft"], ["shadow-deep", "Тень deep"], ["glow", "Glow"]]) +
+      col("effect.glow.color", "Цвет glow", 0x60a5fa) + tog("effect.glow.strong", "Сильный glow"));
+}
+function remember(st) {
+  const j = JSON.stringify(st);
+  recent = [st, ...recent.filter(r => JSON.stringify(r) !== j)].slice(0, 8);
+  try { localStorage.setItem("sat-recent-decor", JSON.stringify(recent)); } catch (_) {}
+}
+/** One field → a merge patch for the selection; the core keeps every other field of each mod. */
+function fieldPatch(path, el) {
+  let v;
+  if (el.type === "checkbox") v = el.checked || null;
+  else if (el.type === "color") v = parseInt(el.value.slice(1), 16);
+  else if (el.type === "number") v = el.value === "" ? null : +el.value;
+  else v = el.value === "" ? null : (/^\d+$/.test(el.value) ? +el.value : el.value);
+  if (path === "effect") {
+    if (v === "glow") v = { glow: { color: 0x60a5fa, strong: false } };
+  } else if (path.startsWith("effect.glow.")) {
+    const box = $("bDecor"), c = box.querySelector('[data-p="effect.glow.color"]'), s = box.querySelector('[data-p="effect.glow.strong"]');
+    return { effect: { glow: { color: parseInt(c.value.slice(1), 16), strong: s.checked } } };
+  }
+  if (path === "fill.kind" && v === null) return { fill: null };
+  if (path === "outline.style" && v === null) return { outline: null };
+  if (path === "accent.width" && !v) return { accent: null };
+  const out = {}; let o = out; const ks = path.split(".");
+  ks.slice(0, -1).forEach(k => { o = o[k] = {}; });
+  o[ks[ks.length - 1]] = v;
+  return out;
+}
+async function patchStyle(patch) { await run({ type: "patch-style", keys: decorKeys, patch }); }
+$("bDecor").addEventListener("toggle", ev => {
+  const d = ev.target.closest("details[data-sec]"); if (!d) return;
+  if (d.open) openSecs.add(d.dataset.sec); else openSecs.delete(d.dataset.sec);
+  try { localStorage.setItem("sat-decor-open", JSON.stringify([...openSecs])); } catch (_) {}
+}, true);
+$("bDecor").addEventListener("change", ev => {
+  const p = ev.target.dataset.p; if (!p || !decorKeys.length) return;
+  patchStyle(fieldPatch(p, ev.target));
+});
+$("bDecor").addEventListener("click", ev => {
+  const b = ev.target.closest("button"); if (!b || !decorKeys.length) return;
+  if (b.dataset.act === "default") run({ type: "set-style", keys: decorKeys, style: null });
+  else if (b.dataset.recent !== undefined) run({ type: "set-style", keys: decorKeys, style: recent[+b.dataset.recent] });
+  else if (b.dataset.emoji !== undefined) patchStyle(b.dataset.emoji ? { watermark: { emoji: b.dataset.emoji } } : { watermark: null });
+});
+
 async function run(c) {
   $("err").textContent = "";
   try {
@@ -405,6 +515,7 @@ async function run(c) {
     if (ev.type === "decided") { cards.forEach(el => { el._sig = null; }); await sync(false); if (shownKey !== null) detail(shownKey); return; }
     if (ev.type === "changed") {
       await sync(true);
+      decor();
       if (ev.canon) { totals(); tiles(); if (shownKey !== null) detail(shownKey); }
     }
   } catch (e) { $("err").textContent = e.message; }
@@ -540,7 +651,7 @@ $("theme").onclick = () => {
 };
 try { const t = localStorage.getItem("sat-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
 
-(async () => { await sync(false); await Promise.all([totals(), tiles()]); list.focus({ preventScroll: true }); })();
+(async () => { await sync(false); await Promise.all([totals(), tiles(), decor()]); list.focus({ preventScroll: true }); })();
 </script>
 </body>
 </html>

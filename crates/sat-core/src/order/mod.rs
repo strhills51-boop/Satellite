@@ -19,7 +19,8 @@ pub mod flow;
 pub mod seq;
 
 pub use book::{
-    Change, Filter, GroupId, MAIN, OrderBook, OrderError, Patch, Row, RowKind, ViewChange, ViewId,
+    Change, Filter, GroupId, MAIN, OrderBook, OrderError, Patch, PatchStyleError, Row, RowKind, ViewChange,
+    ViewId,
 };
 pub use cursor::{Nav, Select, Shift};
 pub use decor::{

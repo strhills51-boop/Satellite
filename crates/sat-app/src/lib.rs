@@ -63,6 +63,12 @@ pub enum Command {
         keys: Vec<Key>,
         style: Option<CardStyle>,
     },
+    /// Changes only the given style fields on every entry (JSON merge patch, RFC 7386: `null` clears a field);
+    /// the other fields of each entry stay. One undo step.
+    PatchStyle {
+        keys: Vec<Key>,
+        patch: serde_json::Value,
+    },
     SetCollapsed {
         view: ViewId,
         separator: Key,
@@ -116,6 +122,11 @@ pub enum Query {
     },
     /// Separator tiles of the left column.
     Separators,
+    /// What the decoration editor edits: the mods of the view's selection (the focused one when none) and
+    /// their distinct styles with counts, so the editor can mark fields that differ ("mixed").
+    Decoration {
+        view: ViewId,
+    },
     /// The flow layout window of a view (ADR 0012 §2): lines of cards that cross `[y, y + height)`.
     Lines {
         view: ViewId,
@@ -125,6 +136,55 @@ pub enum Query {
         #[serde(default)]
         badges: u8,
     },
+}
+
+// @sat:app.patch-style
+/// Applies a JSON merge patch (RFC 7386) to a card style; `None` when nothing is left.
+fn merge_style(cur: Option<&CardStyle>, patch: &serde_json::Value) -> Result<Option<CardStyle>, String> {
+    fn merge(into: &mut serde_json::Value, patch: &serde_json::Value) {
+        match (into, patch) {
+            (serde_json::Value::Object(a), serde_json::Value::Object(p)) => {
+                for (k, v) in p {
+                    if v.is_null() {
+                        a.remove(k);
+                    } else if v.is_object() && a.get(k).is_none_or(serde_json::Value::is_object) {
+                        // a part the entry does not have yet starts from its defaults
+                        let part = a.entry(k.clone()).or_insert_with(|| part_default(k));
+                        merge(part, v);
+                    } else {
+                        a.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            (into, p) => *into = p.clone(),
+        }
+    }
+    fn part_default(k: &str) -> serde_json::Value {
+        match k {
+            "fill" => serde_json::json!({"kind": "solid", "color": 0x3b_82_f6}),
+            "outline" => serde_json::json!({"radius": 8, "width": 1, "style": "solid", "color": 0x94_a3_b8}),
+            "accent" => serde_json::json!({"color": 0xfa_cc_15, "width": 4}),
+            "watermark" => {
+                serde_json::json!({"emoji": "✨", "position": "right", "size": 28, "opacity": 35, "blur": 0})
+            }
+            _ => serde_json::json!({}),
+        }
+    }
+    let mut v = serde_json::to_value(cur.cloned().unwrap_or_default()).map_err(|e| e.to_string())?;
+    merge(&mut v, patch);
+    // a part left with no fields is no part (an editor that cleared the last text field cleared the text)
+    if let serde_json::Value::Object(a) = &mut v {
+        a.retain(|_, x| !x.as_object().is_some_and(serde_json::Map::is_empty));
+    }
+    let st: CardStyle = serde_json::from_value(v).map_err(|e| e.to_string())?;
+    Ok((st != CardStyle::default()).then_some(st))
+}
+
+/// One distinct style among the edited entries (`None` = no style) and how many entries have it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StyleShare {
+    pub style: Option<CardStyle>,
+    pub count: usize,
 }
 
 /// One placed card of a flow line.
@@ -321,6 +381,10 @@ pub enum Reply {
     Separators {
         tiles: Vec<SeparatorTile>,
     },
+    Decoration {
+        keys: Vec<Key>,
+        styles: Vec<StyleShare>,
+    },
     /// `focus`: the line (y, height) of the keyboard focus, so the page keeps it in view.
     Lines {
         view: ViewId,
@@ -366,6 +430,8 @@ pub enum AppError {
     Chord(String, String),
     #[error("bad chain signature {0:?}")]
     Signature(String),
+    #[error("bad style patch: {0}")]
+    Style(String),
 }
 
 // @sat:app.dispatch
@@ -414,6 +480,23 @@ impl App {
             C::SetEnabled { keys, enabled } => self.session.command(|b| b.set_enabled(&keys, enabled))?,
             C::SetColor { keys, color } => self.session.command(|b| b.set_color(&keys, color))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
+            C::PatchStyle { keys, patch } => {
+                let mut bad = None;
+                let r = self.session.command(|b| {
+                    b.patch_style(&keys, |cur| merge_style(cur, &patch))
+                        .or_else(|e| match e {
+                            order::PatchStyleError::Order(e) => Err(e),
+                            order::PatchStyleError::Patch(e) => {
+                                bad = Some(e);
+                                Ok(None)
+                            }
+                        })
+                });
+                if let Some(e) = bad {
+                    return Err(AppError::Style(e));
+                }
+                r?
+            }
             C::SetCollapsed {
                 view,
                 separator,
@@ -646,6 +729,29 @@ impl App {
                     focus,
                     lines,
                 }
+            }
+            // @sat:app.decoration
+            Query::Decoration { view } => {
+                let book = self.session.book();
+                let keys: Vec<Key> = book
+                    .selection(view)
+                    .into_iter()
+                    .filter(|&k| book.kind(k) == sat_core::canon::EntryKind::Mod)
+                    .collect();
+                let mut at: std::collections::HashMap<Option<&CardStyle>, usize> = Default::default();
+                let mut styles: Vec<StyleShare> = Vec::new();
+                for &k in &keys {
+                    let st = book.style(k);
+                    let i = *at.entry(st).or_insert_with(|| {
+                        styles.push(StyleShare {
+                            style: st.cloned(),
+                            count: 0,
+                        });
+                        styles.len() - 1
+                    });
+                    styles[i].count += 1;
+                }
+                Reply::Decoration { keys, styles }
             }
             Query::Separators => {
                 let book = self.session.book();
@@ -1162,5 +1268,62 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[2].cards[0].width, 500);
         assert_eq!(total_height, 30 + 44 + 44);
+    }
+
+    #[test]
+    fn patch_style_changes_one_field_on_many_and_undoes_in_one_step() {
+        let mut a = app();
+        let Reply::Rows { rows, .. } = a
+            .query(Query::Rows {
+                view: order::MAIN,
+                start: 0,
+                count: 3,
+                badges: 0,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        let (ka, kb) = (rows[1].key, rows[2].key);
+        a.command(Command::SetStyle {
+            keys: vec![ka],
+            style: Some(CardStyle {
+                width: Some(300),
+                ..CardStyle::default()
+            }),
+        })
+        .unwrap();
+        let patch = serde_json::json!({"fill": {"color": 0xff0000}, "break_after": true});
+        a.command(Command::PatchStyle {
+            keys: vec![ka, kb],
+            patch,
+        })
+        .unwrap();
+        let book = a.session().book();
+        let (sa, sb) = (book.style(ka).cloned().unwrap(), book.style(kb).cloned().unwrap());
+        assert_eq!(sa.width, Some(300), "other fields stay");
+        assert!(sa.break_after && sb.break_after);
+        assert_eq!(
+            sb.fill.map(|f| (f.kind, f.color)),
+            Some((order::FillKind::Solid, 0xff0000))
+        );
+        // clearing every field leaves no style
+        a.command(Command::PatchStyle {
+            keys: vec![kb],
+            patch: serde_json::json!({"fill": null, "break_after": null}),
+        })
+        .unwrap();
+        assert!(a.session().book().style(kb).is_none());
+        a.command(Command::Undo).unwrap();
+        a.command(Command::Undo).unwrap();
+        let book = a.session().book();
+        assert_eq!(book.style(ka).and_then(|s| s.width), Some(300));
+        assert!(!book.style(ka).unwrap().break_after && book.style(kb).is_none());
+        // a patch that does not make a style is refused and changes nothing
+        let bad = a.command(Command::PatchStyle {
+            keys: vec![ka],
+            patch: serde_json::json!({"width": "wide"}),
+        });
+        assert!(matches!(bad, Err(AppError::Style(_))));
     }
 }
