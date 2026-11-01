@@ -78,12 +78,8 @@ fn load_offline(dir: &std::path::Path) -> Result<App, String> {
     session.set_decisions(p.decisions.clone());
     session.set_conflict_ignore(p.conflict_ignore.clone());
     session.set_plugin_facts(Arc::new(versions));
-    // the manager's plugin lists are not in the project yet (ADR 0007: a `bethesda.plugins` section): only the
-    // user's hidden plugins come along
-    session.set_plugin_canon(PluginCanon {
-        blacklist: p.plugin_blacklist.clone(),
-        ..PluginCanon::default()
-    });
+    // the manager's plugin lists as the last analysis saw them, and the user's hidden plugins
+    session.set_plugin_canon(p.plugins.clone());
     let mut app = App::new(session, Registry::with_builtins());
     app.set_sync(p.sync.clone(), Vec::new());
     app.set_tag_catalog(p.tags.clone());
@@ -123,7 +119,7 @@ fn load(args: &[String]) -> Result<App, String> {
             );
             decisions = Some(p.decisions.clone());
             records = p.sync.clone();
-            blacklist = p.plugin_blacklist.clone();
+            blacklist = p.plugins.blacklist.clone();
             ignore = p.conflict_ignore.clone();
             tags = p.tags.clone();
             p.book().0

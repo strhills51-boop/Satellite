@@ -46,8 +46,12 @@ pub struct Project {
     /// Conflict decisions: settled chains by content signature. Absent in older files.
     #[serde(default, skip_serializing_if = "ChainDecisions::is_empty")]
     pub decisions: ChainDecisions,
-    /// Plugins hidden by the user (`@sat:plugins.canon`). Absent in older files.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// The plugin part of the build (`@sat:plugins.canon`): load order, checked marks as last seen in the
+    /// manager's files, and the plugins the user hid — so the plugin list works without the build.
+    #[serde(default)]
+    pub plugins: crate::plugins::PluginCanon,
+    /// Read from early schema-2 files only; folded into `plugins.blacklist` on load.
+    #[serde(default, skip_serializing)]
     pub plugin_blacklist: Vec<String>,
     /// Paths that are no conflict (`@sat:ignore`). Absent in older files.
     #[serde(default, skip_serializing_if = "crate::ignore::IgnoreRules::is_empty")]
@@ -100,6 +104,7 @@ impl Project {
             sync: Vec::new(),
             decor: Decor::default(),
             decisions: ChainDecisions::default(),
+            plugins: Default::default(),
             plugin_blacklist: Vec::new(),
             conflict_ignore: Default::default(),
             tags: Default::default(),
@@ -111,6 +116,9 @@ impl Project {
     /// sections are re-keyed by id).
     pub fn from_json(bytes: &[u8]) -> Result<Self, String> {
         let mut p: Project = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        for name in std::mem::take(&mut p.plugin_blacklist) {
+            p.plugins.set_blacklisted(&name, true);
+        }
         match p.schema {
             1 => {
                 p.entities.follow(&p.canon);
@@ -444,6 +452,18 @@ mod tests {
         assert_eq!(back.entities.id_of("A").map(|i| &i.0), Some(&id));
         assert!(
             Project::from_json(br#"{"schema":99,"canon":{"entries":[]},"signatures":{},"sync":[]}"#).is_err()
+        );
+    }
+
+    #[test]
+    fn an_early_blacklist_field_folds_into_the_plugin_section() {
+        let early = r#"{"schema":2,"canon":{"entries":[]},"signatures":{},"sync":[],"plugin_blacklist":["Hidden.esp"]}"#;
+        let p = Project::from_json(early.as_bytes()).unwrap();
+        assert_eq!(p.plugins.blacklist, ["Hidden.esp"]);
+        let json = String::from_utf8(p.to_json().unwrap()).unwrap();
+        assert!(
+            !json.contains("plugin_blacklist"),
+            "written only in the new place"
         );
     }
 }

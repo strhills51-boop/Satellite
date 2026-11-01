@@ -279,7 +279,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 p.sync = old.sync;
                 p.decor = old.decor;
                 p.decisions = old.decisions;
-                p.plugin_blacklist = old.plugin_blacklist;
+                p.plugins = old.plugins;
                 p.conflict_ignore = old.conflict_ignore;
             }
             eprintln!(
@@ -736,14 +736,20 @@ fn analyze(args: &[String]) -> Result<(), String> {
     // plugins: the manager's lists + versions across mods + mod priorities
     let t = Instant::now();
     let read = |f: &str| std::fs::read(inst.profile_dir().join(f)).unwrap_or_default();
-    let plugin_canon = PluginCanon {
-        load_order: sat_mo2::profile::parse_loadorder(&read("loadorder.txt")),
-        checked: sat_mo2::profile::parse_plugins(&read("plugins.txt"))
-            .into_iter()
-            .map(|l| (l.name, l.enabled))
-            .collect(),
-        blacklist: project.plugin_blacklist.clone(),
+    let plugin_canon = if offline {
+        project.plugins.clone()
+    } else {
+        PluginCanon {
+            load_order: sat_mo2::profile::parse_loadorder(&read("loadorder.txt")),
+            checked: sat_mo2::profile::parse_plugins(&read("plugins.txt"))
+                .into_iter()
+                .map(|l| (l.name, l.enabled))
+                .collect(),
+            blacklist: project.plugins.blacklist.clone(),
+        }
     };
+    // the project keeps the manager's lists as last seen, so the plugin list works without the build
+    project.plugins = plugin_canon.clone();
     let plugin_list = PluginList::compute(&plugin_versions, &plugin_canon, proj.priorities());
     timings.insert("plugins", t.elapsed().as_millis());
     let ps = plugin_list.stats;
