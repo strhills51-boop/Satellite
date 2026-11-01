@@ -28,11 +28,178 @@ pub struct Decor {
     /// Muted entries (names): kept in the analysis, hidden from views.
     #[serde(default)]
     pub muted: Vec<String>,
+    /// Card styles (names → style), ADR 0012.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub styles: BTreeMap<String, CardStyle>,
+}
+
+// @sat:order.decor.style
+/// The container of one entry in the list (ADR 0012; monolith "Декорация мода"). Every field is optional: absent =
+/// the view's default. Colours are `0xRRGGBB`. Layout fields change the flow layout; the rest only the look.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CardStyle {
+    // layout
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u16>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub break_before: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub break_after: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub full_width: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_top: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_bottom: Option<u8>,
+    // look
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<Fill>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<Outline>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<TextStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<Accent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watermark: Option<Watermark>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect: Option<Effect>,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+impl CardStyle {
+    /// Fields that change the flow layout differ (ADR 0012: only these re-lay a block).
+    pub fn layout_differs(&self, other: &CardStyle) -> bool {
+        (
+            self.width,
+            self.height,
+            self.break_before,
+            self.break_after,
+            self.full_width,
+            self.margin_top,
+            self.margin_bottom,
+        ) != (
+            other.width,
+            other.height,
+            other.break_before,
+            other.break_after,
+            other.full_width,
+            other.margin_top,
+            other.margin_bottom,
+        )
+    }
+}
+
+/// Background painting (monolith «Раскраска фона»).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Fill {
+    pub kind: FillKind,
+    pub color: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color2: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FillKind {
+    Solid,
+    GradientRight,
+    GradientDown,
+    Radial,
+    Conic,
+    Stripes,
+    Diagonal,
+    Checker,
+    Dots,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Outline {
+    pub radius: u8,
+    pub width: u8,
+    pub style: LineStyle,
+    pub color: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LineStyle {
+    Solid,
+    Dashed,
+    Dotted,
+    Double,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TextStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u8>,
+    /// 400…800.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<u16>,
+    /// Letter spacing, tenths of a pixel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spacing: Option<i8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub case: Option<TextCase>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextCase {
+    Upper,
+    Lower,
+    Title,
+}
+
+/// A coloured bar on the card's left edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Accent {
+    pub color: u32,
+    pub width: u8,
+}
+
+/// A large faint emoji behind the card's content.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Watermark {
+    pub emoji: String,
+    pub position: WatermarkPosition,
+    pub size: u8,
+    /// Percent.
+    pub opacity: u8,
+    pub blur: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WatermarkPosition {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Effect {
+    ShadowSoft,
+    ShadowDeep,
+    Glow { color: u32, strong: bool },
 }
 
 impl Decor {
     pub fn is_empty(&self) -> bool {
-        self.colors.is_empty() && self.groups.is_empty() && self.collapsed.is_empty() && self.muted.is_empty()
+        self.colors.is_empty()
+            && self.groups.is_empty()
+            && self.collapsed.is_empty()
+            && self.muted.is_empty()
+            && self.styles.is_empty()
     }
 }
 

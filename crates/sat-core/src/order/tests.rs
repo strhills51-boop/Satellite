@@ -534,3 +534,62 @@ fn focus_entry_reveals_a_collapsed_block_and_patches_stay_exact() {
             .any(|r| r.key == target && r.focused)
     );
 }
+
+#[test]
+fn card_style_is_undoable_interned_and_travels_with_the_project() {
+    use super::decor::{Accent, CardStyle, Fill, FillKind};
+    let mut rng = Rng(11);
+    let mut b = OrderBook::from_modlist(&list(80, &mut rng));
+    let mut m = Mirror::new(&b, MAIN);
+    let mods: Vec<Key> = b
+        .rows(MAIN, 0, usize::MAX)
+        .iter()
+        .filter(|r| r.kind == RowKind::Mod)
+        .map(|r| r.key)
+        .take(3)
+        .collect();
+    let style = CardStyle {
+        width: Some(320),
+        full_width: true,
+        fill: Some(Fill {
+            kind: FillKind::GradientRight,
+            color: 0x334155,
+            color2: Some(0x1e293b),
+        }),
+        accent: Some(Accent {
+            color: 0xf59e0b,
+            width: 4,
+        }),
+        ..CardStyle::default()
+    };
+    let c = b.set_style(&mods, Some(style.clone())).unwrap().expect("changed");
+    assert_eq!(c.truth.len(), 1);
+    assert_eq!(c.truth[0].truth, crate::engine::Truth::Decoration);
+    m.apply(&b, &c);
+    m.assert_eq(&b, "after style");
+    assert_eq!(b.style(mods[0]), Some(&style));
+    assert!(
+        b.set_style(&mods, Some(style.clone())).unwrap().is_none(),
+        "same style, no change"
+    );
+    let row = b
+        .rows(MAIN, 0, usize::MAX)
+        .into_iter()
+        .find(|r| r.key == mods[1])
+        .unwrap();
+    assert_eq!(row.style, Some(&style));
+    // through the project and back
+    let d = b.decor();
+    assert_eq!(d.styles.len(), 3);
+    let json = serde_json::to_string(&d).unwrap();
+    let back: super::Decor = serde_json::from_str(&json).unwrap();
+    let mut b2 = OrderBook::from_modlist(&b.to_modlist());
+    let (_, issues) = b2.apply_decor(&back);
+    assert!(issues.is_empty());
+    assert_eq!(b2.style(mods[2]), Some(&style));
+    // undo removes it
+    let c = b.undo().expect("undo");
+    m.apply(&b, &c);
+    m.assert_eq(&b, "after undo");
+    assert_eq!(b.style(mods[0]), None);
+}

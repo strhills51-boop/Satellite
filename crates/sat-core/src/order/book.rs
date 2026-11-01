@@ -18,7 +18,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use super::cursor::Cursor;
-use super::decor::{Decor, DecorIssue, GroupDef};
+use super::decor::{CardStyle, Decor, DecorIssue, GroupDef};
 use super::seq::{Key, Layer, Seq};
 use crate::canon::{Entry, EntryKind, Modlist};
 use crate::engine::{self, Keys, Truth};
@@ -124,6 +124,8 @@ pub struct Row<'a> {
     pub group: Option<GroupId>,
     /// Hidden from views unless the filter shows muted entries ("not planned, keep out of sight").
     pub muted: bool,
+    /// Card style (ADR 0012), if the entry has one.
+    pub style: Option<&'a CardStyle>,
     /// The keyboard cursor is on this row.
     pub focused: bool,
     pub selected: bool,
@@ -150,6 +152,8 @@ pub(super) struct Item {
     pub(super) color: Option<u32>,
     pub(super) group: Option<GroupId>,
     pub(super) muted: bool,
+    /// Index into the book's interned card styles (ADR 0012).
+    pub(super) style: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +174,8 @@ enum Op {
     Place(Vec<(Key, usize)>),
     Enabled(Vec<(Key, bool)>),
     Color(Vec<(Key, Option<u32>)>),
+    /// Card style by interned id.
+    Style(Vec<(Key, Option<u32>)>),
     Muted(Vec<(Key, bool)>),
     MakeGroup {
         id: GroupId,
@@ -279,6 +285,9 @@ pub struct OrderBook {
     group_ids: Vec<String>,
     /// Views by layer (`None` = closed).
     pub(super) views: Vec<Option<View>>,
+    /// Interned card styles: thousands of entries share a handful of styles (ADR 0012).
+    styles: Vec<CardStyle>,
+    style_ids: FxHashMap<CardStyle, u32>,
     revision: u64,
     undo: Vec<(Op, Op)>,
     redo: Vec<(Op, Op)>,
@@ -298,6 +307,7 @@ impl OrderBook {
                 color: None,
                 group: None,
                 muted: false,
+                style: None,
             })
             .collect();
         let by_name = items
@@ -317,6 +327,8 @@ impl OrderBook {
             groups: Vec::new(),
             group_ids: Vec::new(),
             views: vec![Some(View::default())],
+            styles: Vec::new(),
+            style_ids: FxHashMap::default(),
             revision: 0,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -654,6 +666,35 @@ impl OrderBook {
         self.apply_recorded(Op::Color(keys.iter().map(|&k| (k, color)).collect()))
     }
 
+    // @sat:order.book.style
+    /// Sets (or clears with `None`) the card style of entries; undoable. Identical styles share one interned copy.
+    pub fn set_style(
+        &mut self,
+        keys: &[Key],
+        style: Option<CardStyle>,
+    ) -> Result<Option<Change>, OrderError> {
+        for &k in keys {
+            self.check_key(k)?;
+        }
+        let id = style.map(|st| self.intern_style(st));
+        self.apply_recorded(Op::Style(keys.iter().map(|&k| (k, id)).collect()))
+    }
+
+    /// Card style of an entry.
+    pub fn style(&self, k: Key) -> Option<&CardStyle> {
+        self.items[k as usize].style.map(|i| &self.styles[i as usize])
+    }
+
+    fn intern_style(&mut self, st: CardStyle) -> u32 {
+        if let Some(&i) = self.style_ids.get(&st) {
+            return i;
+        }
+        let i = self.styles.len() as u32;
+        self.styles.push(st.clone());
+        self.style_ids.insert(st, i);
+        i
+    }
+
     // @sat:order.book.muted
     /// Mutes (hides unless the filter shows muted entries) or unmutes entries. Separators cannot be muted.
     pub fn set_muted(&mut self, keys: &[Key], muted: bool) -> Result<Option<Change>, OrderError> {
@@ -746,6 +787,7 @@ impl OrderBook {
                     color: None,
                     group: None,
                     muted: false,
+                    style: None,
                 });
                 (self.items.len() - 1) as Key
             })
@@ -871,6 +913,21 @@ impl OrderBook {
                 p.truth(Truth::Decoration, touched.iter().copied());
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Color(inv))
+            }
+            Op::Style(each) => {
+                let mut inv = Vec::new();
+                let mut touched = HashSet::new();
+                for &(k, st) in each {
+                    let it = &mut self.items[k as usize];
+                    if it.style != st {
+                        inv.push((k, it.style));
+                        it.style = st;
+                        touched.insert(k);
+                    }
+                }
+                p.truth(Truth::Decoration, touched.iter().copied());
+                self.after_content_change(touched, p);
+                (!inv.is_empty()).then_some(Op::Style(inv))
             }
             Op::Muted(each) => {
                 let mut inv = Vec::new();
@@ -1159,6 +1216,9 @@ impl OrderBook {
             if it.muted {
                 d.muted.push(it.name.clone());
             }
+            if let Some(i) = it.style {
+                d.styles.insert(it.name.clone(), self.styles[i as usize].clone());
+            }
         }
         for (g, gr) in self.groups.iter().enumerate() {
             let Some(gr) = gr else { continue };
@@ -1185,6 +1245,7 @@ impl OrderBook {
             it.color = None;
             it.group = None;
             it.muted = false;
+            it.style = None;
         }
         let mut collapsed: FxHashSet<Key> = FxHashSet::default();
         let mut open_groups: FxHashSet<GroupId> = FxHashSet::default();
@@ -1195,6 +1256,15 @@ impl OrderBook {
         for (name, &c) in &d.colors {
             match self.key_of(name) {
                 Some(k) => self.items[k as usize].color = Some(c),
+                None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+            }
+        }
+        for (name, st) in &d.styles {
+            match self.key_of(name) {
+                Some(k) => {
+                    let id = self.intern_style(st.clone());
+                    self.items[k as usize].style = Some(id);
+                }
                 None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
             }
         }
@@ -1382,6 +1452,7 @@ impl OrderBook {
             size: 0,
             group: it.group,
             muted: it.muted,
+            style: it.style.map(|i| &self.styles[i as usize]),
             focused: focus == Some(k),
             selected: self.view(v).cursor.selected.contains(&k),
         };

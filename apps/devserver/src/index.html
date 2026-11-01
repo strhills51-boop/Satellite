@@ -81,8 +81,25 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .row.sep { height: var(--row); background: var(--bg2); font-weight: 600; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
 .row.sep .size { margin-left: auto; font: 11px var(--mono); color: var(--muted); font-weight: 400; }
 .row.foreign .name { font-style: italic; color: var(--muted); }
-.row[data-color="0"] { box-shadow: inset 4px 0 #ef4444; } .row[data-color="1"] { box-shadow: inset 4px 0 #22c55e; }
-.row[data-color="2"] { box-shadow: inset 4px 0 #f59e0b; } .row[data-color="3"] { box-shadow: inset 4px 0 #a78bfa; }
+/* card style (ADR 0012): the look is inline per card; the watermark is a pseudo-element fed by variables */
+.row .selv { position: absolute; inset: 0; background: color-mix(in srgb, var(--primary) 32%, transparent); pointer-events: none; }
+.row .wm { position: absolute; top: 50%; transform: translateY(-50%); pointer-events: none; line-height: 1; }
+/* context menu (monolith): title, separator filter, "move to", paint, toggle */
+#ctx { position: fixed; z-index: 30; min-width: 260px; max-width: 340px; max-height: 70vh; overflow: auto; background: var(--pop); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.35); padding: 6px; }
+#ctx h4 { margin: 4px 8px 6px; font-size: 14px; }
+#ctx input { width: 100%; margin-bottom: 4px; }
+#ctx .it { padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+#ctx .it:hover { background: color-mix(in srgb, var(--primary) 30%, transparent); }
+#ctx hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+#palette { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.45); }
+#palette[hidden], #ctx[hidden] { display: none; }
+#palette > div { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: 0 10px 28px rgba(0,0,0,.4); }
+#palette h4 { margin: 0 0 10px; }
+#palette .sw { display: grid; grid-template-columns: repeat(16, 32px); gap: 8px; }
+#palette .sw button { width: 32px; height: 32px; border-radius: 50%; padding: 0; border: 2px solid transparent; }
+#palette .sw button:hover { border-color: var(--fg); }
+#palette .act { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .d1 .card { padding-left: 22px; }
 /* keyboard focus: two opposite corners (monolith) */
 .row.focus::before, .row.focus::after { content: ""; position: absolute; width: 10px; height: 10px; border: 2px solid var(--accent); pointer-events: none; }
@@ -157,6 +174,8 @@ footer b { color: var(--accent2); font-weight: 500; }
   </section>
 </main>
 <footer id="stats">загрузка…</footer>
+<div id="ctx" hidden></div>
+<div id="palette" hidden></div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -194,7 +213,9 @@ function paint(el, r) {
   const cls = ["row"];
   if (r.selected) cls.push("sel");
   if (r.focused) cls.push("focus");
-  if (r.color !== null) el.dataset.color = r.color % 4; else delete el.dataset.color;
+  const tr = el.style.transform;
+  el.style.cssText = cardLook(r);
+  el.style.transform = tr;
   if (r.kind === "separator" || r.kind === "group") {
     cls.push("sep"); el.className = cls.join(" ");
     el.innerHTML = `<span>${r.collapsed ? "▸" : "▾"}</span><span>${esc(r.name.replace(/_separator$/, ""))}</span><span class="size">${r.size}</span>`;
@@ -211,11 +232,54 @@ function paint(el, r) {
     c.mid ? `<span class="m" title="в середине стека">M${c.mid}</span>` : "",
     c.unique ? `<span title="уникальных файлов">+${c.unique}</span>` : "",
   ].join("") : "";
-  el.innerHTML = `<div class="card"><span class="toggle" title="вкл/выкл"></span><span class="name">${esc(r.name)}</span>` +
+  const wm = r.style && r.style.watermark ? watermark(r.style.watermark) : "";
+  el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm + `<div class="card"><span class="toggle" title="вкл/выкл"></span><span class="name">${esc(r.name)}</span>` +
     `<div class="line2">${strip(r)}<div class="counters">${counters}<span class="prio" title="приоритет MO2">${r.pos}</span></div></div></div>`;
 }
 
 /** Overwrite badges of a card: "classic" = per context, one icon per chain; "summary" = one OW pill. */
+const hex = c => "#" + (c >>> 0).toString(16).padStart(6, "0");
+const rgba = (c, a) => `rgba(${(c >> 16) & 255}, ${(c >> 8) & 255}, ${c & 255}, ${a})`;
+/** Inline look of a card: the mod colour (monolith: a gradient of it) and the card style's fill, outline, text, accent, effect. */
+function cardLook(r) {
+  const st = r.style || {}, css = [];
+  const f = st.fill;
+  if (f) {
+    const a = hex(f.color), b = hex(f.color2 ?? f.color);
+    const bg = {
+      "solid": a, "gradient-right": `linear-gradient(90deg, ${a}, ${b})`, "gradient-down": `linear-gradient(${a}, ${b})`,
+      "radial": `radial-gradient(circle at 30% 50%, ${a}, ${b})`, "conic": `conic-gradient(from 90deg, ${a}, ${b}, ${a})`,
+      "stripes": `repeating-linear-gradient(90deg, ${a} 0 12px, ${b} 12px 24px)`, "diagonal": `repeating-linear-gradient(45deg, ${a} 0 10px, ${b} 10px 20px)`,
+      "checker": `repeating-conic-gradient(${a} 0 25%, ${b} 0 50%) 0 0 / 16px 16px`, "dots": `radial-gradient(${b} 2px, ${a} 2.5px) 0 0 / 12px 12px`,
+    }[f.kind];
+    if (bg) css.push(`background:${bg}`);
+  } else if (r.color !== null && r.color !== undefined) {
+    css.push(`background:linear-gradient(${rgba(r.color, r.enabled ? .58 : .28)}, ${rgba(r.color, r.enabled ? .38 : .18)})`);
+  }
+  const shadows = [];
+  if (st.accent) shadows.push(`inset ${st.accent.width}px 0 ${hex(st.accent.color)}`);
+  const e = st.effect;
+  if (e === "shadow-soft") shadows.push("0 4px 12px rgba(0,0,0,.25)");
+  else if (e === "shadow-deep") shadows.push("0 10px 28px rgba(0,0,0,.45)");
+  else if (e && e.glow) shadows.push(`0 0 ${e.glow.strong ? 18 : 9}px ${rgba(e.glow.color, e.glow.strong ? .8 : .5)}`);
+  if (shadows.length) css.push(`box-shadow:${shadows.join(",")}`);
+  const o = st.outline;
+  if (o) css.push(`outline:${o.width}px ${o.style} ${hex(o.color)}`, `outline-offset:-${o.width}px`, `border-radius:${o.radius}px`);
+  const t = st.text;
+  if (t) {
+    if (t.color != null) css.push(`color:${hex(t.color)}`);
+    if (t.size) css.push(`font-size:${t.size}px`);
+    if (t.weight) css.push(`font-weight:${t.weight}`);
+    if (t.spacing != null) css.push(`letter-spacing:${t.spacing / 10}px`);
+    if (t.case) css.push(`text-transform:${{ upper: "uppercase", lower: "lowercase", title: "capitalize" }[t.case]}`);
+  }
+  return css.join(";");
+}
+function watermark(w) {
+  const side = w.position === "left" ? "left:8px" : w.position === "right" ? "right:8px" : "left:50%;transform:translate(-50%,-50%)";
+  return `<span class="wm" style="${side};font-size:${w.size}px;opacity:${w.opacity / 100};filter:blur(${w.blur}px)">${esc(w.emoji)}</span>`;
+}
+
 function strip(r) {
   if (!r.badges || !r.badges.length) return "";
   if (badgeModel === "summary") {
@@ -267,6 +331,7 @@ async function totals() {
 
 async function tiles() {
   const { tiles } = await query({ type: "separators" });
+  sepTiles = tiles;
   $("sepcount").textContent = tiles.length;
   $("tiles").innerHTML = tiles.map(t => `<div class="tile" data-key="${t.key}" title="${esc(t.name)}">` +
     `<span class="ctr">${t.index}:${t.first ?? "—"}:${t.mods}</span><span class="on">${t.enabled}●</span><b>${esc(t.name)}</b></div>`).join("");
@@ -343,6 +408,71 @@ list.addEventListener("keydown", ev => {
   ev.preventDefault();
   run({ type: "key", view: VIEW, chord: c });
 });
+// ---------------------------------------------------------------- context menu (monolith: right click on a mod)
+let sepTiles = [];
+function closeMenus() { $("ctx").hidden = true; $("palette").hidden = true; }
+list.addEventListener("contextmenu", ev => {
+  const el = ev.target.closest(".row"); if (!el || !el._row) return;
+  ev.preventDefault();
+  const r = el._row, ctx = $("ctx");
+  const moves = sepTiles.map((t, i) => `<div class="it" data-move="${i}">Перекинуть в: ${esc(t.name)}</div>`).join("");
+  ctx.innerHTML = `<h4>${r.kind === "mod" ? "Мод" : "Запись"}: ${esc(r.name)}</h4><input id="ctxFilter" type="search" placeholder="Фильтр разделителей…">` +
+    `<div id="ctxMoves">${moves}</div><hr>` +
+    (r.kind === "mod" ? `<div class="it" data-act="toggle">${r.enabled ? "Выключить" : "Включить"}</div>` : "") +
+    `<div class="it" data-act="paint">Покрасить…</div>` + (r.color !== null ? `<div class="it" data-act="unpaint">Снять цвет</div>` : "") +
+    (r.style ? `<div class="it" data-act="unstyle">Сбросить декорацию</div>` : "") +
+    `<div class="it" data-act="copy">Скопировать имя</div>`;
+  ctx._row = r;
+  ctx.hidden = false;
+  const w = 300, h = Math.min(ctx.scrollHeight, innerHeight * .7);
+  ctx.style.left = Math.min(ev.clientX, innerWidth - w - 8) + "px";
+  ctx.style.top = Math.min(ev.clientY, innerHeight - h - 8) + "px";
+  $("ctxFilter").oninput = e => { const q = e.target.value.toLowerCase();
+    ctx.querySelectorAll("[data-move]").forEach(it => { it.hidden = !it.textContent.toLowerCase().includes(q); }); };
+  $("ctxFilter").focus();
+});
+$("ctx").addEventListener("click", ev => {
+  const it = ev.target.closest(".it"); if (!it) return;
+  const r = $("ctx")._row, keys = r.selected ? null : [r.key];
+  const sel = keys ?? [r.key];
+  if (it.dataset.move !== undefined) {
+    // to the end of the chosen block: before the next separator, or the end of the list
+    const i = +it.dataset.move, next = sepTiles[i + 1];
+    run({ type: "move", keys: sel, before: next ? next.key : null });
+  } else if (it.dataset.act === "toggle") run({ type: "set-enabled", keys: sel, enabled: null });
+  else if (it.dataset.act === "paint") { closeMenus(); return paint_(sel, r.name); }
+  else if (it.dataset.act === "unpaint") run({ type: "set-color", keys: sel, color: null });
+  else if (it.dataset.act === "unstyle") run({ type: "set-style", keys: sel, style: null });
+  else if (it.dataset.act === "copy") { try { navigator.clipboard.writeText(r.name); } catch (_) {} }
+  closeMenus(); list.focus({ preventScroll: true });
+});
+/** "Покрасить…": the monolith's 8 × 16 palette. */
+function paint_(keys, name) {
+  const pal = $("palette"), sw = [];
+  for (let row = 0; row < 8; row++) for (let col = 0; col < 16; col++) {
+    const hue = Math.round(((row * 16 + col) / 128) * 360), light = 28 + (col % 8) * 8;
+    const c = hslToInt(hue, 70, light);
+    sw.push(`<button style="background:${hex(c)}" data-c="${c}" title="${hex(c)}"></button>`);
+  }
+  pal.innerHTML = `<div><h4>Цвет мода: ${esc(name)}</h4><div class="sw">${sw.join("")}</div><div class="act"><button data-x="cancel">Отмена</button><button data-x="reset">Сбросить</button></div></div>`;
+  pal.hidden = false;
+  pal.onclick = ev => {
+    const b = ev.target.closest("button");
+    if (!b && ev.target !== pal) return;
+    if (b && b.dataset.c) run({ type: "set-color", keys, color: +b.dataset.c });
+    else if (b && b.dataset.x === "reset") run({ type: "set-color", keys, color: null });
+    closeMenus(); list.focus({ preventScroll: true });
+  };
+}
+function hslToInt(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))));
+  return (f(0) << 16) | (f(8) << 8) | f(4);
+}
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && (!$("ctx").hidden || !$("palette").hidden)) { ev.stopPropagation(); closeMenus(); } }, true);
+document.addEventListener("click", ev => { if (!$("ctx").hidden && !ev.target.closest("#ctx")) closeMenus(); });
+
 list.addEventListener("click", ev => {
   const el = ev.target.closest(".row"); if (!el || !el._row) return;
   const r = el._row, row = Math.floor((vtop() + (el.getBoundingClientRect().top - list.getBoundingClientRect().top) + 1) / ROW);

@@ -21,7 +21,10 @@ pub use book::{
     Change, Filter, GroupId, MAIN, OrderBook, OrderError, Patch, Row, RowKind, ViewChange, ViewId,
 };
 pub use cursor::{Nav, Select, Shift};
-pub use decor::{Decor, DecorIssue, GroupDef, MarkerIssue};
+pub use decor::{
+    Accent, CardStyle, Decor, DecorIssue, Effect, Fill, FillKind, GroupDef, LineStyle, MarkerIssue, Outline,
+    TextCase, TextStyle, Watermark, WatermarkPosition,
+};
 pub use seq::Key;
 
 #[cfg(test)]

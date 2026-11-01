@@ -25,6 +25,7 @@
 | Перезапись по требованию: пересчёт только после изменения канона или фактов | `@sat:session.overwrite` → проекции `conflicts` (факты) и `priorities` (канон, факты) → `overwrite` (`conflicts`, `priorities` по ключам — `Input::Keyed`) | декорации и виды её не трогают |
 | Статусы пробега, поколения, печати | `@sat:run.status`, `@sat:run.authority`, `@sat:run.seal` | — |
 | API приложения: команды, запросы, события поверх сессии, без транспорта (ADR 0004) | `@sat:app` (`@sat:app.command`, `@sat:app.query`, `@sat:app.event`, `@sat:app.dispatch`) | транспорт — оболочки (`apps/`) |
+| Стиль карточки (контейнер записи, ADR 0012): раскладка и вид, интернирование, отмена, в проекте | `@sat:order.decor.style` (`CardStyle`), `@sat:order.book.style` (`set_style`, `Op::Style`), команда `SetStyle` | цвет записи — `set_color` |
 | Внешний вид цепочки и контекста: эмодзи и оттенок из состава (не из порядка) | `@sat:identity` (`@sat:identity.of`) | сами цепочки — `@sat:overwrite.projection` |
 | Бейджи перезаписи на карточке (модель «коллекция цепочек» монолита): по контексту, значки крупнейших цепочек, `+N` | `@sat:app.badges` (`Query::Rows { badges }`) | модель `OW N` — та же выдача, другой показ на странице |
 | Решения по конфликтам: цепочка «решена» на подписи содержимого, переживает перестановку и пробег | `@sat:decisions` (`@sat:decisions.chains`), в сессии `@sat:session.decide`, команда `SetChainDone` | хранение в проекте — следующий шаг (контейнер, ADR 0007) |

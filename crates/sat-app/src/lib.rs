@@ -13,7 +13,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use sat_core::ids::ModId;
-use sat_core::order::{self, Filter, Key, MAIN, Nav, OrderError, RowKind, Select, Shift, ViewChange, ViewId};
+use sat_core::order::{
+    self, CardStyle, Filter, Key, MAIN, Nav, OrderError, RowKind, Select, Shift, ViewChange, ViewId,
+};
 use sat_core::overwrite::OverwriteStats;
 use sat_core::plugins::PluginStats;
 use sat_core::resource::{Chord, CommandError, Registry};
@@ -54,6 +56,11 @@ pub enum Command {
     SetColor {
         keys: Vec<Key>,
         color: Option<u32>,
+    },
+    /// Card style of entries (ADR 0012); `None` clears it.
+    SetStyle {
+        keys: Vec<Key>,
+        style: Option<CardStyle>,
     },
     SetCollapsed {
         view: ViewId,
@@ -195,6 +202,9 @@ pub struct RowView {
     pub selected: bool,
     /// Overwrite counters of a mod: wins, losses, middle, unique; X = fully overridden.
     pub counters: Option<Counters>,
+    /// Card style (ADR 0012).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<CardStyle>,
     /// Overwrite badges, one per context of the mod (empty when not asked or no conflicts).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub badges: Vec<ContextBadge>,
@@ -362,6 +372,7 @@ impl App {
             C::Move { keys, before } => self.session.command(|b| b.move_keys(&keys, before))?,
             C::SetEnabled { keys, enabled } => self.session.command(|b| b.set_enabled(&keys, enabled))?,
             C::SetColor { keys, color } => self.session.command(|b| b.set_color(&keys, color))?,
+            C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             C::SetCollapsed {
                 view,
                 separator,
@@ -475,6 +486,7 @@ impl App {
                             muted: r.muted,
                             focused: r.focused,
                             selected: r.selected,
+                            style: r.style.cloned(),
                             badges: match (badges, index.get(&r.name.to_lowercase())) {
                                 (n, Some(&m)) if n > 0 && r.kind == RowKind::Mod => {
                                     mod_badges(&ow, &names, self.session.decisions(), m, n)
