@@ -31,12 +31,26 @@ pub enum Source {
 
 const LOOSE: u32 = u32::MAX;
 
+// @sat:table.summary
+/// The per-mod part of the facts kept with the table: the paths go into columns, the rest of a mod's facts is
+/// summed up here (the mod sheet, `@sat:app.sheet`, and metrics read it without the facts).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModSummary {
+    pub metrics: crate::facts::ModMetrics,
+    /// The folder was not there.
+    pub missing: bool,
+    /// The scan could not read the mod.
+    pub error: Option<String>,
+}
+
 // @sat:table.provider-table
 /// Immutable, column-oriented provider table.
 #[derive(Debug)]
 pub struct ProviderTable {
     interner: PathInterner,
     mod_names: Vec<String>,
+    /// Per-mod summary of the facts (metrics, missing, error), by `ModId`.
+    summaries: Vec<ModSummary>,
     archives: Vec<ArchiveRef>,
 
     // provider columns, sorted by (key, insertion order)
@@ -73,6 +87,7 @@ pub struct TableStats {
 pub struct TableBuilder {
     interner: PathInterner,
     mod_names: Vec<String>,
+    summaries: Vec<ModSummary>,
     archives: Vec<ArchiveRef>,
     key: Vec<FileKey>,
     owner: Vec<ModId>,
@@ -99,6 +114,11 @@ impl TableBuilder {
     pub fn add(&mut self, m: &ModFacts) -> ModId {
         let mid = ModId::from_idx(self.mod_names.len());
         self.mod_names.push(m.name.clone());
+        self.summaries.push(ModSummary {
+            metrics: m.metrics.clone(),
+            missing: m.missing,
+            error: m.error.clone(),
+        });
         for d in &m.dirs {
             let dir = self.interner.dir(&d.rel);
             for f in &d.files {
@@ -137,6 +157,7 @@ impl TableBuilder {
         let Self {
             interner,
             mod_names,
+            summaries,
             archives,
             key,
             owner,
@@ -187,6 +208,7 @@ impl TableBuilder {
         ProviderTable {
             interner,
             mod_names,
+            summaries,
             archives,
             key: key_s,
             owner: owner_s,
@@ -249,6 +271,10 @@ impl ProviderTable {
     }
     pub fn mod_names(&self) -> &[String] {
         &self.mod_names
+    }
+    /// What the facts of mod `m` add up to (`@sat:table.summary`).
+    pub fn summary(&self, m: ModId) -> &ModSummary {
+        &self.summaries[m.idx()]
     }
     pub fn archives(&self) -> &[ArchiveRef] {
         &self.archives

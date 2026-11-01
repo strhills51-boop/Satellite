@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 mod chains;
 mod context;
+pub mod sheet;
 mod sync;
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
 pub use sync::{Decision, RecordView};
@@ -170,6 +171,11 @@ pub enum Query {
     /// Everything the summary shows about one mod: with whom and in what it conflicts, its plugins.
     ModDetail {
         key: Key,
+    },
+    /// The standard quick look at a mod (`@sat:app.sheet`): a badge, a mini sheet or the full one.
+    ModSheet {
+        key: Key,
+        level: sheet::SheetLevel,
     },
     /// Separator tiles of the left column.
     Separators,
@@ -451,6 +457,9 @@ pub enum Reply {
     },
     ModDetail {
         detail: Box<ModDetail>,
+    },
+    ModSheet {
+        sheet: Box<sheet::ModSheet>,
     },
     Separators {
         tiles: Vec<SeparatorTile>,
@@ -889,6 +898,9 @@ impl App {
             Query::ModDetail { key } => Reply::ModDetail {
                 detail: Box::new(self.mod_detail(key)),
             },
+            Query::ModSheet { key, level } => Reply::ModSheet {
+                sheet: Box::new(self.mod_sheet(key, level)),
+            },
             // @sat:app.lines
             Query::Lines {
                 view,
@@ -1311,6 +1323,8 @@ mod tests {
                         vram: 0,
                     }],
                 });
+                f.metrics.bytes = 10;
+                f.metrics.files = 1;
                 f
             })
             .collect();
@@ -1333,6 +1347,60 @@ mod tests {
             Session::new(OrderBook::from_modlist(&list), table),
             Registry::with_builtins(),
         )
+    }
+
+    #[test]
+    fn a_mod_sheet_has_three_depths_and_signals_first() {
+        use sheet::{Origin, SheetLevel, Signal, Value};
+        let mut a = app();
+        a.session.set_member_keys([("A".to_string(), "e1".to_string())]);
+        let key = a.session.book().key_of("A").unwrap();
+        let sheet = |a: &mut App, level| match a.query(Query::ModSheet { key, level }).unwrap() {
+            Reply::ModSheet { sheet } => *sheet,
+            _ => panic!(),
+        };
+        // A is above B: its only file loses — nothing of it is seen in the game
+        let full = sheet(&mut a, SheetLevel::Full);
+        assert_eq!(
+            (
+                full.name.as_str(),
+                full.entity.as_deref(),
+                full.separator.as_deref()
+            ),
+            ("A", Some("e1"), Some("S"))
+        );
+        assert_eq!(full.signals[0].id, "fully_overridden");
+        assert_eq!(full.signals[0].signal, Some(Signal::Warn));
+        let ids: Vec<(&str, Origin)> = full.sections.iter().map(|s| (s.id.as_str(), s.origin)).collect();
+        assert_eq!(
+            ids,
+            [
+                ("content", Origin::Observed),
+                ("conflicts", Origin::Observed),
+                ("plugins", Origin::Observed),
+                ("user", Origin::User)
+            ]
+        );
+        let content = &full.sections[0].fields;
+        assert_eq!(content[0].id, "bytes");
+        assert_eq!(content[0].value, Value::Bytes { n: 10 });
+        assert!(content.iter().all(|f| f.id != "dll"), "zero counts say nothing");
+        let conflicts = &full.sections[1].fields;
+        assert_eq!(conflicts[0].id, "fully_overridden");
+        // the badge: signals only
+        let badge = sheet(&mut a, SheetLevel::Badge);
+        assert!(badge.sections.is_empty() && badge.signals.len() <= sheet::BADGE_SIGNALS);
+        // settling the chain takes its note away
+        let head = a.heads()[0].hex();
+        a.command(Command::SetChainDone {
+            signature: head,
+            done: true,
+        })
+        .unwrap();
+        let mini = sheet(&mut a, SheetLevel::Mini);
+        assert!(mini.signals.iter().all(|f| f.id != "chains"));
+        let json = serde_json::to_string(&mini).unwrap();
+        assert!(json.contains("\"origin\":\"observed\""), "{json}");
     }
 
     #[test]

@@ -39,6 +39,7 @@
 | Таблица конфликтов контекста (монолит, флажок «цветные типы»): моды × файлы окнами по обеим осям, группы по разделителям, порядок «цепочка / сила» | `@sat:app.context-table` (`Query::Contexts`), `@sat:app.context-table.window` (`Query::ContextTable`) | цепочки и стеки — `@sat:overwrite.projection`; цвет типа файла — страница |
 | Решения по конфликтам: цепочка «решена» на подписи содержимого, переживает перестановку, пробег и переименование мода | `@sat:decisions` (`@sat:decisions.chains`), в сессии `@sat:session.decide`, команда `SetChainDone`; ключи участников — id сущностей: `@sat:session.member-keys` | хранение — раздел `decisions` проекта (`@sat:project`) |
 | Сводка мода: с кем и в чём конфликтует (соперники ▲/▼, «зубы» по цепочкам, цепочки с путями), плагины мода | `@sat:app.mod-detail` (`Query::ModDetail`) | счётчики W/L/M на карточке — `Counters` |
+| Карточка мода — стандарт быстрого обзора (ADR 0015): значок / мини / полная, разделы с происхождением (наблюдено, пользователь; позже автор, сообщество) и сигналами | `@sat:app.sheet` (`ModSheet`, `Query::ModSheet`), сборка — `@sat:app.sheet.build`; сводка фактов мода без путей — `@sat:table.summary` | подписи полей — в окне, по id поля |
 | Фокус по ссылке («перейти к моду»), раскрывая свёрнутый блок | `@sat:order.cursor.focus-entry` (`Command::Focus`) | навигация клавишами — `@sat:order.cursor.navigate` |
 | Оболочка разработки: сборка MO2 в браузере на localhost, песочница | `@sat:devserver`, `@sat:devserver.load`, `@sat:devserver.http` | смысл команд — `@sat:app` |
 | Ресурс: манифест (данные, без кода), род, id без доверия | `@sat:resource` (`@sat:resource.manifest`, `@sat:resource.kind`, `@sat:resource.digest`) | анализатор как контракт — `@sat:scan.analyzer` |
@@ -83,7 +84,7 @@
 | Канон плагинов: `loadorder.txt` + отметки `plugins.txt` (своё пространство ключей, `Truth::PluginCanon`) | `@sat:plugins.canon` | порядок модов — `@sat:canon.priorities` |
 | Версии плагина: одно имя в нескольких модах («ловушка версионности» монолита) | `@sat:plugins.versions` | — |
 | Список плагинов: победившая версия, состояние, индекс `00…FD` / `FE:000…FFF`, переполнение, недостающие мастера, цвет | `@sat:plugins.list`; в сессии — `@sat:session.plugins` | чтение заголовка — `@sat:formats.plugin.kind` |
-| Таблица провайдеров (тёплый ярус) | `@sat:table.provider-table`; сборка по модам — `@sat:table.builder` | — |
+| Таблица провайдеров (тёплый ярус) | `@sat:table.provider-table`; сборка по модам — `@sat:table.builder`; остальное о моде (метрики, нет папки, ошибка скана) — `@sat:table.summary` | — |
 | Факты обхода мода | `@sat:facts` (`ModFacts`, `ModMetrics`) | — |
 | Разбор BSA/BA2 | `@sat:formats.archive` | — |
 | Заголовок DDS и VRAM | `@sat:formats.dds` | — |
@@ -155,6 +156,7 @@
 - `crates/sat-app/src/chains.rs` — `@sat:app.chains`: заголовки нормализованных цепочек (значок, имя, «решено»).
 - `crates/sat-app/src/context.rs` — `@sat:app.context-table`: таблица конфликтов контекста, окно строк × столбцов.
 - `crates/sat-app/src/sync.rs` — `@sat:app.sync`: записи SYNC в приложении — решения командой, план запросом.
+- `crates/sat-app/src/sheet.rs` — `@sat:app.sheet`: карточка мода — схема, уровни, слои наблюдённого и пользователя.
 
 ### `apps/devserver` — оболочка разработки (ADR 0004)
 

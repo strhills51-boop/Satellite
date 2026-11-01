@@ -226,6 +226,16 @@ impl Session {
         }
     }
 
+    /// The entity id of table mod `m`, if the project knows it.
+    pub fn member_id(&self, m: ModId) -> Option<&str> {
+        self.keys.get(m.idx())?.as_deref()
+    }
+
+    /// The table id of a mod by name (any case).
+    pub fn mod_id(&self, name: &str) -> Option<ModId> {
+        self.index.get(&name.to_lowercase()).copied()
+    }
+
     /// Revision of the member keys (cache key for anything hashed from them).
     pub fn member_keys_rev(&self) -> u64 {
         self.keys_rev
