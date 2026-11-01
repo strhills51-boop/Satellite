@@ -63,6 +63,9 @@
 | Структура конфликтов (только факты): спорные пути, мод → спорные пути, пути одного мода | `@sat:overwrite.conflicts` (`ConflictIndex`) | порядок здесь не участвует |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `@sat:overwrite.projection` | — |
 | Инкрементальный пересчёт перезаписи по затронутым модам; модельный тест «инкремент = полный» | `@sat:overwrite.update`, `@sat:overwrite.tests.incremental` | — |
+| Канон плагинов: `loadorder.txt` + отметки `plugins.txt` (своё пространство ключей, `Truth::PluginCanon`) | `@sat:plugins.canon` | порядок модов — `@sat:canon.priorities` |
+| Версии плагина: одно имя в нескольких модах («ловушка версионности» монолита) | `@sat:plugins.versions` | — |
+| Список плагинов: победившая версия, состояние, индекс `00…FD` / `FE:000…FFF`, переполнение, недостающие мастера, цвет | `@sat:plugins.list`; в сессии — `@sat:session.plugins` | чтение заголовка — `@sat:formats.plugin.kind` |
 | Таблица провайдеров (тёплый ярус) | `@sat:table.provider-table`; сборка по модам — `@sat:table.builder` | — |
 | Факты обхода мода | `@sat:facts` (`ModFacts`, `ModMetrics`) | — |
 | Разбор BSA/BA2 | `@sat:formats.archive` | — |
@@ -92,6 +95,7 @@
 - `crates/sat-core/src/table.rs` — `@sat:table`: колонки провайдеров, CSR по путям и модам.
 - `crates/sat-core/src/overwrite.rs` — `@sat:overwrite`: проекция перезаписи (параллельно по путям), статистика.
 - `crates/sat-core/src/canon.rs` — `@sat:canon`: снимок канона, блоки, приоритеты.
+- `crates/sat-core/src/plugins.rs` — `@sat:plugins`: канон плагинов, версии по модам, список плагинов как его видит игра.
 - `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`.
 - `crates/sat-core/src/run.rs` — `@sat:run`: статусы пробега, `Authority`, `seal`.
 - `crates/sat-core/src/session.rs` — `@sat:session`: книга порядка + таблица фактов + граф проекций; ленивые `priorities()` / `overwrite()`.

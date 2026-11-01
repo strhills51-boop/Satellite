@@ -27,6 +27,8 @@ pub enum Truth {
     Decisions,
     /// Configuration of runs, resources, policy.
     Settings,
+    /// The plugin part of the canon: load order and checked flags (its own key space, plugin names).
+    PluginCanon,
 }
 
 /// Which keys of a truth (or projection) changed.

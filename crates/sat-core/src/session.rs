@@ -17,6 +17,7 @@ use crate::engine::{Change, Graph, Input, Keys, ProjectionId, Truth};
 use crate::ids::ModId;
 use crate::order::{self, OrderBook, OrderError};
 use crate::overwrite::{ConflictIndex, OverwriteProjection, Priorities};
+use crate::plugins::{PluginCanon, PluginList, PluginVersions};
 use crate::table::ProviderTable;
 
 /// Name of the manager's output folder treated as the highest priority (MO2 `overwrite`).
@@ -44,6 +45,10 @@ pub struct Session {
     p_conflicts: ProjectionId,
     p_priorities: ProjectionId,
     p_overwrite: ProjectionId,
+    p_plugins: ProjectionId,
+    plugin_versions: Arc<PluginVersions>,
+    plugin_canon: PluginCanon,
+    plugins: Option<Arc<PluginList>>,
     conflicts: Option<Arc<ConflictIndex>>,
     priorities: Option<Arc<Priorities>>,
     overwrite: Option<Arc<OverwriteProjection>>,
@@ -80,6 +85,16 @@ impl Session {
                 &[Input::Projection(p_conflicts), Input::Keyed(p_priorities)],
             )
             .expect("fresh graph");
+        let p_plugins = graph
+            .register(
+                "plugins",
+                &[
+                    Input::Truth(Truth::Facts),
+                    Input::Truth(Truth::PluginCanon),
+                    Input::Projection(p_priorities),
+                ],
+            )
+            .expect("fresh graph");
         Self {
             index: index_of(&table),
             book,
@@ -88,6 +103,10 @@ impl Session {
             p_conflicts,
             p_priorities,
             p_overwrite,
+            p_plugins,
+            plugin_versions: Arc::new(PluginVersions::default()),
+            plugin_canon: PluginCanon::default(),
+            plugins: None,
             conflicts: None,
             priorities: None,
             overwrite: None,
@@ -134,6 +153,32 @@ impl Session {
     ) -> Result<Option<order::Change>, crate::resource::CommandError> {
         let action = crate::resource::command::authorize(registry.get(id), id)?;
         Ok(self.command(|bk| action.apply(bk, v))?)
+    }
+
+    /// Plugin facts of the same run as the table (versions across mods).
+    pub fn set_plugin_facts(&mut self, versions: Arc<PluginVersions>) {
+        self.plugin_versions = versions;
+        self.graph.apply(&Change {
+            truth: Truth::Facts,
+            keys: Keys::All,
+        });
+    }
+
+    /// The manager's plugin lists (import, or after an edit of the plugin order).
+    pub fn set_plugin_canon(&mut self, canon: PluginCanon) {
+        self.plugin_canon = canon;
+        self.graph.apply(&Change {
+            truth: Truth::PluginCanon,
+            keys: Keys::All,
+        });
+    }
+
+    // @sat:session.plugins
+    /// Current plugin list (recomputed when facts, the plugin canon or mod priorities change; a few thousand
+    /// plugins, so a full recompute — ADR 0010 law 11 targets inputs of millions).
+    pub fn plugins(&mut self) -> Arc<PluginList> {
+        self.bring_up_to_date(self.p_plugins);
+        self.plugins.clone().expect("computed")
     }
 
     /// New facts (a finished run): replaces the table and dirties everything that reads facts.
@@ -191,7 +236,14 @@ impl Session {
 
     fn bring_up_to_date(&mut self, id: ProjectionId) {
         for p in self.graph.plan(&[id]) {
-            if p == self.p_conflicts {
+            if p == self.p_plugins {
+                let prio = self.priorities.as_ref().expect("inputs first");
+                self.plugins = Some(Arc::new(PluginList::compute(
+                    &self.plugin_versions,
+                    &self.plugin_canon,
+                    prio,
+                )));
+            } else if p == self.p_conflicts {
                 self.conflicts = Some(Arc::new(ConflictIndex::build(&self.table)));
             } else if p == self.p_priorities {
                 let top = self.index.get(&OVERWRITE.to_lowercase()).copied();
@@ -319,6 +371,52 @@ mod tests {
         s.overwrite();
         assert_eq!(s.computed("overwrite"), 2);
         assert!(s.run(&r, "core.nope", MAIN).is_err());
+    }
+
+    #[test]
+    fn plugins_follow_mods_and_ignore_decoration() {
+        use crate::facts::{ModFacts, PluginFacts};
+        let mut s = session();
+        let pf = |n: &str, masters: &[&str]| PluginFacts {
+            file_name: n.into(),
+            header: Some(sat_formats::PluginHeader {
+                masters: masters.iter().map(|m| m.to_string()).collect(),
+                ..Default::default()
+            }),
+            records: None,
+            error: None,
+        };
+        let mods = [
+            ModFacts {
+                name: "A".into(),
+                plugins: vec![pf("P.esp", &["Skyrim.esm"])],
+                ..Default::default()
+            },
+            ModFacts {
+                name: "B".into(),
+                plugins: vec![pf("P.esp", &["Skyrim.esm", "Update.esm"])],
+                ..Default::default()
+            },
+            ModFacts {
+                name: "C".into(),
+                ..Default::default()
+            },
+        ];
+        s.set_plugin_facts(Arc::new(PluginVersions::build(&mods)));
+        s.set_plugin_canon(PluginCanon {
+            load_order: vec!["Skyrim.esm".into(), "P.esp".into()],
+            checked: vec![("P.esp".into(), true)],
+        });
+        let masters = |s: &mut Session| s.plugins().get("P.esp").unwrap().masters.len();
+        assert_eq!(masters(&mut s), 2, "B is below A in the list = higher priority");
+        let n = s.computed("plugins");
+        let a = s.book().key_of("A").unwrap();
+        s.command(|bk| bk.set_color(&[a], Some(3))).unwrap();
+        s.plugins();
+        assert_eq!(s.computed("plugins"), n, "decoration does not touch plugins");
+        let b = s.book().key_of("B").unwrap();
+        s.command(|bk| bk.set_enabled(&[b], Some(false))).unwrap();
+        assert_eq!(masters(&mut s), 1, "B off: A's version is served");
     }
 
     #[test]

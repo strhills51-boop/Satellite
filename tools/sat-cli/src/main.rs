@@ -17,6 +17,7 @@ use sat_core::canon::{EntryKind, Modlist};
 use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::ids::ModId;
 use sat_core::overwrite::{ConflictIndex, OverwriteProjection, Priorities};
+use sat_core::plugins::{PluginCanon, PluginList, PluginVersions};
 use sat_core::project::{ManagerDiff, PROJECT_SCHEMA, Project};
 use sat_core::sync::donor;
 use sat_core::table::{ProviderTable, TableBuilder};
@@ -173,6 +174,7 @@ struct Report {
     chains: usize,
     contexts: usize,
     fully_overridden: usize,
+    plugins: sat_core::plugins::PluginStats,
     /// name -> [win, lose, mid, unique]
     mods: BTreeMap<String, [u32; 4]>,
     timings_ms: BTreeMap<&'static str, u128>,
@@ -382,9 +384,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
         });
         // Facts are folded into the table batch by batch and dropped: peak memory = table + one batch.
         let mut builder = TableBuilder::new();
+        let mut plugin_versions = PluginVersions::default();
         let mut seen = Vec::with_capacity(jobs.len());
         sat_scan::scan_batched(&jobs, &opts, &progress, SCAN_BATCH, |_, o| {
-            builder.add(&o.facts);
+            let id = builder.add(&o.facts);
+            plugin_versions.add(id, &o.facts);
             issue_count += o.issues.len();
             for i in &o.issues {
                 if issues.len() < 200 {
@@ -408,9 +412,9 @@ fn analyze(args: &[String]) -> Result<(), String> {
             });
         });
         done.store(true, std::sync::atomic::Ordering::Relaxed);
-        (seen, builder)
+        (seen, builder, plugin_versions)
     });
-    let (outcomes, builder) = outcomes;
+    let (outcomes, builder, plugin_versions) = outcomes;
     timings.insert("scan", t.elapsed().as_millis());
     eprintln!("after scan: rss={:?}MiB", rss_mib());
 
@@ -540,6 +544,32 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let _again = OverwriteProjection::compute(&table, prio);
     timings.insert("overwrite_recompute", t.elapsed().as_millis());
 
+    // plugins: the manager's lists + versions across mods + mod priorities
+    let t = Instant::now();
+    let read = |f: &str| std::fs::read(inst.profile_dir().join(f)).unwrap_or_default();
+    let plugin_canon = PluginCanon {
+        load_order: sat_mo2::profile::parse_loadorder(&read("loadorder.txt")),
+        checked: sat_mo2::profile::parse_plugins(&read("plugins.txt"))
+            .into_iter()
+            .map(|l| (l.name, l.enabled))
+            .collect(),
+    };
+    let plugin_list = PluginList::compute(&plugin_versions, &plugin_canon, proj.priorities());
+    timings.insert("plugins", t.elapsed().as_millis());
+    let ps = plugin_list.stats;
+    eprintln!(
+        "plugins={} full={} light={} overflow={}/{} versioned={} missing-masters={} owner-off={} missing={}",
+        ps.plugins,
+        ps.active_full,
+        ps.active_light,
+        ps.overflow_full,
+        ps.overflow_light,
+        ps.versioned,
+        ps.with_missing_masters,
+        ps.owner_disabled,
+        ps.missing
+    );
+
     let totals = proj.totals();
     let ts = table.stats();
     let mods = table
@@ -610,6 +640,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         chains: totals.chains,
         contexts: totals.contexts,
         fully_overridden: totals.fully_overridden,
+        plugins: ps,
         mods,
         timings_ms: timings,
         scan: breakdown,
