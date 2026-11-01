@@ -19,7 +19,7 @@ NG: `sat-core::plugins` (`@sat:plugins.list`), в сессии `@sat:session.plu
 
 | Монолит | NG | Статус |
 |---|---|---|
-| Записи из `loadorder.txt`, `plugins.txt` (`*` = отмечен), скана; состояния enabled / disabled / implicit | `Listed::{Enabled, Disabled, Implicit, Unlisted}` | совпадает; `Unlisted` — найден в моде, менеджер ещё не видел |
+| Записи из `loadorder.txt`, `plugins.txt` (`*` = отмечен; **файл без единой `*` — формат списка, все перечисленные активны**: так выглядит `plugins.txt` сборки владельца, 1 234 строки без звёзд — `@sat:mo2.plugins-txt`), скана; состояния enabled / disabled / implicit | `Listed::{Enabled, Disabled, Implicit, Unlisted}` | совпадает; `Unlisted` — найден в моде, менеджер ещё не видел |
 | Базовые мастера Skyrim (5 шт.) — всегда активны, синие | `SKYRIM_BASE`, `Origin::Base`, `Colour::Blue` | совпадает (пакет игры — позже) |
 | Creation Club `cc*.es[lmp]` в `loadorder.txt` без отметки — неявно активен | `Origin::CreationClub`, `Listed::Implicit` | совпадает |
 | **Версии**: одно имя в нескольких модах; победитель — включённый владелец с наибольшим приоритетом, иначе наибольший среди всех; факты (мастера, флаги) — от победителя | `PluginVersions` (факты) + выбор победителя на каждый пересчёт по приоритетам | совпадает; победитель следует за каждым перемещением и переключением мода (тест сессии) |

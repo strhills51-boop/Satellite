@@ -74,7 +74,7 @@
 | Заголовок DDS и VRAM | `@sat:formats.dds` | — |
 | Класс загрузки плагина (NG) | `@sat:formats.plugin.kind` | тип монолита для паритета — `@sat:formats.plugin.monolith-type` |
 | Экземпляр MO2 (папки, профили, ini) | `@sat:mo2.instance` | — |
-| `modlist.txt` / `plugins.txt` / `loadorder.txt` | `@sat:mo2.profile` | — |
+| `modlist.txt` / `plugins.txt` / `loadorder.txt` | `@sat:mo2.profile`; два формата `plugins.txt` (со звёздами / список без звёзд = все активны) — `@sat:mo2.plugins-txt` | порядок — `loadorder.txt`; плагины сверх лимита MO2 в списки не вносит — их находит скан |
 | `meta.ini` мода, цвет QColor | `@sat:mo2.meta`, `@sat:mo2.ini` | — |
 | Атомарная запись файла | `@sat:mo2.write-atomic` | — |
 | Сигнатура папки мода | `@sat:scan.signature.v3` (`signature_v2` / `signature_v1` — только перенос кеша) | сигнатура монолита (`buildAnalysisSignature`) — другая |

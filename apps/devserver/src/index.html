@@ -35,7 +35,7 @@ h1 { font-size: 16px; margin: 0; font-weight: 600; }
 .stats b { color: var(--accent); font-weight: 500; }
 .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 input[type="search"] { width: 18em; max-width: 100%; }
-#list { flex: 1; min-height: 200px; overflow-y: auto; position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; outline: none; }
+#list { flex: 1; min-height: 200px; overflow-y: auto; overflow-anchor: none; position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; outline: none; }
 #list:focus-visible { border-color: var(--accent); }
 #spacer { width: 1px; }
 #layer { position: sticky; top: 0; height: 0; }
@@ -99,7 +99,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
 const $ = id => document.getElementById(id);
 const list = $("list"), layer = $("layer"), spacer = $("spacer");
 const ROW = 44, VIEW = 0, MAXPX = 8_000_000;
-let len = 0, pool = [], busy = false, again = false;
+let len = 0, pool = [], busy = false, again = false, keepTop = 0, writes = 0;
 
 async function post(path, body) {
   const r = await fetch(path, { method: "POST", body: JSON.stringify(body) });
@@ -120,8 +120,12 @@ function ensurePool() {
 
 function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
 
+/** Writes a row element only when what it shows changed (no window-wide repaint). */
 function paint(el, r) {
-  if (!r) { el.hidden = true; return; }
+  const sig = r ? JSON.stringify(r) : "";
+  if (el._sig === sig) return false;
+  el._sig = sig;
+  if (!r) { el.hidden = true; el._row = null; return true; }
   el.hidden = false; el._row = r;
   const cls = ["row"];
   if (r.selected) cls.push("sel");
@@ -131,7 +135,7 @@ function paint(el, r) {
     cls.push("sep");
     el.className = cls.join(" ");
     el.innerHTML = `<span>${r.collapsed ? "▸" : "▾"}</span><span>${esc(r.name.replace(/_separator$/, ""))}</span><span class="size">${r.size}</span>`;
-    return;
+    return true;
   }
   cls.push(r.kind, `d${Math.min(r.depth, 1)}`, r.enabled ? "on" : "off");
   el.className = cls.join(" ");
@@ -145,6 +149,7 @@ function paint(el, r) {
     c.unique ? `<span class="u">+${c.unique}</span>` : "",
   ].join("") : "";
   el.innerHTML = `<div class="card"><span class="toggle"></span><span class="name">${esc(r.name)}</span><div class="counters">${counters}</div></div><span class="prio">${r.pos}</span>`;
+  return true;
 }
 
 /** Re-reads only the rows in the window. */
@@ -165,7 +170,9 @@ async function sync(follow) {
       }
     }
     const off = -(vtop() - first * ROW);
-    pool.forEach((el, i) => { el.style.transform = `translateY(${off + i * ROW}px)`; paint(el, rep.rows[i]); });
+    writes = 0;
+    pool.forEach((el, i) => { el.style.transform = `translateY(${off + i * ROW}px)`; if (paint(el, rep.rows[i])) writes++; });
+    list.dataset.writes = writes;
   } catch (e) { $("err").textContent = e.message; }
   busy = false;
   if (again) { again = false; sync(false); }
@@ -235,13 +242,16 @@ async function showPlugins() {
 }
 function tab(plugins) {
   $("tMods").setAttribute("aria-selected", !plugins); $("tPlugins").setAttribute("aria-selected", plugins);
-  list.hidden = plugins; $("modbar").hidden = plugins; $("plugins").hidden = !plugins;
-  if (plugins) showPlugins(); else { sync(false); list.focus(); }
+  // the list is never display:none — a hidden element loses its scroll position
+  if (plugins) { keepTop = list.scrollTop; list.style.visibility = "hidden"; list.style.position = "absolute"; list.style.height = "0"; }
+  else { list.style.visibility = ""; list.style.position = ""; list.style.height = ""; list.scrollTop = keepTop; }
+  $("modbar").hidden = plugins; $("plugins").hidden = !plugins;
+  if (plugins) showPlugins(); else { sync(false); list.focus({ preventScroll: true }); }
 }
 $("tMods").onclick = () => tab(false);
 $("tPlugins").onclick = () => tab(true);
 
-(async () => { await sync(false); await totals(); list.focus(); })();
+(async () => { await sync(false); await totals(); list.focus({ preventScroll: true }); })();
 </script>
 </body>
 </html>
