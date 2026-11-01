@@ -195,6 +195,10 @@ impl Session {
     }
 
     /// The manager's plugin lists (import, or after an edit of the plugin order).
+    pub fn plugin_canon(&self) -> &PluginCanon {
+        &self.plugin_canon
+    }
+
     pub fn set_plugin_canon(&mut self, canon: PluginCanon) {
         self.plugin_canon = canon;
         self.graph.apply(&Change {

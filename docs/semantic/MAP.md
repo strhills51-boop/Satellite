@@ -84,7 +84,7 @@
 | Класс загрузки плагина (NG) | `@sat:formats.plugin.kind` | тип монолита для паритета — `@sat:formats.plugin.monolith-type` |
 | Экземпляр MO2 (папки, профили, ini) | `@sat:mo2.instance` | — |
 | `modlist.txt` / `plugins.txt` / `loadorder.txt` | `@sat:mo2.profile`; два формата `plugins.txt` (со звёздами / список без звёзд = все активны) — `@sat:mo2.plugins-txt`, запись в формате прежнего файла — `@sat:mo2.plugins-write` | порядок — `loadorder.txt`; плагины сверх лимита MO2 в списки не вносит — их находит скан |
-| Правка плагинов: отметка, скрытие (blacklist), каскадное включение по мастерам, что получают `plugins.txt` / `loadorder.txt` | `@sat:plugins.edit` (`set_checked`, `set_blacklisted`), `@sat:plugins.edit.cascade`, `@sat:plugins.edit.files`; скрытые в списке — `Plugin::blacklisted` (`@sat:plugins.list`); в проекте — `plugin_blacklist` | запись при фиксации — `Payload::plugin_files` (`@sat:mo2.commit`) |
+| Правка плагинов: отметка, скрытие (blacklist), каскадное включение по мастерам, что получают `plugins.txt` / `loadorder.txt` | `@sat:plugins.edit` (`set_checked`, `set_blacklisted`), `@sat:plugins.edit.cascade`, `@sat:plugins.edit.files`; скрытые в списке — `Plugin::blacklisted` (`@sat:plugins.list`); в проекте — `plugin_blacklist` | команды окна — `@sat:app.plugins-edit` (`SetPluginChecked` включает мод-владельца, `SetPluginHidden`, `CascadePlugins`; пока без отмены); запись при фиксации — `Payload::plugin_files` (`@sat:mo2.commit`) |
 | `meta.ini` мода, цвет QColor | `@sat:mo2.meta`, `@sat:mo2.ini` | — |
 | Атомарная запись файла | `@sat:mo2.write-atomic` | — |
 | Сигнатура папки мода | `@sat:scan.signature.v3` (`signature_v2` / `signature_v1` — только перенос кеша) | сигнатура монолита (`buildAnalysisSignature`) — другая |

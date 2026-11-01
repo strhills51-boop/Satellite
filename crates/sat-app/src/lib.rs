@@ -95,6 +95,18 @@ pub enum Command {
         signature: String,
         done: bool,
     },
+    /// Check or uncheck a plugin; checking a plugin whose mods are all disabled enables its winning mod (monolith).
+    SetPluginChecked {
+        name: String,
+        checked: bool,
+    },
+    /// Hide a plugin (blacklist) or show it again.
+    SetPluginHidden {
+        name: String,
+        hidden: bool,
+    },
+    /// Check plugins in layers by masters from the base game up; uncheck the rest of the present ones.
+    CascadePlugins,
     /// Decide a sync record (by fingerprint): pending, ignore, or confirm with an answer that fits it.
     Decide {
         fingerprint: String,
@@ -469,6 +481,8 @@ pub enum AppError {
     Signature(String),
     #[error("sync record {0}")]
     Record(String),
+    #[error("no plugin {0:?}")]
+    Plugin(String),
     #[error("bad style patch: {0}")]
     Style(String),
 }
@@ -554,6 +568,67 @@ impl App {
                 .command(|b| b.set_collapsed(view, separator, collapsed))?,
             C::SetFilter { view, filter } => self.session.command(|b| b.set_filter(view, filter))?,
             C::Focus { view, key } => self.session.command(|b| Ok(b.focus_entry(view, key)))?,
+            // @sat:app.plugins-edit
+            C::SetPluginChecked { name, checked } => {
+                let list = self.session.plugins();
+                let p = list.get(&name).ok_or_else(|| AppError::Plugin(name.clone()))?;
+                // a plugin of disabled mods: checking it enables the mod that would provide it
+                let owner = (checked && !p.present)
+                    .then(|| {
+                        p.winner
+                            .map(|w| self.session.table().mod_name(p.versions[w].owner).to_string())
+                    })
+                    .flatten();
+                let mut canon = self.session.plugin_canon().clone();
+                let mut changed = canon.set_checked(&name, checked);
+                let mut views = Vec::new();
+                if let Some(owner) = owner {
+                    let key = self.session.book().key_of(&owner);
+                    if let Some(k) = key
+                        && let Some(ch) = self.session.command(|b| b.set_enabled(&[k], Some(true)))?
+                    {
+                        views = ch.views;
+                        changed = true;
+                    }
+                }
+                if !changed {
+                    return Ok(Event::Nothing);
+                }
+                self.session.set_plugin_canon(canon);
+                self.revision += 1;
+                return Ok(Event::Changed {
+                    revision: self.revision,
+                    views,
+                    canon: true,
+                });
+            }
+            C::SetPluginHidden { name, hidden } => {
+                let mut canon = self.session.plugin_canon().clone();
+                if !canon.set_blacklisted(&name, hidden) {
+                    return Ok(Event::Nothing);
+                }
+                self.session.set_plugin_canon(canon);
+                self.revision += 1;
+                return Ok(Event::Changed {
+                    revision: self.revision,
+                    views: Vec::new(),
+                    canon: true,
+                });
+            }
+            C::CascadePlugins => {
+                let list = self.session.plugins();
+                let canon = sat_core::plugin_edit::cascade(&list, self.session.plugin_canon());
+                if &canon == self.session.plugin_canon() {
+                    return Ok(Event::Nothing);
+                }
+                self.session.set_plugin_canon(canon);
+                self.revision += 1;
+                return Ok(Event::Changed {
+                    revision: self.revision,
+                    views: Vec::new(),
+                    canon: true,
+                });
+            }
             C::Decide {
                 fingerprint,
                 decision,
@@ -1414,5 +1489,75 @@ mod tests {
             patch: serde_json::json!({"width": "wide"}),
         });
         assert!(matches!(bad, Err(AppError::Style(_))));
+    }
+
+    #[test]
+    fn plugin_edits_go_through_commands() {
+        use sat_core::facts::{ModFacts, PluginFacts};
+        use sat_core::plugins::{PluginCanon, PluginVersions};
+        let pf = |n: &str| PluginFacts {
+            file_name: n.into(),
+            header: None,
+            records: None,
+            error: None,
+        };
+        let mods = vec![
+            ModFacts {
+                name: "On".into(),
+                plugins: vec![pf("A.esp")],
+                ..Default::default()
+            },
+            ModFacts {
+                name: "Off".into(),
+                plugins: vec![pf("D.esp")],
+                ..Default::default()
+            },
+        ];
+        let list = Modlist::new(
+            [("On", true), ("Off", false)]
+                .iter()
+                .map(|(n, e)| Entry {
+                    name: n.to_string(),
+                    kind: EntryKind::Mod,
+                    enabled: *e,
+                })
+                .collect(),
+        );
+        let mut session = Session::new(
+            OrderBook::from_modlist(&list),
+            Arc::new(ProviderTable::build(&mods)),
+        );
+        session.set_plugin_facts(Arc::new(PluginVersions::build(&mods)));
+        session.set_plugin_canon(PluginCanon::default());
+        let mut a = App::new(session, Registry::with_builtins());
+        let state = |a: &mut App, n: &str| {
+            let p = a.session().plugins();
+            let p = p.get(n).unwrap();
+            (p.present, p.active, p.blacklisted)
+        };
+        assert_eq!(state(&mut a, "D.esp"), (false, false, false));
+        // checking a plugin of a disabled mod enables the mod
+        let ev = a
+            .command(Command::SetPluginChecked {
+                name: "D.esp".into(),
+                checked: true,
+            })
+            .unwrap();
+        assert!(matches!(ev, Event::Changed { canon: true, ref views, .. } if !views.is_empty()));
+        assert_eq!(state(&mut a, "D.esp"), (true, true, false));
+        a.command(Command::SetPluginHidden {
+            name: "A.esp".into(),
+            hidden: true,
+        })
+        .unwrap();
+        assert_eq!(state(&mut a, "A.esp"), (true, false, true));
+        a.command(Command::SetPluginChecked {
+            name: "D.esp".into(),
+            checked: false,
+        })
+        .unwrap();
+        a.command(Command::CascadePlugins).unwrap();
+        assert!(state(&mut a, "D.esp").1, "cascade turns it back on: no masters");
+        assert!(!state(&mut a, "A.esp").1, "hidden stays off");
     }
 }
