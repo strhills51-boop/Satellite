@@ -10,6 +10,9 @@
 
 use std::sync::Arc;
 
+mod context;
+pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
+
 use serde::{Deserialize, Serialize};
 
 use sat_core::ids::ModId;
@@ -122,6 +125,18 @@ pub enum Query {
     },
     /// Separator tiles of the left column.
     Separators,
+    /// Conflict contexts for the table's selector, largest first.
+    Contexts,
+    /// A window of the conflict table of the context that mod `key` belongs to.
+    ContextTable {
+        key: Key,
+        #[serde(default)]
+        order: ColumnOrder,
+        row_start: usize,
+        row_count: usize,
+        col_start: usize,
+        col_count: usize,
+    },
     /// What the decoration editor edits: the mods of the view's selection (the focused one when none) and
     /// their distinct styles with counts, so the editor can mark fields that differ ("mixed").
     Decoration {
@@ -385,6 +400,13 @@ pub enum Reply {
         keys: Vec<Key>,
         styles: Vec<StyleShare>,
     },
+    Contexts {
+        contexts: Vec<ContextItem>,
+    },
+    /// `None` when the mod is in no context.
+    ContextTable {
+        table: Option<Box<ContextTable>>,
+    },
     /// `focus`: the line (y, height) of the keyboard focus, so the page keeps it in view.
     Lines {
         view: ViewId,
@@ -443,6 +465,8 @@ pub struct App {
     revision: u64,
     /// Flow index per view, valid for one book revision and one set of parameters.
     flows: std::collections::HashMap<ViewId, FlowIndex>,
+    /// Sorted columns of the context table that is open.
+    open_context: Option<context::OpenContext>,
 }
 
 impl App {
@@ -452,6 +476,7 @@ impl App {
             registry,
             revision: 0,
             flows: Default::default(),
+            open_context: None,
         }
     }
 
@@ -730,6 +755,21 @@ impl App {
                     lines,
                 }
             }
+            Query::Contexts => Reply::Contexts {
+                contexts: self.contexts(),
+            },
+            Query::ContextTable {
+                key,
+                order,
+                row_start,
+                row_count,
+                col_start,
+                col_count,
+            } => Reply::ContextTable {
+                table: self
+                    .context_table(key, order, (row_start, row_count), (col_start, col_count))
+                    .map(Box::new),
+            },
             // @sat:app.decoration
             Query::Decoration { view } => {
                 let book = self.session.book();

@@ -162,6 +162,21 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .emojis { grid-column: 1 / 3; display: flex; flex-wrap: wrap; gap: 2px; }
 .emojis button { width: 26px; height: 26px; padding: 0; font-size: 15px; border-radius: 6px; }
 .emojis button.cur { outline: 2px solid var(--accent); }
+/* conflict context table (monolith modal with the colour-types flag): rows = mods by separator, columns = paths */
+#ct { position: fixed; inset: 28px; z-index: 35; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+#ct[hidden] { display: none; }
+#ct .top { padding: 10px 14px 6px; display: grid; gap: 6px; border-bottom: 1px solid var(--line); }
+#ct .t1 { display: flex; gap: 10px; align-items: center; }
+#ct .t1 b { font-size: 15px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ct .t2 { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+#ct .t2 select { max-width: 520px; }
+#ctScroll { flex: 1; overflow: auto; position: relative; overscroll-behavior: contain; }
+#ctView { position: sticky; top: 0; left: 0; }
+#ctCanvas { display: block; }
+#ctStatus { padding: 6px 14px; border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 18px; }
+#ctStatus b { color: var(--fg); font-weight: 500; }
+.ctbtn { font-size: 11px; padding: 1px 8px; border-radius: 999px; margin-left: auto; }
 footer { display: flex; gap: 14px; flex-wrap: wrap; padding: 6px 14px; border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
 footer b { color: var(--accent2); font-weight: 500; }
 @media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) 340px; } #tilesec { display: none; } }
@@ -195,6 +210,16 @@ footer b { color: var(--accent2); font-weight: 500; }
 <footer id="stats">загрузка…</footer>
 <div id="ctx" hidden></div>
 <div id="palette" hidden></div>
+<div id="ct" hidden role="dialog" aria-label="Таблица конфликтов">
+  <div class="top">
+    <div class="t1"><b id="ctTitle"></b><button id="ctClose">Закрыть</button></div>
+    <div class="t2"><span>Контекст:</span><select id="ctCtx"></select>
+      <select id="ctOrder"><option value="chain">Релевантность цепочке</option><option value="strength">Сила конфликта</option></select>
+      <span id="ctStats"></span></div>
+  </div>
+  <div id="ctScroll"><div id="ctView"><canvas id="ctCanvas"></canvas></div><div id="ctSpacer"></div></div>
+  <div id="ctStatus">наведи на клетку: путь, цепочка, стек</div>
+</div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -403,7 +428,7 @@ async function detail(key) {
         `<span class="nums">${o.i_beat ? `<span class="w">▲${num(o.i_beat)}</span> ` : ""}${o.beats_me ? `<span class="l">▼${num(o.beats_me)}</span>` : ""}</span>` +
         `<span class="ps">${o.pos ?? ""}</span></div>`;
     }
-    conf.innerHTML = `<h3>Конфликты</h3><div class="chains">${chains}${hidden ? `<div class="more" data-more="1" title="показать все">+${hidden}</div>` : ""}</div>` +
+    conf.innerHTML = `<h3>Конфликты<button class="ctbtn" data-table="${d.key}" title="Таблица контекста: моды × файлы">Таблица</button></h3><div class="chains">${chains}${hidden ? `<div class="more" data-more="1" title="показать все">+${hidden}</div>` : ""}</div>` +
       `<div class="muted" style="margin:0 2px 4px">Участники: фон — зубы по цепочкам выше (зелёный — выигрывает, красный — перекрыт). ▲ — где этот мод перекрывает участника, ▼ — где участник перекрывает его.</div>${rows}`;
   }
   const pl = $("bPlug");
@@ -507,6 +532,125 @@ $("bDecor").addEventListener("click", ev => {
   else if (b.dataset.recent !== undefined) run({ type: "set-style", keys: decorKeys, style: recent[+b.dataset.recent] });
   else if (b.dataset.emoji !== undefined) patchStyle(b.dataset.emoji ? { watermark: { emoji: b.dataset.emoji } } : { watermark: null });
 });
+
+// ---------------------------------------------------------------- conflict context table
+const CT = { key: null, order: "chain", data: null, busy: false, again: false, LW: 300, HH: 44, CW: 12, RH: 26 };
+const EXT = { dds: 28, png: 28, tga: 28, nif: 210, tri: 200, hkx: 275, esp: 135, esm: 135, esl: 135, pex: 50, psc: 55, bsa: 0, ba2: 0,
+  wav: 175, xwm: 175, fuz: 185, lip: 190, swf: 320, json: 0, ini: 0, txt: 0, seq: 300, bgsm: 240, bgem: 240 };
+const extHue = p => { const e = (p.split(".").pop() || "").toLowerCase(); return e in EXT ? EXT[e] : [...e].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7); };
+async function openTable(key) {
+  CT.key = key; $("ct").hidden = false;
+  const { contexts } = await query({ type: "contexts" });
+  CT.contexts = contexts;
+  $("ctCtx").innerHTML = contexts.map((c, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)} · ${c.chains} цеп. · ${c.mods} модов · ${c.files} файлов</option>`).join("");
+  $("ctScroll").scrollTo(0, 0);
+  await ctSync(true);
+}
+async function ctSync(pickCtx) {
+  if (CT.busy) { CT.again = true; return; }
+  CT.busy = true;
+  try {
+    const sc = $("ctScroll"), w = sc.clientWidth, h = sc.clientHeight;
+    const r0 = Math.floor(sc.scrollTop / CT.RH), c0 = Math.floor(sc.scrollLeft / CT.CW);
+    const rc = Math.ceil((h - CT.HH) / CT.RH) + 1, cc = Math.ceil((w - CT.LW) / CT.CW) + 1;
+    const rep = await query({ type: "context-table", key: CT.key, order: CT.order, row_start: r0, row_count: rc, col_start: c0, col_count: cc });
+    const t = rep.table;
+    if (!t) { $("ctTitle").textContent = "Мод ни с кем не конфликтует"; CT.data = null; return; }
+    CT.data = { t, r0, c0 };
+    $("ctTitle").textContent = "△ " + t.name;
+    $("ctStats").textContent = `Цепочек: ${t.chains_total} · Строк: ${t.rows_total} · Файлов: ${t.cols_total}`;
+    if (pickCtx && CT.contexts) { const i = CT.contexts.findIndex(c => c.name === t.name); if (i >= 0) $("ctCtx").value = String(i); }
+    const sp = $("ctSpacer");
+    sp.style.width = (CT.LW + t.cols_total * CT.CW) + "px"; sp.style.height = (CT.HH + t.rows_total * CT.RH) + "px";
+    sp.style.marginTop = -h + "px";
+    ctDraw();
+  } catch (e) { $("ctStatus").textContent = e.message; }
+  finally { CT.busy = false; if (CT.again) { CT.again = false; ctSync(false); } }
+}
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function ctDraw() {
+  const sc = $("ctScroll"), cv = $("ctCanvas"), view = $("ctView"), dpr = devicePixelRatio || 1;
+  const w = sc.clientWidth, h = sc.clientHeight;
+  view.style.width = w + "px"; view.style.height = h + "px";
+  if (cv.width !== w * dpr || cv.height !== h * dpr) { cv.width = w * dpr; cv.height = h * dpr; cv.style.width = w + "px"; cv.style.height = h + "px"; }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  if (!CT.data) return;
+  const { t, r0, c0 } = CT.data, { LW, HH, CW, RH } = CT;
+  const ox = -(sc.scrollLeft - c0 * CW), oy = -(sc.scrollTop - r0 * RH);
+  const chains = new Map(t.chains.map(c => [c.index, c]));
+  const fg = css("--fg"), muted = css("--muted"), line = css("--line"), win = css("--win"), lose = css("--lose"), bg2 = css("--bg2");
+  // cells
+  g.save(); g.beginPath(); g.rect(LW, HH, w - LW, h - HH); g.clip();
+  t.rows.forEach((r, i) => {
+    const y = HH + oy + i * RH;
+    if (r.header) { g.fillStyle = bg2; g.fillRect(LW, y, w - LW, RH); return; }
+    for (let j = 0; j < r.cells.length; j++) {
+      const x = LW + ox + j * CW, ch = r.cells[j];
+      g.fillStyle = ch === "w" ? win : ch === "l" ? lose : "rgba(127,127,127,.07)";
+      g.fillRect(x + 1, y + 6, CW - 2, RH - 12);
+    }
+  });
+  g.restore();
+  // column heads: chain band (its hue) and a file-type tile (colour by extension)
+  g.save(); g.beginPath(); g.rect(LW, 0, w - LW, HH); g.clip();
+  g.fillStyle = css("--panel"); g.fillRect(LW, 0, w - LW, HH);
+  t.cols.forEach((c, j) => {
+    const x = LW + ox + j * CW, ch = chains.get(c.chain);
+    if (ch) { g.fillStyle = `hsl(${ch.hue} 65% 55%)`; g.fillRect(x, 6, CW, 4); }
+    g.fillStyle = `hsl(${extHue(c.path)} 70% 55%)`; g.fillRect(x + 1, 18, CW - 2, 14);
+    const starts = t.chain_starts.length && (j > 0 ? t.cols[j - 1].chain !== c.chain : t.chain_starts.includes(c0));
+    if (starts) {
+      g.fillStyle = muted; g.fillRect(x, 4, 1, HH - 8);
+    }
+  });
+  g.restore();
+  // row labels
+  g.save(); g.beginPath(); g.rect(0, HH, LW, h - HH); g.clip();
+  g.font = `13px ${css("--ui") || "sans-serif"}`; g.textBaseline = "middle";
+  t.rows.forEach((r, i) => {
+    const y = HH + oy + i * RH;
+    if (r.header) {
+      g.fillStyle = bg2; g.fillRect(0, y, LW, RH);
+      g.fillStyle = fg; g.font = `600 12px ${css("--ui") || "sans-serif"}`; g.fillText("▾ " + r.name, 10, y + RH / 2); g.font = `13px ${css("--ui") || "sans-serif"}`;
+      return;
+    }
+    g.fillStyle = r.key === CT.key ? "rgba(34,197,94,.18)" : "transparent"; g.fillRect(0, y, LW, RH);
+    g.fillStyle = "#7c3aed"; g.fillRect(0, y + 2, 3, RH - 4);
+    g.fillStyle = r.enabled ? css("--ok") : css("--miss"); g.beginPath(); g.arc(16, y + RH / 2, 4, 0, 7); g.fill();
+    g.fillStyle = fg; g.fillText(clip(g, r.name, LW - 110), 28, y + RH / 2);
+    g.fillStyle = muted; g.font = `11px ${css("--mono") || "monospace"}`; g.textAlign = "right";
+    g.fillText(`▲${r.wins} ▼${r.loses} ${r.pos ?? ""}`, LW - 8, y + RH / 2); g.textAlign = "left"; g.font = `13px ${css("--ui") || "sans-serif"}`;
+  });
+  g.restore();
+  g.fillStyle = line; g.fillRect(LW - 1, 0, 1, h); g.fillRect(0, HH - 1, w, 1);
+}
+function clip(g, s, max) { if (g.measureText(s).width <= max) return s; while (s.length > 1 && g.measureText(s + "…").width > max) s = s.slice(0, -1); return s + "…"; }
+function ctHit(ev) {
+  if (!CT.data) return null;
+  const sc = $("ctScroll"), rect = sc.getBoundingClientRect(), x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+  const { t, r0, c0 } = CT.data;
+  const ri = Math.floor((y - CT.HH + sc.scrollTop) / CT.RH) - r0, ci = Math.floor((x - CT.LW + sc.scrollLeft) / CT.CW) - c0;
+  return { row: y >= CT.HH ? t.rows[ri] : null, col: x >= CT.LW ? t.cols[ci] : null, ci, label: x < CT.LW };
+}
+$("ctScroll").addEventListener("scroll", () => { ctDraw(); ctSync(false); }, { passive: true });
+$("ctScroll").addEventListener("mousemove", ev => {
+  const hit = ctHit(ev); if (!hit) return;
+  const { t } = CT.data, parts = [];
+  if (hit.col) { const ch = t.chains.find(c => c.index === hit.col.chain);
+    parts.push(`<b>${esc(hit.col.path)}</b>`); if (ch) parts.push(`${ch.emoji} ${esc(ch.name)} · стек ${ch.depth} · ${ch.files} ф.${ch.done ? " · решено" : ""}`); }
+  if (hit.row && !hit.row.header) { const c = hit.col && hit.row.cells[hit.ci];
+    parts.push(`${esc(hit.row.name)}${c === "w" ? " — выигрывает" : c === "l" ? " — проигрывает" : c === "-" ? " — не участвует" : ""}`); }
+  $("ctStatus").innerHTML = parts.join(" · ") || "&nbsp;";
+});
+$("ctScroll").addEventListener("click", ev => {
+  const hit = ctHit(ev);
+  if (hit && hit.row && !hit.row.header && hit.row.key !== null) run({ type: "focus", view: VIEW, key: hit.row.key });
+});
+$("ctClose").onclick = () => { $("ct").hidden = true; list.focus({ preventScroll: true }); };
+$("ctOrder").onchange = ev => { CT.order = ev.target.value; ctSync(false); };
+$("ctCtx").onchange = ev => { const c = CT.contexts[+ev.target.value]; if (c && c.key !== null) { CT.key = c.key; $("ctScroll").scrollTo(0, 0); ctSync(false); } };
+window.addEventListener("resize", () => { if (!$("ct").hidden) ctSync(false); });
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("ct").hidden) { ev.stopPropagation(); $("ctClose").onclick(); } }, true);
 
 async function run(c) {
   $("err").textContent = "";
@@ -617,6 +761,8 @@ $("tiles").addEventListener("click", ev => {
   run({ type: "focus", view: VIEW, key: +t.dataset.key }).then(() => list.focus({ preventScroll: true }));
 });
 $("bConf").addEventListener("click", ev => {
+  const tb = ev.target.closest("[data-table]");
+  if (tb) return openTable(+tb.dataset.table);
   if (ev.target.closest("[data-more]")) { ev.target.closest(".chains").classList.toggle("all"); return; }
   const ok = ev.target.closest(".dn");
   if (ok) return run({ type: "set-chain-done", signature: ok.dataset.sig, done: ok.dataset.done !== "true" });

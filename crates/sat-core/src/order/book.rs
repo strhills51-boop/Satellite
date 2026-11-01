@@ -468,6 +468,9 @@ impl OrderBook {
     pub fn kind(&self, k: Key) -> EntryKind {
         self.items[k as usize].kind
     }
+    pub fn enabled(&self, k: Key) -> bool {
+        self.items[k as usize].enabled
+    }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
