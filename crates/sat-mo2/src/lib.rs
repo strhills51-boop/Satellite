@@ -3,12 +3,14 @@
 //! - [`ini`] — Qt-style INI reading, `@ByteArray(...)`, `@Variant(...)` QColor;
 //! - [`instance`] — resolving an instance (`ModOrganizer.ini`, `%BASE_DIR%`, profiles, extra mod roots);
 //! - [`profile`] — `modlist.txt` ⇄ [`sat_core::canon::Modlist`] (byte-exact round trip), `plugins.txt`, `loadorder.txt`;
-//! - [`meta`] — a mod's `meta.ini`.
+//! - [`meta`] — a mod's `meta.ini`;
+//! - [`commit`] — running a checked commit plan: backup, journal, operations, profile write, rollback.
 //!
 //! This crate is the only place that knows MO2 file formats (ADR 0002: canon is written only by its adapter).
 //!
 //! Owns: MO2 adapter layout, errors, atomic file writes.
 
+pub mod commit;
 pub mod ini;
 pub mod instance;
 pub mod meta;

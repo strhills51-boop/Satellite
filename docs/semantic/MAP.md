@@ -94,6 +94,7 @@
 | Перезапуск анализаторов по кешированному индексу | `@sat:scan.walk.reanalyze` | — |
 | Донор: соответствие, категории, оценка | `@sat:sync.donor` | — |
 | Записи SYNC и сверка диска с проектом | `@sat:sync.records.reconcile` | ключ сопоставления — `normalize_name`, ключ отпечатка — точное имя в нижнем регистре |
+| Фиксация (техпроцесс «скан/синхронизация → обработка → фиксация», NG-D003 §7): решения по записям, план, бэкап, журнал, откат | ответы — `@sat:sync.records.resolution`; план — `@sat:sync.plan`, `@sat:sync.plan.build`, `@sat:sync.plan.canon`, `@sat:sync.plan.order`; исполнение — `@sat:mo2.commit`, `@sat:mo2.commit.execute`, `@sat:mo2.commit.undo`; командная строка — `@sat:cli.commit`, `@sat:cli.commit.sync`, `@sat:cli.commit.run` | сверка — `@sat:sync.records.reconcile`; запись файлов — `@sat:mo2.write-atomic` |
 
 ## Файлы
 
@@ -128,6 +129,7 @@
 - `crates/sat-core/src/sync/names.rs` — `@sat:sync.names`: правила имён монолита.
 - `crates/sat-core/src/sync/donor.rs` — `@sat:sync.donor`: внешний донор.
 - `crates/sat-core/src/sync/records.rs` — `@sat:sync.records`: записи SYNC, сверка.
+- `crates/sat-core/src/sync/plan.rs` — `@sat:sync.plan`: план фиксации — изменения канона и упорядоченные, проверенные операции на диске.
 
 ### `crates/sat-app` — API приложения (ADR 0004)
 
@@ -150,6 +152,7 @@
 - `crates/sat-mo2/src/lib.rs` — `@sat:mo2`: `Mo2Error`, `read`, `write_atomic`.
 - `crates/sat-mo2/src/ini.rs` — `@sat:mo2.ini`: ini MO2, `@ByteArray`, `@Variant`.
 - `crates/sat-mo2/src/instance.rs` — `@sat:mo2.instance`: `Instance::load`, `from_dirs`, `mod_dir`.
+- `crates/sat-mo2/src/commit.rs` — `@sat:mo2.commit`: исполнение плана — версия-бэкап, журнал, операции, запись профиля, откат.
 - `crates/sat-mo2/src/profile.rs` — `@sat:mo2.profile`: файлы профиля байт в байт.
 - `crates/sat-mo2/src/meta.rs` — `@sat:mo2.meta`: `meta.ini`.
 
@@ -162,7 +165,8 @@
 - `crates/sat-scan/tests/scan.rs` — `@sat:scan.it`: интеграционный тест.
 
 ### `tools`
-- `tools/sat-cli/src/main.rs` — `@sat:cli`: `analyze`, `donor`, `inspect`, `bench-synth`.
+- `tools/sat-cli/src/main.rs` — `@sat:cli`: `analyze`, `donor`, `sync`, `commit`, `inspect`, `bench-synth`.
+- `tools/sat-cli/src/commit_cmd.rs` — `@sat:cli.commit`: `sync` (записи и решения) и `commit` (план, `--apply`).
 - `tools/sat-cli/src/bench_order.rs` — `@sat:cli.bench-order`: бенчмарк движка порядка.
 
 ## Документы

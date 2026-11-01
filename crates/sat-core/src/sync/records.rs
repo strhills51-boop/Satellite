@@ -95,8 +95,46 @@ pub struct SyncRecord {
     pub entity: EntityKind,
     pub mismatch: Mismatch,
     pub status: Status,
-    /// How a confirmed record is applied (e.g. "add to project" vs "remove folder"); interpreted by the planner.
-    pub resolution: Option<String>,
+    /// How a confirmed record is applied; interpreted by the commit planner (`@sat:sync.plan`).
+    pub resolution: Option<Resolution>,
+}
+
+// @sat:sync.records.resolution
+/// The decision matrix of the monolith (`11-sync.md` §4.4), one variant per allowed answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Resolution {
+    /// `FsCreated`: take the folder into the project (a mod is appended enabled; a separator becomes a block).
+    AdoptToProject,
+    /// `FsCreated`: move the folder out of the mods folder into `deleted/<commit>` (never a hard delete).
+    MoveToDeleted,
+    /// `FsDeleted`: create an empty folder with the project's name.
+    CreateDiskFolder,
+    /// `FsDeleted`: take the entity out of the project.
+    RemoveFromProject,
+    /// `FsRenamed`: the project takes the folder's new name.
+    AcceptFsName,
+    /// `FsRenamed`: the folder is renamed back to the project's name.
+    RenameDiskToProject,
+}
+
+impl Resolution {
+    /// Whether this answer applies to that mismatch.
+    pub fn fits(self, m: &Mismatch) -> bool {
+        matches!(
+            (self, m),
+            (
+                Self::AdoptToProject | Self::MoveToDeleted,
+                Mismatch::FsCreated { .. }
+            ) | (
+                Self::CreateDiskFolder | Self::RemoveFromProject,
+                Mismatch::FsDeleted { .. }
+            ) | (
+                Self::AcceptFsName | Self::RenameDiskToProject,
+                Mismatch::FsRenamed { .. }
+            )
+        )
+    }
 }
 
 impl SyncRecord {
@@ -267,7 +305,7 @@ pub fn reconcile(project: &[ProjectEntity], disk: &[DiskFolder], previous: &[Syn
     for r in &mut records {
         if let Some(p) = prev.get(r.fingerprint.as_str()) {
             r.status = p.status;
-            r.resolution = p.resolution.clone();
+            r.resolution = p.resolution;
         }
     }
     let order = |r: &SyncRecord| match r.mismatch {
@@ -388,7 +426,7 @@ mod tests {
         let mut first = reconcile(&project, &disk, &[]).records;
         first[0].status = Status::Ignored;
         first[1].status = Status::Confirmed;
-        first[1].resolution = Some("add-to-project".into());
+        first[1].resolution = Some(Resolution::AdoptToProject);
         let again = reconcile(&project, &disk, &first);
         assert_eq!(again.records, first, "same mismatches keep decisions");
         assert!(!again.blocked());

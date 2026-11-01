@@ -47,6 +47,7 @@ struct Seen {
 /// Millions of small allocations (path strings, per-dir vectors) dominate table builds; the system allocator on
 /// Windows is markedly slower at that than mimalloc.
 mod bench_order;
+mod commit_cmd;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -56,10 +57,12 @@ fn main() {
     let res = match args.first().map(String::as_str) {
         Some("analyze") => analyze(&args[1..]),
         Some("donor") => donor(&args[1..]),
+        Some("sync") => commit_cmd::sync(&args[1..]),
+        Some("commit") => commit_cmd::commit(&args[1..]),
         Some("inspect") => inspect(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");

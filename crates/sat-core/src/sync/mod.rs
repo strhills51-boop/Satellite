@@ -3,9 +3,11 @@
 //! - [`names`] — name identity rules shared by reconcile and donor matching (monolith parity).
 //! - [`donor`] — external donor sessions: another build's `modlist.txt` + mods folder, matched against the project.
 //! - [`records`] — sync records and the pure disk ↔ project reconcile.
+//! - [`plan`] — the commit plan: decided records → canon changes and ordered, checked disk operations.
 //!
 //! Owns: the layout of synchronization (ADR 0006).
 
 pub mod donor;
 pub mod names;
+pub mod plan;
 pub mod records;
