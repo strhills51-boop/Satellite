@@ -207,20 +207,25 @@ impl Session {
                 let prio = self.priorities.as_ref().expect("inputs first").as_ref().clone();
                 let index = self.conflicts.clone().expect("inputs first");
                 let keys = self.graph.pending(p).cloned();
-                let next = match (&self.overwrite, keys) {
-                    (Some(prev), Some(Keys::Some(keys))) if Arc::ptr_eq(prev.index(), &index) => {
+                match (self.overwrite.take(), keys) {
+                    (Some(mut prev), Some(Keys::Some(keys))) if Arc::ptr_eq(prev.index(), &index) => {
                         let touched = self.touched_mods(&keys, prev.priorities(), &prio);
                         self.last_overwrite = Recompute::Incremental {
                             touched: touched.len(),
                         };
-                        prev.update(&self.table, prio, &touched)
+                        // in place when no reader holds the previous snapshot, otherwise on a copy
+                        Arc::make_mut(&mut prev).update_in_place(&self.table, prio, &touched);
+                        self.overwrite = Some(prev);
                     }
                     _ => {
                         self.last_overwrite = Recompute::Full;
-                        OverwriteProjection::compute_with(index, &self.table, prio)
+                        self.overwrite = Some(Arc::new(OverwriteProjection::compute_with(
+                            index,
+                            &self.table,
+                            prio,
+                        )));
                     }
-                };
-                self.overwrite = Some(Arc::new(next));
+                }
             }
             *self.computed.entry(p).or_default() += 1;
             self.graph.done(p);

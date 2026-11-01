@@ -12,7 +12,8 @@
 //! order changes winners, never the structure of conflicts):
 //! - [`ConflictIndex`] — facts only: contested paths (two or more distinct mods) and mod → contested paths;
 //! - [`OverwriteProjection`] — stacks and winners of contested paths under priorities; single-mod paths are
-//!   summed per mod once. [`OverwriteProjection::update`] recomputes only the paths the changed mods provide.
+//!   summed per mod once. [`OverwriteProjection::update_in_place`] recomputes only the paths the changed mods
+//!   provide; chains are interned with reference counts, statistics change by deltas, contexts are lazy.
 //!
 //! Owns: the conflict index and the overwrite projection: stacks, chains, contexts, W/L/M/X statistics.
 
@@ -60,8 +61,8 @@ pub struct ModStat {
     pub mid: u32,
     /// Active, has providers, wins nothing and has nothing unique — invisible in game (X).
     pub fully_overridden: bool,
+    /// Chains this mod is a member of.
     pub chains: u32,
-    pub context: Option<ContextId>,
     /// VRAM of textures where this mod is the winner, KiB.
     pub vram_win_kib: u64,
     /// Bytes of files where this mod is the winner.
@@ -74,7 +75,6 @@ pub struct Chain {
     pub files: u32,
     /// Winner bytes across the chain.
     pub bytes: u64,
-    pub context: ContextId,
 }
 
 /// One context.
@@ -202,18 +202,8 @@ impl ConflictIndex {
     }
 }
 
-/// Per contested slot under some priorities: the stack of active distinct mods (winner first) and the winner's
-/// bytes / VRAM. A stack of one is not a conflict (the winner counts it as unique); empty = no active provider.
-#[derive(Debug, Clone, Default)]
-struct Stacks {
-    offsets: Vec<u32>,
-    mods: Vec<ModId>,
-    hash: Vec<u64>,
-    bytes: Vec<u64>,
-    vram: Vec<u32>,
-}
-
-/// Stack of one slot: loose before archive, then priority descending, then table order (deterministic).
+/// Stack of one contested path under priorities: active distinct mods, loose before archive, then priority
+/// descending, then table order (deterministic). Returns `(hash, winner bytes, winner VRAM)`.
 fn stack_of(
     table: &ProviderTable,
     p: PathId,
@@ -247,75 +237,103 @@ fn stack_of(
     (h, table.size(wi), table.vram_kib(wi))
 }
 
-/// Computes stacks for `slots` (sorted) in parallel; returns them in the same order as one CSR.
-fn compute_stacks(table: &ProviderTable, index: &ConflictIndex, prio: &Priorities, slots: &[u32]) -> Stacks {
-    let parts: Vec<Stacks> = slots
-        .par_chunks(PART)
-        .map(|chunk| {
-            let mut st = Stacks {
-                offsets: Vec::with_capacity(chunk.len()),
-                ..Stacks::default()
-            };
-            let mut cand = Vec::new();
-            for &slot in chunk {
-                st.offsets.push(st.mods.len() as u32);
-                let (h, b, v) = stack_of(
-                    table,
-                    index.contested[slot as usize],
-                    prio,
-                    &mut cand,
-                    &mut st.mods,
-                );
-                st.hash.push(h);
-                st.bytes.push(b);
-                st.vram.push(v);
-            }
-            st
-        })
-        .collect();
-    let mut all = Stacks {
-        offsets: Vec::with_capacity(slots.len() + 1),
-        ..Stacks::default()
-    };
-    for part in parts {
-        let base = all.mods.len() as u32;
-        all.offsets.extend(part.offsets.iter().map(|o| o + base));
-        all.mods.extend(part.mods);
-        all.hash.extend(part.hash);
-        all.bytes.extend(part.bytes);
-        all.vram.extend(part.vram);
-    }
-    all.offsets.push(all.mods.len() as u32);
-    all
+/// A freshly computed stack for one slot.
+struct Fresh {
+    slot: u32,
+    hash: u64,
+    bytes: u64,
+    vram: u32,
+    start: u32,
+    len: u32,
 }
 
-impl Stacks {
-    fn get(&self, slot: usize) -> &[ModId] {
-        &self.mods[self.offsets[slot] as usize..self.offsets[slot + 1] as usize]
+/// Computes stacks for `slots` in parallel; the stacks' mods go into the returned pool.
+fn compute_stacks(
+    table: &ProviderTable,
+    index: &ConflictIndex,
+    prio: &Priorities,
+    slots: &[u32],
+) -> (Vec<Fresh>, Vec<ModId>) {
+    let parts: Vec<(Vec<Fresh>, Vec<ModId>)> = slots
+        .par_chunks(PART)
+        .map(|chunk| {
+            let mut fresh = Vec::with_capacity(chunk.len());
+            let mut pool = Vec::new();
+            let mut cand = Vec::new();
+            for &slot in chunk {
+                let start = pool.len() as u32;
+                let (hash, bytes, vram) =
+                    stack_of(table, index.contested[slot as usize], prio, &mut cand, &mut pool);
+                fresh.push(Fresh {
+                    slot,
+                    hash,
+                    bytes,
+                    vram,
+                    start,
+                    len: pool.len() as u32 - start,
+                });
+            }
+            (fresh, pool)
+        })
+        .collect();
+    let mut all = Vec::with_capacity(slots.len());
+    let mut pool = Vec::new();
+    for (fresh, p) in parts {
+        let base = pool.len() as u32;
+        all.extend(fresh.into_iter().map(|f| Fresh {
+            start: f.start + base,
+            ..f
+        }));
+        pool.extend(p);
     }
+    (all, pool)
+}
+
+/// Interned chain: an exact stack shared by `files` contested paths.
+#[derive(Debug, Clone)]
+struct ChainRec {
+    chain: Chain,
+    hash: u64,
+    start: u32,
+    len: u32,
+    /// Next chain with the same hash (or `NONE`).
+    same_hash: u32,
+}
+
+/// Contexts are needed by the contexts window and the report, not by every move: computed on first read.
+#[derive(Debug, Clone)]
+struct Contexts {
+    contexts: Vec<Context>,
+    of_mod: Vec<u32>,
+    of_chain: Vec<u32>,
 }
 
 // @sat:overwrite.projection
-/// The overwrite projection.
-#[derive(Debug)]
+/// The overwrite projection: persistent state updated in place by [`OverwriteProjection::update_in_place`].
+#[derive(Debug, Clone)]
 pub struct OverwriteProjection {
     index: Arc<ConflictIndex>,
     priorities: Priorities,
-    stacks: Stacks,
-    // per contested slot
+    // per contested slot: stack (start, len) into `pool`, winner bytes / VRAM, chain
+    slot_start: Vec<u32>,
+    slot_len: Vec<u32>,
+    slot_bytes: Vec<u64>,
+    slot_vram: Vec<u32>,
     slot_chain: Vec<u32>,
-    // chains
-    chains: Vec<Chain>,
-    chain_mod_offsets: Vec<u32>,
-    chain_mods: Vec<ModId>,
-    chain_path_offsets: Vec<u32>,
-    chain_paths: Vec<PathId>,
+    pool: Vec<ModId>,
+    garbage: usize,
+    // chains (ids are stable while a chain lives; dead ids are reused)
+    chains: Vec<ChainRec>,
+    chain_pool: Vec<ModId>,
+    by_hash: FxHashMap<u64, u32>,
+    free: Vec<u32>,
+    alive: usize,
     // mods
     stats: Vec<ModStat>,
-    mod_chain_offsets: Vec<u32>,
-    mod_chains: Vec<ChainId>,
-    contexts: Vec<Context>,
-    totals: OverwriteStats,
+    active_paths: usize,
+    conflict_paths: usize,
+    fully: usize,
+    contexts: std::sync::OnceLock<Contexts>,
 }
 
 const PART: usize = 1 << 14;
@@ -333,265 +351,377 @@ impl OverwriteProjection {
             table.mod_count(),
             "priorities must cover every mod"
         );
-        let all: Vec<u32> = (0..index.contested.len() as u32).collect();
-        let stacks = compute_stacks(table, &index, &priorities, &all);
-        Self::finish(index, table, priorities, stacks)
+        let mods = table.mod_count();
+        let slots = index.contested.len();
+        let mut me = Self {
+            priorities: Priorities::all_inactive(mods),
+            slot_start: vec![0; slots],
+            slot_len: vec![0; slots],
+            slot_bytes: vec![0; slots],
+            slot_vram: vec![0; slots],
+            slot_chain: vec![NONE; slots],
+            pool: Vec::new(),
+            garbage: 0,
+            chains: Vec::new(),
+            chain_pool: Vec::new(),
+            by_hash: FxHashMap::with_capacity_and_hasher(slots, Default::default()),
+            free: Vec::new(),
+            alive: 0,
+            stats: (0..mods)
+                .map(|m| ModStat {
+                    providers: table.mod_providers(ModId::from_idx(m)).len() as u32,
+                    ..ModStat::default()
+                })
+                .collect(),
+            active_paths: 0,
+            conflict_paths: 0,
+            fully: 0,
+            contexts: std::sync::OnceLock::new(),
+            index,
+        };
+        let all: Vec<u32> = (0..slots as u32).collect();
+        let touched: Vec<ModId> = (0..mods).map(ModId::from_idx).collect();
+        me.apply(table, priorities, &touched, &all);
+        me
     }
 
     // @sat:overwrite.update
     /// Incremental recomputation after the priorities of `touched` mods changed (moved, enabled, disabled,
     /// added, removed). Other mods must keep their relative order and active state: then only contested paths
-    /// that one of `touched` provides can change their stack. Stacks of all other paths are reused.
-    pub fn update(&self, table: &ProviderTable, priorities: Priorities, touched: &[ModId]) -> Self {
-        self.update_inner(table, priorities, touched, true)
-    }
-
-    fn update_inner(
-        &self,
-        table: &ProviderTable,
-        priorities: Priorities,
-        touched: &[ModId],
-        fallback: bool,
-    ) -> Self {
+    /// that one of `touched` provides can change their stack. Everything else is kept; chains and per-mod
+    /// statistics change by deltas.
+    pub fn update_in_place(&mut self, table: &ProviderTable, priorities: Priorities, touched: &[ModId]) {
         assert_eq!(
             priorities.0.len(),
             table.mod_count(),
             "priorities must cover every mod"
         );
-        let index = &self.index;
-        let mut mark = vec![false; index.contested.len()];
-        for &m in touched {
-            for &s in index.slots_of(m) {
-                mark[s as usize] = true;
-            }
-        }
-        let affected: Vec<u32> = (0..mark.len() as u32).filter(|&s| mark[s as usize]).collect();
-        if fallback && affected.len() * 2 > index.contested.len() {
-            return Self::compute_with(index.clone(), table, priorities);
-        }
-        let fresh = compute_stacks(table, index, &priorities, &affected);
-        let old = &self.stacks;
-        let mut st = Stacks {
-            offsets: Vec::with_capacity(mark.len() + 1),
-            mods: Vec::with_capacity(old.mods.len()),
-            hash: Vec::with_capacity(mark.len()),
-            bytes: Vec::with_capacity(mark.len()),
-            vram: Vec::with_capacity(mark.len()),
-        };
-        let mut next = 0;
-        for slot in 0..mark.len() {
-            st.offsets.push(st.mods.len() as u32);
-            let (src, i) = if mark[slot] {
-                next += 1;
-                (&fresh, next - 1)
-            } else {
-                (old, slot)
-            };
-            st.mods.extend_from_slice(src.get(i));
-            st.hash.push(src.hash[i]);
-            st.bytes.push(src.bytes[i]);
-            st.vram.push(src.vram[i]);
-        }
-        st.offsets.push(st.mods.len() as u32);
-        Self::finish(index.clone(), table, priorities, st)
+        let mut affected: Vec<u32> = touched
+            .iter()
+            .flat_map(|&m| self.index.slots_of(m).iter().copied())
+            .collect();
+        affected.sort_unstable();
+        affected.dedup();
+        self.apply(table, priorities, touched, &affected);
     }
 
-    /// Interns stacks into chains, then W/L/M, contexts and totals (sequential, deterministic: slot order is
-    /// path order).
-    fn finish(
-        index: Arc<ConflictIndex>,
-        table: &ProviderTable,
-        priorities: Priorities,
-        stacks: Stacks,
-    ) -> Self {
-        let mods = table.mod_count();
-        let slots = index.contested.len();
-        let mut stats = vec![ModStat::default(); mods];
-        let mut active_paths = 0;
-        for (m, sl) in index.solo.iter().enumerate() {
-            if priorities.is_active(ModId::from_idx(m)) {
-                let st = &mut stats[m];
-                st.unique += sl.paths;
-                st.bytes_win += sl.bytes;
-                st.vram_win_kib += sl.vram_kib;
-                active_paths += sl.paths as usize;
-            }
-        }
-        let mut slot_chain = vec![NONE; slots];
-        let mut chains: Vec<Chain> = Vec::new();
-        let mut chain_mod_offsets = vec![0u32];
-        let mut chain_mods: Vec<ModId> = Vec::new();
-        // hash -> first chain with that hash; collisions linked through `same_hash`
-        let mut by_hash: FxHashMap<u64, u32> = FxHashMap::with_capacity_and_hasher(slots, Default::default());
-        let mut same_hash: Vec<u32> = Vec::new();
-        for slot in 0..slots {
-            let seq = stacks.get(slot);
-            if seq.is_empty() {
-                continue;
-            }
-            active_paths += 1;
-            let w = seq[0];
-            stats[w.idx()].bytes_win += stacks.bytes[slot];
-            stats[w.idx()].vram_win_kib += u64::from(stacks.vram[slot]);
-            if seq.len() < 2 {
-                stats[w.idx()].unique += 1;
-                continue;
-            }
-            let h = stacks.hash[slot];
-            let mut found = NONE;
-            let mut c = by_hash.get(&h).copied().unwrap_or(NONE);
-            while c != NONE {
-                let ci = c as usize;
-                if &chain_mods[chain_mod_offsets[ci] as usize..chain_mod_offsets[ci + 1] as usize] == seq {
-                    found = c;
-                    break;
-                }
-                c = same_hash[ci];
-            }
-            let id = if found != NONE {
-                found
-            } else {
-                let c = chains.len() as u32;
-                chains.push(Chain {
-                    files: 0,
-                    bytes: 0,
-                    context: ContextId(0),
-                });
-                chain_mods.extend_from_slice(seq);
-                chain_mod_offsets.push(chain_mods.len() as u32);
-                let prev = by_hash.insert(h, c).unwrap_or(NONE);
-                same_hash.push(prev);
-                c
-            };
-            let ch = &mut chains[id as usize];
-            ch.files += 1;
-            ch.bytes += stacks.bytes[slot];
-            slot_chain[slot] = id;
-        }
-        drop(by_hash);
-        drop(same_hash);
-        for (m, st) in stats.iter_mut().enumerate() {
-            st.providers = table.mod_providers(ModId::from_idx(m)).len() as u32;
-        }
+    /// [`OverwriteProjection::update_in_place`] on a copy.
+    pub fn update(&self, table: &ProviderTable, priorities: Priorities, touched: &[ModId]) -> Self {
+        let mut next = self.clone();
+        next.update_in_place(table, priorities, touched);
+        next
+    }
 
-        // chain -> paths (CSR)
-        let mut chain_path_offsets = vec![0u32; chains.len() + 1];
-        for (i, c) in chains.iter().enumerate() {
-            chain_path_offsets[i + 1] = chain_path_offsets[i] + c.files;
-        }
-        let mut chain_paths = vec![PathId(0); chain_path_offsets[chains.len()] as usize];
-        let mut fill = chain_path_offsets[..chains.len()].to_vec();
-        for (slot, &c) in slot_chain.iter().enumerate() {
-            if c != NONE {
-                chain_paths[fill[c as usize] as usize] = index.contested[slot];
-                fill[c as usize] += 1;
-            }
-        }
-        // W/L/M, mod -> chains (CSR), contexts via union-find
-        let mut parent: Vec<u32> = (0..mods as u32).collect();
-        fn find(parent: &mut [u32], mut x: u32) -> u32 {
-            while parent[x as usize] != x {
-                parent[x as usize] = parent[parent[x as usize] as usize];
-                x = parent[x as usize];
-            }
-            x
-        }
-        let mut mod_chain_offsets = vec![0u32; mods + 1];
-        for c in 0..chains.len() {
-            let ms = &chain_mods[chain_mod_offsets[c] as usize..chain_mod_offsets[c + 1] as usize];
-            let files = chains[c].files;
-            let last = ms.len() - 1;
-            for (i, &m) in ms.iter().enumerate() {
-                let st = &mut stats[m.idx()];
-                st.chains += 1;
-                mod_chain_offsets[m.idx() + 1] += 1;
-                if i == 0 {
-                    st.win += files;
+    fn apply(&mut self, table: &ProviderTable, priorities: Priorities, touched: &[ModId], slots: &[u32]) {
+        let (fresh, fresh_pool) = compute_stacks(table, &self.index, &priorities, slots);
+        let mut dirty: Vec<ModId> = touched.to_vec();
+        // single-mod paths follow the active state of their owner
+        for &m in touched {
+            let (was, now) = (self.priorities.is_active(m), priorities.is_active(m));
+            if was != now {
+                let sl = self.index.solo[m.idx()];
+                let st = &mut self.stats[m.idx()];
+                if now {
+                    st.unique += sl.paths;
+                    st.bytes_win += sl.bytes;
+                    st.vram_win_kib += sl.vram_kib;
+                    self.active_paths += sl.paths as usize;
                 } else {
-                    st.lose += files;
-                    if i < last {
-                        st.mid += files;
-                    }
+                    st.unique -= sl.paths;
+                    st.bytes_win -= sl.bytes;
+                    st.vram_win_kib -= sl.vram_kib;
+                    self.active_paths -= sl.paths as usize;
+                }
+            }
+        }
+        for f in &fresh {
+            let slot = f.slot as usize;
+            let new = &fresh_pool[f.start as usize..(f.start + f.len) as usize];
+            let old_range =
+                self.slot_start[slot] as usize..(self.slot_start[slot] + self.slot_len[slot]) as usize;
+            if self.pool[old_range.clone()] == *new {
+                // same stack; winner bytes can still differ only if the winning provider changed (it cannot:
+                // same winner mod, same providers) — nothing to do
+                continue;
+            }
+            self.remove_slot(slot, &mut dirty);
+            let start = self.pool.len() as u32;
+            self.pool.extend_from_slice(new);
+            self.garbage += old_range.len();
+            self.slot_start[slot] = start;
+            self.slot_len[slot] = f.len;
+            self.slot_bytes[slot] = f.bytes;
+            self.slot_vram[slot] = f.vram;
+            self.add_slot(slot, f.hash, &mut dirty);
+        }
+        self.priorities = priorities;
+        dirty.sort_unstable();
+        dirty.dedup();
+        for m in dirty {
+            let active = self.priorities.is_active(m);
+            let st = &mut self.stats[m.idx()];
+            let x = active && st.providers > 0 && st.win == 0 && st.unique == 0;
+            if x != st.fully_overridden {
+                st.fully_overridden = x;
+                if x {
+                    self.fully += 1;
+                } else {
+                    self.fully -= 1;
+                }
+            }
+        }
+        if self.garbage > self.pool.len() / 2 + 4096 {
+            self.compact();
+        }
+        self.contexts = std::sync::OnceLock::new();
+    }
+
+    fn stack(&self, slot: usize) -> &[ModId] {
+        &self.pool[self.slot_start[slot] as usize..(self.slot_start[slot] + self.slot_len[slot]) as usize]
+    }
+
+    fn remove_slot(&mut self, slot: usize, dirty: &mut Vec<ModId>) {
+        let len = self.slot_len[slot] as usize;
+        if len == 0 {
+            return;
+        }
+        let start = self.slot_start[slot] as usize;
+        let w = self.pool[start];
+        self.active_paths -= 1;
+        let st = &mut self.stats[w.idx()];
+        st.bytes_win -= self.slot_bytes[slot];
+        st.vram_win_kib -= u64::from(self.slot_vram[slot]);
+        if len == 1 {
+            st.unique -= 1;
+            dirty.push(w);
+            return;
+        }
+        for i in 0..len {
+            let m = self.pool[start + i];
+            dirty.push(m);
+            let st = &mut self.stats[m.idx()];
+            if i == 0 {
+                st.win -= 1;
+            } else {
+                st.lose -= 1;
+                if i < len - 1 {
+                    st.mid -= 1;
+                }
+            }
+        }
+        self.conflict_paths -= 1;
+        let c = std::mem::replace(&mut self.slot_chain[slot], NONE) as usize;
+        let rec = &mut self.chains[c];
+        rec.chain.files -= 1;
+        rec.chain.bytes -= self.slot_bytes[slot];
+        if rec.chain.files == 0 {
+            self.kill_chain(c as u32);
+        }
+    }
+
+    fn add_slot(&mut self, slot: usize, hash: u64, dirty: &mut Vec<ModId>) {
+        let len = self.slot_len[slot] as usize;
+        if len == 0 {
+            return;
+        }
+        let start = self.slot_start[slot] as usize;
+        let w = self.pool[start];
+        self.active_paths += 1;
+        let st = &mut self.stats[w.idx()];
+        st.bytes_win += self.slot_bytes[slot];
+        st.vram_win_kib += u64::from(self.slot_vram[slot]);
+        if len == 1 {
+            st.unique += 1;
+            dirty.push(w);
+            return;
+        }
+        for i in 0..len {
+            let m = self.pool[start + i];
+            dirty.push(m);
+            let st = &mut self.stats[m.idx()];
+            if i == 0 {
+                st.win += 1;
+            } else {
+                st.lose += 1;
+                if i < len - 1 {
+                    st.mid += 1;
+                }
+            }
+        }
+        self.conflict_paths += 1;
+        let c = self.intern(slot, hash);
+        let rec = &mut self.chains[c as usize];
+        rec.chain.files += 1;
+        rec.chain.bytes += self.slot_bytes[slot];
+        self.slot_chain[slot] = c;
+    }
+
+    /// Finds or creates the chain of the stack at `slot`.
+    fn intern(&mut self, slot: usize, hash: u64) -> u32 {
+        let start = self.slot_start[slot] as usize;
+        let len = self.slot_len[slot] as usize;
+        let mut c = self.by_hash.get(&hash).copied().unwrap_or(NONE);
+        while c != NONE {
+            let r = &self.chains[c as usize];
+            if self.chain_pool[r.start as usize..(r.start + r.len) as usize] == self.pool[start..start + len]
+            {
+                return c;
+            }
+            c = r.same_hash;
+        }
+        let rec_start = self.chain_pool.len() as u32;
+        self.chain_pool.extend_from_slice(&self.pool[start..start + len]);
+        let head = self.by_hash.get(&hash).copied().unwrap_or(NONE);
+        let rec = ChainRec {
+            chain: Chain { files: 0, bytes: 0 },
+            hash,
+            start: rec_start,
+            len: len as u32,
+            same_hash: head,
+        };
+        let id = match self.free.pop() {
+            Some(id) => {
+                self.chains[id as usize] = rec;
+                id
+            }
+            None => {
+                self.chains.push(rec);
+                self.chains.len() as u32 - 1
+            }
+        };
+        self.by_hash.insert(hash, id);
+        for i in 0..len {
+            let m = self.pool[start + i];
+            self.stats[m.idx()].chains += 1;
+        }
+        self.alive += 1;
+        id
+    }
+
+    fn kill_chain(&mut self, c: u32) {
+        let (hash, next, start, len) = {
+            let r = &self.chains[c as usize];
+            (r.hash, r.same_hash, r.start as usize, r.len as usize)
+        };
+        for i in 0..len {
+            let m = self.chain_pool[start + i];
+            self.stats[m.idx()].chains -= 1;
+        }
+        // unlink from the hash list
+        let head = self.by_hash[&hash];
+        if head == c {
+            if next == NONE {
+                self.by_hash.remove(&hash);
+            } else {
+                self.by_hash.insert(hash, next);
+            }
+        } else {
+            let mut x = head;
+            while self.chains[x as usize].same_hash != c {
+                x = self.chains[x as usize].same_hash;
+            }
+            self.chains[x as usize].same_hash = next;
+        }
+        self.chains[c as usize].len = 0;
+        self.free.push(c);
+        self.alive -= 1;
+    }
+
+    /// Drops stack and chain mods no longer referenced.
+    fn compact(&mut self) {
+        let mut pool = Vec::with_capacity(self.pool.len() - self.garbage);
+        for slot in 0..self.slot_start.len() {
+            let start = pool.len() as u32;
+            pool.extend_from_slice(self.stack(slot));
+            self.slot_start[slot] = start;
+        }
+        self.pool = pool;
+        self.garbage = 0;
+        let mut cp = Vec::new();
+        for r in &mut self.chains {
+            let start = cp.len() as u32;
+            cp.extend_from_slice(&self.chain_pool[r.start as usize..(r.start + r.len) as usize]);
+            r.start = start;
+        }
+        self.chain_pool = cp;
+    }
+
+    fn live(&self, c: usize) -> bool {
+        self.chains[c].chain.files > 0
+    }
+
+    fn contexts_data(&self) -> &Contexts {
+        self.contexts.get_or_init(|| {
+            let mods = self.stats.len();
+            let mut parent: Vec<u32> = (0..mods as u32).collect();
+            fn find(parent: &mut [u32], mut x: u32) -> u32 {
+                while parent[x as usize] != x {
+                    parent[x as usize] = parent[parent[x as usize] as usize];
+                    x = parent[x as usize];
+                }
+                x
+            }
+            for c in 0..self.chains.len() {
+                if !self.live(c) {
+                    continue;
+                }
+                let ms = self.chain_mods(ChainId::from_idx(c));
+                for &m in &ms[1..] {
                     let (a, b) = (find(&mut parent, ms[0].0), find(&mut parent, m.0));
                     if a != b {
                         parent[b as usize] = a;
                     }
                 }
             }
-        }
-        for i in 1..=mods {
-            mod_chain_offsets[i] += mod_chain_offsets[i - 1];
-        }
-        let mut mod_chains = vec![ChainId(0); mod_chain_offsets[mods] as usize];
-        let mut mfill = mod_chain_offsets[..mods].to_vec();
-        for c in 0..chains.len() {
-            for &m in &chain_mods[chain_mod_offsets[c] as usize..chain_mod_offsets[c + 1] as usize] {
-                mod_chains[mfill[m.idx()] as usize] = ChainId::from_idx(c);
-                mfill[m.idx()] += 1;
+            let mut contexts: Vec<Context> = Vec::new();
+            let mut of_mod = vec![NONE; mods];
+            let mut ctx_of_root: FxHashMap<u32, u32> = FxHashMap::default();
+            for (m, st) in self.stats.iter().enumerate() {
+                if st.chains == 0 {
+                    continue;
+                }
+                let root = find(&mut parent, m as u32);
+                let next = contexts.len() as u32;
+                let id = *ctx_of_root.entry(root).or_insert(next);
+                if id == next {
+                    contexts.push(Context {
+                        mods: Vec::new(),
+                        chains: Vec::new(),
+                        files: 0,
+                    });
+                }
+                of_mod[m] = id;
+                contexts[id as usize].mods.push(ModId::from_idx(m));
             }
-        }
-
-        let mut contexts: Vec<Context> = Vec::new();
-        let mut ctx_of_root: FxHashMap<u32, u32> = FxHashMap::default();
-        let mut fully = 0;
-        for m in 0..mods {
-            let mid = ModId::from_idx(m);
-            let st = &mut stats[m];
-            if priorities.is_active(mid) && st.providers > 0 && st.win == 0 && st.unique == 0 {
-                st.fully_overridden = true;
-                fully += 1;
+            // chains in order of their first path, as a fresh computation would number them
+            let mut first_slot = vec![NONE; self.chains.len()];
+            for (slot, &c) in self.slot_chain.iter().enumerate() {
+                if c != NONE && first_slot[c as usize] == NONE {
+                    first_slot[c as usize] = slot as u32;
+                }
             }
-            if st.chains == 0 {
-                continue;
+            let mut live: Vec<u32> = (0..self.chains.len() as u32)
+                .filter(|&c| self.live(c as usize))
+                .collect();
+            live.sort_unstable_by_key(|&c| first_slot[c as usize]);
+            let mut of_chain = vec![NONE; self.chains.len()];
+            for c in live {
+                let first = self.chain_mods(ChainId(c))[0];
+                let ctx = of_mod[first.idx()];
+                of_chain[c as usize] = ctx;
+                let cx = &mut contexts[ctx as usize];
+                cx.chains.push(ChainId(c));
+                cx.files += self.chains[c as usize].chain.files;
             }
-            let root = find(&mut parent, m as u32);
-            let next = contexts.len() as u32;
-            let id = *ctx_of_root.entry(root).or_insert(next);
-            if id == next {
-                contexts.push(Context {
-                    mods: Vec::new(),
-                    chains: Vec::new(),
-                    files: 0,
-                });
+            for cx in &mut contexts {
+                cx.mods.sort_unstable_by_key(|&m| self.priorities.get(m));
             }
-            st.context = Some(ContextId(id));
-            contexts[id as usize].mods.push(mid);
-        }
-        for c in 0..chains.len() {
-            let first = chain_mods[chain_mod_offsets[c] as usize];
-            let ctx = stats[first.idx()].context.expect("chain member has a context");
-            chains[c].context = ctx;
-            let cx = &mut contexts[ctx.idx()];
-            cx.chains.push(ChainId::from_idx(c));
-            cx.files += chains[c].files;
-        }
-        for cx in &mut contexts {
-            cx.mods.sort_unstable_by_key(|&m| priorities.get(m));
-        }
-        let totals = OverwriteStats {
-            active_paths,
-            conflict_paths: chain_paths.len(),
-            chains: chains.len(),
-            contexts: contexts.len(),
-            fully_overridden: fully,
-            vram_win_kib: stats.iter().map(|s| s.vram_win_kib).sum(),
-        };
-        Self {
-            index,
-            priorities,
-            stacks,
-            slot_chain,
-            chains,
-            chain_mod_offsets,
-            chain_mods,
-            chain_path_offsets,
-            chain_paths,
-            stats,
-            mod_chain_offsets,
-            mod_chains,
-            contexts,
-            totals,
-        }
+            Contexts {
+                contexts,
+                of_mod,
+                of_chain,
+            }
+        })
     }
 
     pub fn index(&self) -> &Arc<ConflictIndex> {
@@ -601,7 +731,14 @@ impl OverwriteProjection {
         &self.priorities
     }
     pub fn totals(&self) -> OverwriteStats {
-        self.totals
+        OverwriteStats {
+            active_paths: self.active_paths,
+            conflict_paths: self.conflict_paths,
+            chains: self.alive,
+            contexts: self.contexts_data().contexts.len(),
+            fully_overridden: self.fully,
+            vram_win_kib: self.stats.iter().map(|s| s.vram_win_kib).sum(),
+        }
     }
     pub fn stat(&self, m: ModId) -> &ModStat {
         &self.stats[m.idx()]
@@ -609,27 +746,66 @@ impl OverwriteProjection {
     pub fn stats(&self) -> &[ModStat] {
         &self.stats
     }
+    /// Live chains in order of their first path (ids are stable while a chain lives, not dense).
+    pub fn chain_ids(&self) -> Vec<ChainId> {
+        self.contexts_data()
+            .contexts
+            .iter()
+            .flat_map(|c| c.chains.iter().copied())
+            .collect::<Vec<_>>()
+    }
     pub fn chain_count(&self) -> usize {
-        self.chains.len()
+        self.alive
     }
     pub fn chain(&self, c: ChainId) -> &Chain {
-        &self.chains[c.idx()]
+        &self.chains[c.idx()].chain
+    }
+    pub fn chain_context(&self, c: ChainId) -> Option<ContextId> {
+        match self.contexts_data().of_chain[c.idx()] {
+            NONE => None,
+            x => Some(ContextId(x)),
+        }
+    }
+    pub fn mod_context(&self, m: ModId) -> Option<ContextId> {
+        match self.contexts_data().of_mod[m.idx()] {
+            NONE => None,
+            x => Some(ContextId(x)),
+        }
     }
     /// Stack of the chain, winner first.
     pub fn chain_mods(&self, c: ChainId) -> &[ModId] {
-        &self.chain_mods
-            [self.chain_mod_offsets[c.idx()] as usize..self.chain_mod_offsets[c.idx() + 1] as usize]
+        let r = &self.chains[c.idx()];
+        &self.chain_pool[r.start as usize..(r.start + r.len) as usize]
     }
-    pub fn chain_paths(&self, c: ChainId) -> &[PathId] {
-        &self.chain_paths
-            [self.chain_path_offsets[c.idx()] as usize..self.chain_path_offsets[c.idx() + 1] as usize]
+    /// Paths of a chain, in path order (on demand: scans the winner's contested paths).
+    pub fn chain_paths(&self, c: ChainId) -> Vec<PathId> {
+        let Some(&w) = self.chain_mods(c).first() else {
+            return Vec::new();
+        };
+        self.index
+            .slots_of(w)
+            .iter()
+            .filter(|&&s| self.slot_chain[s as usize] == c.0)
+            .map(|&s| self.index.contested[s as usize])
+            .collect()
     }
-    pub fn mod_chains(&self, m: ModId) -> &[ChainId] {
-        &self.mod_chains
-            [self.mod_chain_offsets[m.idx()] as usize..self.mod_chain_offsets[m.idx() + 1] as usize]
+    /// Chains a mod is a member of, by id.
+    pub fn mod_chains(&self, m: ModId) -> Vec<ChainId> {
+        let mut out: Vec<ChainId> = self
+            .index
+            .slots_of(m)
+            .iter()
+            .map(|&s| self.slot_chain[s as usize])
+            .filter(|&c| c != NONE)
+            .map(ChainId)
+            .filter(|&c| self.chain_mods(c).contains(&m))
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
     }
     pub fn contexts(&self) -> &[Context] {
-        &self.contexts
+        &self.contexts_data().contexts
     }
     pub fn path_chain(&self, p: PathId) -> Option<ChainId> {
         let k = self.index.path_kind[p.idx()];
@@ -644,7 +820,7 @@ impl OverwriteProjection {
     pub fn path_winner(&self, p: PathId) -> Option<ModId> {
         match self.index.path_kind[p.idx()] {
             NONE => None,
-            k if k & CONTESTED != 0 => self.stacks.get((k & !CONTESTED) as usize).first().copied(),
+            k if k & CONTESTED != 0 => self.stack((k & !CONTESTED) as usize).first().copied(),
             m => self.priorities.is_active(ModId(m)).then_some(ModId(m)),
         }
     }
@@ -720,18 +896,54 @@ mod tests {
     fn same(a: &OverwriteProjection, b: &OverwriteProjection, t: &ProviderTable, what: &str) {
         assert_eq!(a.totals(), b.totals(), "{what}: totals");
         assert_eq!(a.stats(), b.stats(), "{what}: stats");
-        assert_eq!(a.contexts(), b.contexts(), "{what}: contexts");
-        assert_eq!(a.chain_count(), b.chain_count(), "{what}: chains");
-        for c in 0..a.chain_count() {
-            let c = ChainId::from_idx(c);
-            assert_eq!(a.chain(c), b.chain(c), "{what}");
-            assert_eq!(a.chain_mods(c), b.chain_mods(c), "{what}");
-            assert_eq!(a.chain_paths(c), b.chain_paths(c), "{what}");
+        // chains by their stack (ids are stable in an updated projection, dense in a fresh one)
+        let chains = |x: &OverwriteProjection| {
+            type Seen = (Vec<ModId>, Chain, Vec<PathId>, Option<Vec<ModId>>);
+            let mut v: Vec<Seen> = x
+                .chain_ids()
+                .into_iter()
+                .map(|c| {
+                    let ctx = x.chain_context(c).map(|k| x.contexts()[k.idx()].mods.clone());
+                    (
+                        x.chain_mods(c).to_vec(),
+                        x.chain(c).clone(),
+                        x.chain_paths(c),
+                        ctx,
+                    )
+                })
+                .collect();
+            v.sort_by(|p, q| p.0.cmp(&q.0));
+            v
+        };
+        assert_eq!(chains(a), chains(b), "{what}: chains");
+        let ctx = |x: &OverwriteProjection| {
+            x.contexts()
+                .iter()
+                .map(|c| (c.mods.clone(), c.files, c.chains.len()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ctx(a), ctx(b), "{what}: contexts");
+        for m in 0..t.mod_count() {
+            let m = ModId::from_idx(m);
+            let stacks = |x: &OverwriteProjection| {
+                let mut v: Vec<Vec<ModId>> = x
+                    .mod_chains(m)
+                    .into_iter()
+                    .map(|c| x.chain_mods(c).to_vec())
+                    .collect();
+                v.sort();
+                v
+            };
+            assert_eq!(stacks(a), stacks(b), "{what}: chains of a mod");
         }
         for p in 0..t.path_count() {
             let p = PathId::from_idx(p);
             assert_eq!(a.path_winner(p), b.path_winner(p), "{what}: winner");
-            assert_eq!(a.path_chain(p), b.path_chain(p), "{what}: chain of path");
+            assert_eq!(
+                a.path_chain(p).map(|c| a.chain_mods(c).to_vec()),
+                b.path_chain(p).map(|c| b.chain_mods(c).to_vec()),
+                "{what}: chain of path"
+            );
         }
     }
 
@@ -794,7 +1006,7 @@ mod tests {
                 }
             }
             let pr = prio(&order, &enabled);
-            let inc = cur.update_inner(&t, pr.clone(), &touched, false);
+            let inc = cur.update(&t, pr.clone(), &touched);
             let full = OverwriteProjection::compute(&t, pr);
             same(&inc, &full, &t, &format!("step {step}"));
             cur = inc;

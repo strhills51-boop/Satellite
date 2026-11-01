@@ -1025,14 +1025,25 @@ fn bench_synth(args: &[String]) -> Result<(), String> {
     for (rank, &m) in order.iter().enumerate() {
         moved_prio[m] = rank as i32;
     }
+    let mut inc = full;
     let t = Instant::now();
-    let inc = full.update(&table, Priorities(moved_prio.clone()), &[ModId::from_idx(moved)]);
-    eprintln!("update: move one mod in {:?}", t.elapsed());
-    let mut off = base.clone();
+    inc.update_in_place(&table, Priorities(moved_prio.clone()), &[ModId::from_idx(moved)]);
+    eprintln!("update in place: move one mod in {:?}", t.elapsed());
+    let t = Instant::now();
+    let _ = inc.totals();
+    eprintln!("contexts on first read after the move: {:?}", t.elapsed());
+    let mut off = moved_prio.clone();
     off[moved] = Priorities::INACTIVE;
+    let mut tog = inc.clone();
     let t = Instant::now();
-    let _ = inc.update(&table, Priorities(off), &[ModId::from_idx(moved)]);
-    eprintln!("update: disable one mod in {:?}", t.elapsed());
+    tog.update_in_place(&table, Priorities(off), &[ModId::from_idx(moved)]);
+    eprintln!("update in place: disable one mod in {:?}", t.elapsed());
+    let t = Instant::now();
+    let _copy = inc.update(&table, Priorities(moved_prio.clone()), &[ModId::from_idx(moved)]);
+    eprintln!(
+        "update on a copy (a reader holds the snapshot): {:?}",
+        t.elapsed()
+    );
     let check = OverwriteProjection::compute(&table, Priorities(moved_prio));
     if check.totals() != inc.totals() || check.stats() != inc.stats() {
         return Err("incremental update differs from full compute".into());
