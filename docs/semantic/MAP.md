@@ -24,6 +24,7 @@
 | Сессия сборки: канон и факты, связанные с графом; команды только через неё | `@sat:session` (`@sat:session.state`, `@sat:session.command`) | граф сам (`@sat:engine.graph`) |
 | Перезапись по требованию: пересчёт только после изменения канона или фактов | `@sat:session.overwrite` → проекции `conflicts` (факты) и `priorities` (канон, факты) → `overwrite` (`conflicts`, `priorities` по ключам — `Input::Keyed`) | декорации и виды её не трогают |
 | Статусы пробега, поколения, печати | `@sat:run.status`, `@sat:run.authority`, `@sat:run.seal` | — |
+| API приложения: команды, запросы, события поверх сессии, без транспорта (ADR 0004) | `@sat:app` (`@sat:app.command`, `@sat:app.query`, `@sat:app.event`, `@sat:app.dispatch`) | транспорт — оболочки (`apps/`) |
 | Ресурс: манифест (данные, без кода), род, id без доверия | `@sat:resource` (`@sat:resource.manifest`, `@sat:resource.kind`, `@sat:resource.digest`) | анализатор как контракт — `@sat:scan.analyzer` |
 | Источник загрузки → доверие; возможности на ресурс | `@sat:resource.source`, `@sat:resource.capability` | id-префикс `core.` ничего не даёт |
 | Политика и реестр: решения Active / NeedsApproval / Blocked, зависимости | `@sat:resource.policy`, `@sat:resource.registry`, `@sat:resource.decision` | — |
@@ -113,6 +114,10 @@
 - `crates/sat-core/src/sync/names.rs` — `@sat:sync.names`: правила имён монолита.
 - `crates/sat-core/src/sync/donor.rs` — `@sat:sync.donor`: внешний донор.
 - `crates/sat-core/src/sync/records.rs` — `@sat:sync.records`: записи SYNC, сверка.
+
+### `crates/sat-app` — API приложения (ADR 0004)
+
+- `crates/sat-app/src/lib.rs` — `@sat:app`: `Command` / `Query` / `Reply` / `Event`, `App` — диспетчер над сессией и реестром ресурсов; строки окна со счётчиками карточки мода.
 
 ### `crates/sat-formats` — форматы файлов игры, без файловой системы
 - `crates/sat-formats/src/lib.rs` — `@sat:formats`: `FormatError`, `normalize_path`, реэкспорты.
