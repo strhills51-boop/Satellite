@@ -68,7 +68,37 @@ pub struct RuleSet {
     pub source: String,
     #[serde(default = "five")]
     pub threshold: u32,
+    /// How `path`, `file`, `plugin`, `name` needles match. Version 1 (the monolith's format): a substring —
+    /// `"ui"` also hits `build` and `quiet`. Version 2 defaults to whole words (letters and digits around the
+    /// needle are not part of it); a set may say either explicitly.
+    #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
+    pub matching: Option<Matching>,
     pub rules: Vec<Rule>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Matching {
+    Substring,
+    Word,
+}
+
+impl RuleSet {
+    pub fn matching(&self) -> Matching {
+        self.matching.unwrap_or(if self.version >= 2 {
+            Matching::Word
+        } else {
+            Matching::Substring
+        })
+    }
+}
+
+/// A tag found on a mod, and why: the rules (indexes into [`RuleSet::rules`]) that gave it its score.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FoundTag {
+    pub tag: String,
+    pub score: u32,
+    pub rules: Vec<u32>,
 }
 
 /// The built-in set (the monolith's detectors).
@@ -162,10 +192,22 @@ impl Compiled {
 
     fn seen(&self, m: &ModFacts) -> Seen {
         let mut s = Seen::default();
+        let word = self.set.matching() == Matching::Word;
+        let alnum_at = |text: &str, i: usize, before: bool| {
+            let c = if before {
+                text[..i].chars().next_back()
+            } else {
+                text[i..].chars().next()
+            };
+            c.is_some_and(char::is_alphanumeric)
+        };
         let mut scan = |field: Field, text: &str| {
             for (f, ac, ids) in &self.automata {
                 if *f == field {
                     for hit in ac.find_overlapping_iter(text) {
+                        if word && (alnum_at(text, hit.start(), true) || alnum_at(text, hit.end(), false)) {
+                            continue;
+                        }
                         s.hits.insert(ids[hit.pattern().as_usize()]);
                     }
                 }
@@ -230,25 +272,36 @@ impl Compiled {
     }
 
     // @sat:tag-rules.apply
-    /// Tags of one mod with their scores, best first (only those at or above the threshold).
-    pub fn tags(&self, m: &ModFacts) -> Vec<(String, u32)> {
+    /// Tags of one mod with their scores and the rules behind them, best first (at or above the threshold).
+    /// "Why does this mod have that tag" always has an answer — a set from the community must be debuggable.
+    pub fn found(&self, m: &ModFacts) -> Vec<FoundTag> {
         if m.missing {
             return Vec::new();
         }
         let s = self.seen(m);
-        let mut score: FxHashMap<&str, u32> = FxHashMap::default();
-        for r in &self.set.rules {
+        let mut by_tag: FxHashMap<&str, FoundTag> = FxHashMap::default();
+        for (i, r) in self.set.rules.iter().enumerate() {
             if self.group(&r.when, &s) {
-                *score.entry(r.tag.as_str()).or_default() += r.score;
+                let t = by_tag.entry(r.tag.as_str()).or_insert_with(|| FoundTag {
+                    tag: r.tag.clone(),
+                    score: 0,
+                    rules: Vec::new(),
+                });
+                t.score += r.score;
+                t.rules.push(i as u32);
             }
         }
-        let mut out: Vec<(String, u32)> = score
-            .into_iter()
-            .filter(|(_, v)| *v >= self.set.threshold)
-            .map(|(t, v)| (t.to_string(), v))
+        let mut out: Vec<FoundTag> = by_tag
+            .into_values()
+            .filter(|t| t.score >= self.set.threshold)
             .collect();
-        out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        out.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.tag.cmp(&b.tag)));
         out
+    }
+
+    /// Tags of one mod with their scores, best first.
+    pub fn tags(&self, m: &ModFacts) -> Vec<(String, u32)> {
+        self.found(m).into_iter().map(|t| (t.tag, t.score)).collect()
     }
 }
 
@@ -343,5 +396,34 @@ mod tests {
         assert_eq!(t(&facts("Tex", &["textures/a.dds"], &[])), ["Textures only"]);
         assert!(t(&facts("Tex", &["textures/a.dds", "meshes/a.nif"], &[])).is_empty());
         assert!(c.tags(&ModFacts::missing("Gone")).is_empty());
+    }
+
+    #[test]
+    fn version_2_matches_whole_words_and_every_tag_says_why() {
+        let rules = serde_json::json!([
+            {"tag": "UI", "score": 5, "name": ["ui"]},
+            {"tag": "UI", "score": 3, "path": ["interface"]}
+        ]);
+        let set = |version: u32| -> RuleSet {
+            serde_json::from_value(serde_json::json!({
+                "format": "satellite-tag-rules", "version": version, "name": "t", "rules": rules
+            }))
+            .unwrap()
+        };
+        let quiet = facts("Quiet Build", &["sound/a.wav"], &[]);
+        let hud = facts("Better UI-HUD", &["interface/hud.swf"], &[]);
+        let v1 = Compiled::new(set(1)).unwrap();
+        assert_eq!(
+            v1.tags(&quiet).len(),
+            1,
+            "version 1 (the monolith): `ui` inside `quiet` counts"
+        );
+        let v2 = Compiled::new(set(2)).unwrap();
+        assert!(v2.tags(&quiet).is_empty(), "version 2: whole words only");
+        let found = v2.found(&hud);
+        assert_eq!(
+            (found[0].tag.as_str(), found[0].score, found[0].rules.as_slice()),
+            ("UI", 8, &[0u32, 1][..])
+        );
     }
 }

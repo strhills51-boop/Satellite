@@ -82,6 +82,64 @@ pub const MOD_METRICS: &[MetricDef] = &[
     m("overridden", "Не виден в игре (X)", "conflicts", Unit::Flag),
 ];
 
+// @sat:metrics.aliases
+/// Other names for metrics: the words people use (`weight > 1 GB`) and Russian ones (`вес > 1 ГБ`). One table, so
+/// saved expressions and rule sets keep working whichever name they were written with.
+pub const ALIASES: &[(&str, &str)] = &[
+    ("weight", "size"),
+    ("bytes", "size"),
+    ("имя", "name"),
+    ("название", "name"),
+    ("разделитель", "separator"),
+    ("теги", "tags"),
+    ("включён", "enabled"),
+    ("включен", "enabled"),
+    ("приоритет", "priority"),
+    ("позиция", "priority"),
+    ("вес", "size"),
+    ("размер", "size"),
+    ("файлов", "files"),
+    ("файлы", "files"),
+    ("папок", "dirs"),
+    ("папки", "dirs"),
+    ("глубина", "depth"),
+    ("архивов", "archives"),
+    ("архивы", "archives"),
+    ("плагинов", "plugins"),
+    ("плагины", "plugins"),
+    ("текстур", "dds"),
+    ("текстуры", "dds"),
+    ("видеопамять", "vram"),
+    ("врам", "vram"),
+    ("мешей", "nif"),
+    ("меши", "nif"),
+    ("скриптов", "pex"),
+    ("скрипты", "pex"),
+    ("анимаций", "hkx"),
+    ("анимации", "hkx"),
+    ("библиотек", "dll"),
+    ("выигрывает", "wins"),
+    ("проигрывает", "loses"),
+    ("уникальных", "unique"),
+    ("невидим", "overridden"),
+    ("перекрыт", "overridden"),
+];
+
+/// The metric id an identifier names (lower case): itself, an alias, or `ext.*` / `dir.*` (also `расш.*`,
+/// `папка.*`); `None` if it names nothing.
+pub fn resolve(id: &str) -> Option<String> {
+    let id = id.to_lowercase();
+    if let Some((_, m)) = ALIASES.iter().find(|(a, _)| *a == id) {
+        return Some((*m).to_string());
+    }
+    for (from, to) in [("расш.", "ext."), ("папка.", "dir.")] {
+        if let Some(rest) = id.strip_prefix(from) {
+            return (!rest.is_empty()).then(|| format!("{to}{rest}"));
+        }
+    }
+    is_mod_metric(&id).then_some(id)
+}
+
 /// Whether `id` names a mod metric (fixed or `ext.*` / `dir.*`).
 pub fn is_mod_metric(id: &str) -> bool {
     MOD_METRICS.iter().any(|d| d.id == id)
@@ -181,7 +239,7 @@ mod tests {
             metrics: Some(&f.metrics),
             stat: Some(&stat),
             name: &f.name,
-            separator: Some("Textures"),
+            separator: Some("Текстуры"),
             tags: Some("Textures, 4K"),
             enabled: true,
             priority: 40,
@@ -191,7 +249,7 @@ mod tests {
             "size > 1 GB && ext.dds == dds && dir.textures > 0 && wins > 10"
         ));
         assert!(q(
-            "separator ~ \"tex\" && !overridden && priority < 100 && tags ~ \"4k\""
+            "separator ~ \"текс\" && !overridden && priority < 100 && tags ~ \"4k\""
         ));
         assert!(!q("plugins > 0"));
         // not scanned: facts metrics are null, canon metrics still answer
@@ -207,5 +265,13 @@ mod tests {
                 .test(&|id| blind.get(id))
         );
         assert!(Expr::compile("ext. > 0", &is_mod_metric).is_err());
+        // the owner's words and Russian names resolve to the same metrics
+        let r = |s: &str| Expr::compile_with(s, &resolve).unwrap();
+        assert!(r("weight > 1 GB && вес > 1 ГБ && размер > 1гб").test(&|id| v.get(id)));
+        assert!(r("разделитель ~ \"тек\" || расш.dds > 0").test(&|id| v.get(id)));
+        assert_eq!(
+            r("вес > 0 && weight > 0 && папка.textures > 0").metrics(),
+            ["dir.textures", "size"]
+        );
     }
 }

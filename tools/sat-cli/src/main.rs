@@ -221,10 +221,10 @@ fn analyze(args: &[String]) -> Result<(), String> {
     // a filter is checked before the scan: a typo should not cost a scan of the build
     let find = flag_value(args, "--find")
         .map(|src| {
-            sat_core::expr::Expr::compile(src, &sat_core::metrics::is_mod_metric).map_err(|e| {
+            sat_core::expr::Expr::compile_with(src, &sat_core::metrics::resolve).map_err(|e| {
                 format!(
-                    "--find: {e}\n  {src}\n  {}^\n  metrics: {}, ext.<extension>, dir.<top folder>",
-                    " ".repeat(e.at),
+                    "--find: {e}\n  {src}\n  {}^\n  metrics: {}, ext.<extension>, dir.<top folder> (also Russian names: вес, плагины, разделитель…)",
+                    " ".repeat(src[..e.at].chars().count()),
                     sat_core::metrics::MOD_METRICS
                         .iter()
                         .map(|d| d.id)

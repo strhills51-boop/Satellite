@@ -117,7 +117,16 @@ const UNITS: &[(&str, f64)] = &[
     ("gb", 1_073_741_824.0),
     ("mb", 1_048_576.0),
     ("kb", 1024.0),
+    ("тб", 1_099_511_627_776.0),
+    ("гб", 1_073_741_824.0),
+    ("мб", 1_048_576.0),
+    ("кб", 1024.0),
 ];
+
+/// Letters of an identifier or a unit: any alphabet (metric names may be Russian), digits after the first.
+fn word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '.'
+}
 
 fn err<T>(at: usize, message: impl Into<String>) -> Result<T, ExprError> {
     Err(ExprError {
@@ -151,13 +160,12 @@ fn lex(src: &str) -> Result<Vec<(usize, Tok)>, ExprError> {
             while j < b.len() && b[j] == b' ' {
                 j += 1;
             }
-            let word_end = (j..b.len())
-                .find(|&k| !b[k].is_ascii_alphabetic())
-                .unwrap_or(b.len());
-            if let Some((_, m)) = UNITS
-                .iter()
-                .find(|(u, _)| src[j..word_end].eq_ignore_ascii_case(u))
-            {
+            let word_end = src[j..]
+                .char_indices()
+                .find(|(_, ch)| !ch.is_alphabetic())
+                .map_or(src.len(), |(k, _)| j + k);
+            let word = src[j..word_end].to_lowercase();
+            if let Some((_, m)) = UNITS.iter().find(|(u, _)| word == *u) {
                 n *= m;
                 i = word_end;
             }
@@ -189,10 +197,12 @@ fn lex(src: &str) -> Result<Vec<(usize, Tok)>, ExprError> {
             out.push((start, Tok::Text(s)));
             continue;
         }
-        if c.is_ascii_alphabetic() || c == b'_' {
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
-                i += 1;
-            }
+        let ch = src[i..].chars().next().expect("char");
+        if ch.is_alphabetic() || ch == '_' {
+            i = src[i..]
+                .char_indices()
+                .find(|(_, c)| !word_char(*c))
+                .map_or(src.len(), |(k, _)| i + k);
             out.push((start, Tok::Ident(src[start..i].to_string())));
             continue;
         }
@@ -237,7 +247,8 @@ struct Parser<'a> {
     toks: Vec<(usize, Tok)>,
     pos: usize,
     end: usize,
-    known: &'a dyn Fn(&str) -> bool,
+    /// Identifier → the metric id it names (aliases resolve here), `None` if unknown.
+    resolve: &'a dyn Fn(&str) -> Option<String>,
 }
 
 impl Parser<'_> {
@@ -371,10 +382,10 @@ impl Parser<'_> {
                     }
                     return Ok(Node::Call(f, args));
                 }
-                if !(self.known)(&lower) {
-                    return err(at, format!("unknown metric {id:?}"));
+                match (self.resolve)(&lower) {
+                    Some(m) => Ok(Node::Metric(m)),
+                    None => err(at, format!("unknown metric {id:?}")),
                 }
-                Ok(Node::Metric(lower))
             }
             _ => err(at, "expected a value"),
         }
@@ -384,11 +395,17 @@ impl Parser<'_> {
 impl Expr {
     /// Parses and checks; `known` says whether an identifier is a metric.
     pub fn compile(source: &str, known: &dyn Fn(&str) -> bool) -> Result<Self, ExprError> {
+        Self::compile_with(source, &|id| known(id).then(|| id.to_string()))
+    }
+
+    /// Parses and checks; `resolve` maps an identifier (lower case) to a metric id — synonyms and other languages
+    /// resolve to the one id, so the tree and [`Expr::metrics`] always speak in canonical ids.
+    pub fn compile_with(source: &str, resolve: &dyn Fn(&str) -> Option<String>) -> Result<Self, ExprError> {
         let mut p = Parser {
             toks: lex(source)?,
             pos: 0,
             end: source.len(),
-            known,
+            resolve,
         };
         if p.toks.is_empty() {
             return err(0, "empty expression");

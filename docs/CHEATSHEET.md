@@ -118,7 +118,7 @@ sat-cli analyze X:\MO2 --no-save --find "name ~ \"texture\" && loses > wins"
 регистра), `&& || !`, скобки, арифметика, `min max round floor ceil abs clamp`, размеры `KB MB GB TB`. Метрики:
 `name separator enabled priority size files dirs root_files depth archives archive_files plugins dds vram nif pex
 hkx dll nested_archives source_files wins loses mid unique overridden`, а также `ext.<расширение>` (`ext.esp`) и
-`dir.<папка верхнего уровня>` (`dir.meshes`). Ошибка показывает место; опечатка ловится до скана. Тот же язык
+`dir.<папка верхнего уровня>` (`dir.meshes`). Можно по-русски: `вес > 1 ГБ && плагины > 0`, `разделитель ~ "текстуры"`, `расш.dds`, `папка.meshes`; синоним `weight` = `size`. Ошибка показывает место; опечатка ловится до скана. Тот же язык
 пойдёт в условные стикеры и кейсы счётчиков (ADR 0013).
 
 ### Игнор-лист конфликтов
