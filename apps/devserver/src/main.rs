@@ -46,12 +46,18 @@ fn load(args: &[String]) -> Result<App, String> {
     let modlist = read("modlist.txt").map_err(|e| format!("modlist.txt: {e}"))?;
     let manager: Modlist = profile::parse_modlist(&modlist).0;
     let project_file = inst.profile_dir().join("satellite").join("project.v0.json");
+    let mut decisions = None;
     let book = match std::fs::read(&project_file)
         .ok()
         .and_then(|b| serde_json::from_slice::<Project>(&b).ok())
     {
         Some(p) if p.schema == PROJECT_SCHEMA => {
-            eprintln!("canon: project {}", project_file.display());
+            eprintln!(
+                "canon: project {} ({} settled chains)",
+                project_file.display(),
+                p.decisions.len()
+            );
+            decisions = Some(p.decisions.clone());
             p.book().0
         }
         _ => {
@@ -92,6 +98,9 @@ fn load(args: &[String]) -> Result<App, String> {
     );
     let table = Arc::new(builder.finish());
     let mut session = Session::new(book, table);
+    if let Some(d) = decisions {
+        session.set_decisions(d);
+    }
     session.set_plugin_facts(Arc::new(versions));
     session.set_plugin_canon(PluginCanon {
         load_order: profile::parse_loadorder(&read("loadorder.txt").unwrap_or_default()),

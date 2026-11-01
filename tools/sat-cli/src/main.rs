@@ -227,12 +227,16 @@ fn analyze(args: &[String]) -> Result<(), String> {
             p
         }
         Ok(bytes) => {
-            // Re-import keeps what the project learned (signatures, decisions), replaces only the canon.
+            // Re-import keeps what the project learned and what the user decided (signatures, sync decisions,
+            // decoration, settled chains), replaces only the canon. Decoration of names no longer in the canon is
+            // reported when the book applies it.
             let old: Option<Project> = serde_json::from_slice(&bytes).ok();
             let mut p = Project::import(manager.clone());
             if let Some(old) = old {
                 p.signatures = old.signatures;
                 p.sync = old.sync;
+                p.decor = old.decor;
+                p.decisions = old.decisions;
             }
             eprintln!(
                 "project: re-imported canon from modlist.txt into {}",

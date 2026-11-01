@@ -9,13 +9,14 @@
 //! The on-disk container is not decided yet (ADR 0007); until then the type is serde-serializable with a schema
 //! number and callers store it as they see fit.
 //!
-//! Owns: the project: canon + signatures + sync records + decoration; observe and manager diff.
+//! Owns: the project: canon + signatures + sync records + decoration + conflict decisions; observe and manager diff.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::canon::{EntryKind, Modlist};
+use crate::decisions::ChainDecisions;
 #[cfg(test)]
 use crate::order::MAIN;
 use crate::order::{Decor, DecorIssue, OrderBook};
@@ -37,6 +38,9 @@ pub struct Project {
     /// Colours, logical groups, collapsed separators (ADR 0008). Absent in older files.
     #[serde(default, skip_serializing_if = "Decor::is_empty")]
     pub decor: Decor,
+    /// Conflict decisions: settled chains by content signature. Absent in older files.
+    #[serde(default, skip_serializing_if = "ChainDecisions::is_empty")]
+    pub decisions: ChainDecisions,
 }
 
 /// How the manager's list differs from the project canon.
@@ -74,6 +78,7 @@ impl Project {
             signatures: BTreeMap::new(),
             sync: Vec::new(),
             decor: Decor::default(),
+            decisions: ChainDecisions::default(),
         }
     }
 

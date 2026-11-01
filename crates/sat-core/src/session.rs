@@ -163,6 +163,15 @@ impl Session {
         &self.decisions
     }
 
+    /// Replaces the decisions (opening a project); badges and the summary re-read.
+    pub fn set_decisions(&mut self, decisions: ChainDecisions) {
+        self.decisions = decisions;
+        self.graph.apply(&Change {
+            truth: Truth::Decisions,
+            keys: Keys::All,
+        });
+    }
+
     // @sat:session.decide
     /// Marks a chain (by content signature) settled or not; the change goes to the graph as `Truth::Decisions`.
     /// Returns whether anything changed.
