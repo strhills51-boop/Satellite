@@ -1,0 +1,3666 @@
+{
+ "format": "satellite-tag-rules",
+ "version": 1,
+ "name": "Monolith built-in tag detectors",
+ "source": "monolith BUILTIN_TAG_DETECTORS (index.html 27 158–34 560), extracted 2026-11-01",
+ "threshold": 5,
+ "rules": [
+  {
+   "tag": "SKSE",
+   "score": 10,
+   "path": [
+    "skse/plugins",
+    "skse64_loader"
+   ],
+   "folder": [
+    "skse"
+   ],
+   "file": [
+    "skse64_loader.exe"
+   ]
+  },
+  {
+   "tag": "SKSE Plugin",
+   "score": 10,
+   "all": [
+    {
+     "path": [
+      "skse/plugins"
+     ]
+    },
+    {
+     "ext": [
+      ".dll"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "DLL",
+   "score": 8,
+   "ext": [
+    ".dll"
+   ]
+  },
+  {
+   "tag": "pure-skse-plugin",
+   "score": 12,
+   "all": [
+    {
+     "path": [
+      "skse/plugins"
+     ]
+    },
+    {
+     "ext": [
+      ".dll"
+     ]
+    }
+   ],
+   "none": [
+    {
+     "ext": [
+      ".esp",
+      ".esm",
+      ".esl"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "Plugin",
+   "score": 8,
+   "ext": [
+    ".esp",
+    ".esm",
+    ".esl"
+   ]
+  },
+  {
+   "tag": "Archive",
+   "score": 8,
+   "ext": [
+    ".bsa",
+    ".ba2"
+   ]
+  },
+  {
+   "tag": "FOMOD",
+   "score": 8,
+   "path": [
+    "fomod"
+   ],
+   "file": [
+    "moduleconfig.xml"
+   ]
+  },
+  {
+   "tag": "Address Library",
+   "score": 10,
+   "path": [
+    "versionlib"
+   ],
+   "file": [
+    "versionlib.dll",
+    "versionlib-1-5-97.bin",
+    "versionlib-1-6-640.bin",
+    "versionlib-1-6-1130.bin",
+    "versionlib-1-6-1170.bin"
+   ]
+  },
+  {
+   "tag": "Papyrus",
+   "score": 8,
+   "root": [
+    "scripts"
+   ],
+   "ext": [
+    ".pex",
+    ".psc"
+   ]
+  },
+  {
+   "tag": "script-heavy",
+   "score": 6,
+   "root": [
+    "scripts"
+   ],
+   "path": [
+    "scripts"
+   ]
+  },
+  {
+   "tag": "Papyrus Extender",
+   "score": 10,
+   "file": [
+    "po3_papyrusextender.dll",
+    "papyrusextender.dll"
+   ]
+  },
+  {
+   "tag": "PapyrusUtil",
+   "score": 9,
+   "file": [
+    "papyrusutil.dll",
+    "papyrusutil.esp"
+   ],
+   "path": [
+    "papyrusutil"
+   ]
+  },
+  {
+   "tag": "JContainers",
+   "score": 10,
+   "file": [
+    "jcontainers.dll"
+   ],
+   "path": [
+    "jcontainers"
+   ]
+  },
+  {
+   "tag": "ConsoleUtil",
+   "score": 8,
+   "file": [
+    "consoleutil.dll",
+    "consoleutilng.dll"
+   ],
+   "path": [
+    "consoleutil"
+   ]
+  },
+  {
+   "tag": "PO3 Tweaks",
+   "score": 10,
+   "file": [
+    "po3_tweaks.dll"
+   ],
+   "path": [
+    "po3_tweaks",
+    "powerofthree",
+    "power of three"
+   ]
+  },
+  {
+   "tag": "UIExtensions",
+   "score": 9,
+   "plugin": [
+    "uiextensions.esp"
+   ],
+   "path": [
+    "uiextensions"
+   ]
+  },
+  {
+   "tag": "MCM",
+   "score": 8,
+   "path": [
+    "mcm"
+   ],
+   "plugin": [
+    "mcm.esp"
+   ]
+  },
+  {
+   "tag": "MCM Config",
+   "score": 10,
+   "path": [
+    "mcm/config",
+    "mod configuration menu"
+   ]
+  },
+  {
+   "tag": "SkyPatcher",
+   "score": 10,
+   "path": [
+    "skypatcher"
+   ],
+   "plugin": [
+    "skypatcher"
+   ]
+  },
+  {
+   "tag": "SPID",
+   "score": 10,
+   "path": [
+    "spid"
+   ],
+   "file": [
+    "spellperkiditemdistributor.dll",
+    "po3_spellperkiditemdistributor.dll"
+   ],
+   "plugin": [
+    "spid"
+   ]
+  },
+  {
+   "tag": "KID",
+   "score": 10,
+   "path": [
+    "keyworditemdistributor",
+    "keyword item distributor"
+   ],
+   "file": [
+    "keyworditemdistributor.dll",
+    "po3_keyworditemdistributor.dll"
+   ]
+  },
+  {
+   "tag": "BOS",
+   "score": 10,
+   "path": [
+    "base object swapper",
+    "baseobjectswapper",
+    "bos"
+   ],
+   "file": [
+    "baseobjectswapper.dll"
+   ]
+  },
+  {
+   "tag": "Base Object Swapper",
+   "score": 10,
+   "path": [
+    "base object swapper",
+    "baseobjectswapper"
+   ],
+   "file": [
+    "baseobjectswapper.dll"
+   ]
+  },
+  {
+   "tag": "CID",
+   "score": 9,
+   "path": [
+    "container item distributor",
+    "containeritemdistributor",
+    "cid"
+   ],
+   "file": [
+    "containeritemdistributor.dll"
+   ]
+  },
+  {
+   "tag": "FLM",
+   "score": 9,
+   "path": [
+    "formlist manipulator",
+    "formlistmanipulator"
+   ],
+   "file": [
+    "formlistmanipulator.dll"
+   ]
+  },
+  {
+   "tag": "Inventory Injector",
+   "score": 10,
+   "path": [
+    "inventoryinjector"
+   ],
+   "file": [
+    "inventoryinjector.dll"
+   ]
+  },
+  {
+   "tag": "Payload Interpreter",
+   "score": 10,
+   "path": [
+    "payloadinterpreter",
+    "payload interpreter"
+   ],
+   "file": [
+    "payloadinterpreter.dll"
+   ]
+  },
+  {
+   "tag": "Synthesis",
+   "score": 8,
+   "name": [
+    "synthesis"
+   ],
+   "path": [
+    "synthesis"
+   ],
+   "plugin": [
+    "synthesis"
+   ]
+  },
+  {
+   "tag": "Bashed Patch",
+   "score": 9,
+   "name": [
+    "bashed patch"
+   ],
+   "plugin": [
+    "bashed patch"
+   ]
+  },
+  {
+   "tag": "Smashed Patch",
+   "score": 9,
+   "name": [
+    "smashed patch"
+   ],
+   "plugin": [
+    "smashed patch"
+   ]
+  },
+  {
+   "tag": "xEdit Patch",
+   "score": 7,
+   "name": [
+    "xedit",
+    "tes5edit",
+    "sseedit"
+   ],
+   "path": [
+    "xedit",
+    "tes5edit",
+    "sseedit"
+   ]
+  },
+  {
+   "tag": "OAR",
+   "score": 10,
+   "path": [
+    "openanimationreplacer"
+   ],
+   "plugin": [
+    "oar.esp",
+    "open animation replacer"
+   ]
+  },
+  {
+   "tag": "DAR",
+   "score": 10,
+   "path": [
+    "dynamicanimationreplacer"
+   ],
+   "plugin": [
+    "dar.esp",
+    "dynamic animation replacer"
+   ]
+  },
+  {
+   "tag": "OAR Conditions",
+   "score": 12,
+   "all": [
+    {
+     "path": [
+      "openanimationreplacer"
+     ]
+    },
+    {
+     "file": [
+      "conditions.json"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "DAR Conditions",
+   "score": 12,
+   "file": [
+    "_conditions.txt"
+   ],
+   "path": [
+    "_conditions.txt"
+   ]
+  },
+  {
+   "tag": "FNIS",
+   "score": 10,
+   "path": [
+    "generatefnis_for_users",
+    "tools/generatefnis",
+    "fnis"
+   ],
+   "plugin": [
+    "fnis.esp"
+   ]
+  },
+  {
+   "tag": "Nemesis",
+   "score": 10,
+   "path": [
+    "nemesis_engine",
+    "nemesis unlimited behavior engine",
+    "nemesis"
+   ],
+   "file": [
+    "nemesisunlimitedbehaviorengine.exe",
+    "nemesisx64.dll"
+   ]
+  },
+  {
+   "tag": "Pandora Behavior Engine",
+   "score": 10,
+   "path": [
+    "pandora behavior engine",
+    "pandora behaviour engine"
+   ],
+   "file": [
+    "pandora.exe"
+   ]
+  },
+  {
+   "tag": "animation",
+   "score": 10,
+   "ext": [
+    ".hkx"
+   ],
+   "root": [
+    "animations"
+   ],
+   "path": [
+    "/animations/",
+    "meshes/actors/character/animations"
+   ]
+  },
+  {
+   "tag": "animation-pack",
+   "score": 9,
+   "root": [
+    "animations"
+   ],
+   "path": [
+    "meshes/actors/character/animations"
+   ]
+  },
+  {
+   "tag": "behavior",
+   "score": 10,
+   "root": [
+    "behaviors"
+   ],
+   "path": [
+    "/behaviors/"
+   ],
+   "ext": [
+    ".hkx"
+   ]
+  },
+  {
+   "tag": "animation-replacer",
+   "score": 15,
+   "all": [
+    {
+     "ext": [
+      ".hkx"
+     ]
+    },
+    {
+     "file": [
+      "_conditions.txt"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "PCEA",
+   "score": 9,
+   "path": [
+    "pcea",
+    "pcea2"
+   ],
+   "plugin": [
+    "pcea"
+   ]
+  },
+  {
+   "tag": "XPMSSE",
+   "score": 10,
+   "path": [
+    "xpmsse",
+    "xpmse"
+   ],
+   "plugin": [
+    "xpmsse.esp",
+    "xpmse.esp"
+   ]
+  },
+  {
+   "tag": "skeleton",
+   "score": 10,
+   "file": [
+    "skeleton.nif",
+    "skeleton_female.nif",
+    "skeletonbeast.nif"
+   ],
+   "path": [
+    "skeleton"
+   ]
+  },
+  {
+   "tag": "idle-animation",
+   "score": 8,
+   "path": [
+    "idle",
+    "idleanimations"
+   ],
+   "plugin": [
+    "idle"
+   ]
+  },
+  {
+   "tag": "gesture",
+   "score": 8,
+   "path": [
+    "gesture",
+    "gestureframework"
+   ],
+   "plugin": [
+    "gesture"
+   ]
+  },
+  {
+   "tag": "MCO",
+   "score": 10,
+   "path": [
+    "mco",
+    "attack_dxp",
+    "attack dxp"
+   ],
+   "file": [
+    "attack_dx.hkx",
+    "dodge_mco.esl"
+   ],
+   "plugin": [
+    "dodge_mco",
+    "mco"
+   ]
+  },
+  {
+   "tag": "SCAR",
+   "score": 10,
+   "path": [
+    "scar"
+   ],
+   "file": [
+    "scar.dll"
+   ],
+   "plugin": [
+    "scar"
+   ]
+  },
+  {
+   "tag": "Precision",
+   "score": 10,
+   "path": [
+    "precision"
+   ],
+   "file": [
+    "precision.dll"
+   ],
+   "plugin": [
+    "precision"
+   ]
+  },
+  {
+   "tag": "TrueHUD",
+   "score": 10,
+   "path": [
+    "truehud",
+    "true hud"
+   ],
+   "file": [
+    "truehud.dll"
+   ],
+   "plugin": [
+    "truehud"
+   ]
+  },
+  {
+   "tag": "TUDM",
+   "score": 9,
+   "path": [
+    "tudm",
+    "the ultimate dodge"
+   ],
+   "plugin": [
+    "tudm.esp"
+   ]
+  },
+  {
+   "tag": "TK Dodge",
+   "score": 9,
+   "path": [
+    "tk dodge",
+    "tkdodge"
+   ],
+   "plugin": [
+    "tk dodge",
+    "tkdodge"
+   ]
+  },
+  {
+   "tag": "Dodge",
+   "score": 8,
+   "name": [
+    "dodge"
+   ],
+   "path": [
+    "dodge"
+   ],
+   "plugin": [
+    "dodge"
+   ]
+  },
+  {
+   "tag": "Valhalla Combat",
+   "score": 10,
+   "path": [
+    "valhalla"
+   ],
+   "file": [
+    "valhalla.dll"
+   ],
+   "plugin": [
+    "valhalla"
+   ]
+  },
+  {
+   "tag": "CGO",
+   "score": 9,
+   "path": [
+    "combat gameplay overhaul",
+    "cgo"
+   ],
+   "plugin": [
+    "cgo.esp"
+   ]
+  },
+  {
+   "tag": "Wildcat",
+   "score": 9,
+   "name": [
+    "wildcat"
+   ],
+   "plugin": [
+    "wildcat"
+   ]
+  },
+  {
+   "tag": "Smilodon",
+   "score": 9,
+   "name": [
+    "smilodon"
+   ],
+   "plugin": [
+    "smilodon"
+   ]
+  },
+  {
+   "tag": "Blade and Blunt",
+   "score": 9,
+   "name": [
+    "blade and blunt"
+   ],
+   "plugin": [
+    "blade and blunt",
+    "bladeandblunt"
+   ]
+  },
+  {
+   "tag": "Mortal Enemies",
+   "score": 8,
+   "name": [
+    "mortal enemies"
+   ],
+   "plugin": [
+    "mortal enemies"
+   ]
+  },
+  {
+   "tag": "combat",
+   "score": 7,
+   "name": [
+    "combat",
+    "battle",
+    "dodge",
+    "parry",
+    "block"
+   ],
+   "path": [
+    "combat",
+    "dodge",
+    "parry",
+    "block"
+   ],
+   "plugin": [
+    "combat",
+    "dodge",
+    "parry"
+   ]
+  },
+  {
+   "tag": "combat-overhaul",
+   "score": 10,
+   "name": [
+    "combat overhaul",
+    "valhalla",
+    "wildcat",
+    "smilodon",
+    "blade and blunt"
+   ],
+   "plugin": [
+    "combat overhaul",
+    "valhalla",
+    "wildcat",
+    "smilodon"
+   ]
+  },
+  {
+   "tag": "Camera",
+   "score": 8,
+   "name": [
+    "camera",
+    "smoothcam",
+    "third person"
+   ],
+   "path": [
+    "camera",
+    "smoothcam"
+   ],
+   "plugin": [
+    "camera",
+    "smoothcam"
+   ]
+  },
+  {
+   "tag": "SmoothCam",
+   "score": 10,
+   "path": [
+    "smoothcam",
+    "smooth cam"
+   ],
+   "file": [
+    "smoothcam.dll"
+   ],
+   "plugin": [
+    "smoothcam"
+   ]
+  },
+  {
+   "tag": "Improved Camera",
+   "score": 10,
+   "path": [
+    "improved camera"
+   ],
+   "file": [
+    "improvedcamera.dll"
+   ],
+   "plugin": [
+    "improvedcamera"
+   ]
+  },
+  {
+   "tag": "TDM",
+   "score": 10,
+   "path": [
+    "true directional movement"
+   ],
+   "file": [
+    "truedirectionalmovement.dll"
+   ],
+   "plugin": [
+    "truedirectionalmovement",
+    "true directional movement"
+   ]
+  },
+  {
+   "tag": "SkyUI",
+   "score": 10,
+   "path": [
+    "skyui"
+   ],
+   "plugin": [
+    "skyui.esp"
+   ]
+  },
+  {
+   "tag": "SkyHUD",
+   "score": 9,
+   "path": [
+    "skyhud",
+    "sky hud"
+   ],
+   "plugin": [
+    "skyhud.esp"
+   ]
+  },
+  {
+   "tag": "iHUD",
+   "score": 9,
+   "path": [
+    "ihud",
+    "immersive hud"
+   ],
+   "file": [
+    "ihud.dll"
+   ],
+   "plugin": [
+    "ihud.esp",
+    "ihudse.esp"
+   ]
+  },
+  {
+   "tag": "moreHUD",
+   "score": 9,
+   "path": [
+    "morehud",
+    "more hud"
+   ],
+   "file": [
+    "morehud.dll"
+   ],
+   "plugin": [
+    "morehud.esp"
+   ]
+  },
+  {
+   "tag": "Dear Diary",
+   "score": 9,
+   "name": [
+    "dear diary"
+   ],
+   "path": [
+    "dear diary"
+   ],
+   "plugin": [
+    "dear diary"
+   ]
+  },
+  {
+   "tag": "Nordic UI",
+   "score": 9,
+   "name": [
+    "nordic ui"
+   ],
+   "path": [
+    "nordic ui"
+   ],
+   "plugin": [
+    "nordic ui"
+   ]
+  },
+  {
+   "tag": "Untarnished UI",
+   "score": 9,
+   "name": [
+    "untarnished ui"
+   ],
+   "path": [
+    "untarnished ui"
+   ],
+   "plugin": [
+    "untarnished ui"
+   ]
+  },
+  {
+   "tag": "Compass Navigation Overhaul",
+   "score": 9,
+   "path": [
+    "compassnavigationoverhaul",
+    "compass navigation overhaul"
+   ],
+   "file": [
+    "compassnavigationoverhaul.dll"
+   ]
+  },
+  {
+   "tag": "Flash UI",
+   "score": 10,
+   "all": [
+    {
+     "root": [
+      "interface"
+     ]
+    },
+    {
+     "ext": [
+      ".swf"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "UI",
+   "score": 10,
+   "root": [
+    "interface"
+   ],
+   "ext": [
+    ".swf",
+    ".xml"
+   ],
+   "path": [
+    "/interface/"
+   ]
+  },
+  {
+   "tag": "Scaleform",
+   "score": 7,
+   "ext": [
+    ".swf"
+   ],
+   "path": [
+    "scaleform"
+   ]
+  },
+  {
+   "tag": "RaceMenu",
+   "score": 10,
+   "path": [
+    "racemenu",
+    "racemenuhh"
+   ],
+   "plugin": [
+    "racemenu.esp"
+   ]
+  },
+  {
+   "tag": "RaceMenu Morph",
+   "score": 10,
+   "ext": [
+    ".tri"
+   ],
+   "path": [
+    "bodyslide",
+    "morphs",
+    "racemenu"
+   ]
+  },
+  {
+   "tag": "ENB",
+   "score": 10,
+   "path": [
+    "enbseries"
+   ],
+   "file": [
+    "d3d11.dll",
+    "d3d9.dll",
+    "enblocal.ini",
+    "enbseries.ini"
+   ]
+  },
+  {
+   "tag": "ENB Light",
+   "score": 9,
+   "name": [
+    "enb light"
+   ],
+   "path": [
+    "enb light"
+   ],
+   "plugin": [
+    "enb light"
+   ]
+  },
+  {
+   "tag": "ReShade",
+   "score": 10,
+   "path": [
+    "reshade-shaders",
+    "reshade"
+   ],
+   "file": [
+    "reshade.ini",
+    "dxgi.dll"
+   ]
+  },
+  {
+   "tag": "Community Shaders",
+   "score": 10,
+   "path": [
+    "communityshaders",
+    "community shaders"
+   ],
+   "file": [
+    "communityshaders.dll"
+   ]
+  },
+  {
+   "tag": "Auto Parallax",
+   "score": 10,
+   "path": [
+    "auto parallax"
+   ],
+   "file": [
+    "autoparallax.dll"
+   ]
+  },
+  {
+   "tag": "Parallax",
+   "score": 9,
+   "name": [
+    "parallax"
+   ],
+   "path": [
+    "parallax"
+   ],
+   "file": [
+    "_p.dds",
+    "_p_n.dds"
+   ]
+  },
+  {
+   "tag": "Complex Parallax",
+   "score": 9,
+   "name": [
+    "complex parallax"
+   ],
+   "path": [
+    "complex parallax"
+   ]
+  },
+  {
+   "tag": "Texture Pack",
+   "score": 10,
+   "all": [
+    {
+     "ext": [
+      ".dds"
+     ]
+    }
+   ],
+   "none": [
+    {
+     "ext": [
+      ".esp",
+      ".esm",
+      ".esl",
+      ".dll"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "textures",
+   "score": 8,
+   "root": [
+    "textures"
+   ],
+   "ext": [
+    ".dds",
+    ".tga",
+    ".png"
+   ]
+  },
+  {
+   "tag": "normal-map",
+   "score": 6,
+   "file": [
+    "_n.dds",
+    "_msn.dds"
+   ]
+  },
+  {
+   "tag": "meshes",
+   "score": 8,
+   "root": [
+    "meshes"
+   ],
+   "ext": [
+    ".nif"
+   ]
+  },
+  {
+   "tag": "SMIM",
+   "score": 10,
+   "name": [
+    "smim",
+    "static mesh improvement"
+   ],
+   "path": [
+    "smim",
+    "static mesh improvement"
+   ],
+   "plugin": [
+    "smim"
+   ]
+  },
+  {
+   "tag": "mesh-replacer",
+   "score": 8,
+   "all": [
+    {
+     "ext": [
+      ".nif"
+     ]
+    }
+   ],
+   "none": [
+    {
+     "ext": [
+      ".esp",
+      ".esm",
+      ".esl"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "water",
+   "score": 8,
+   "name": [
+    "water"
+   ],
+   "path": [
+    "water"
+   ],
+   "plugin": [
+    "water"
+   ]
+  },
+  {
+   "tag": "weather",
+   "score": 8,
+   "name": [
+    "weather",
+    "climate",
+    "cathedral weathers",
+    "obsidian weathers",
+    "azurite weathers"
+   ],
+   "plugin": [
+    "weather",
+    "climate"
+   ]
+  },
+  {
+   "tag": "lighting",
+   "score": 8,
+   "name": [
+    "lighting",
+    "lights",
+    "lux",
+    "elfx",
+    "relighting"
+   ],
+   "path": [
+    "lighting",
+    "lights"
+   ],
+   "plugin": [
+    "lighting",
+    "lights",
+    "lux",
+    "elfx"
+   ]
+  },
+  {
+   "tag": "DynDOLOD",
+   "score": 10,
+   "path": [
+    "dyndolod"
+   ],
+   "plugin": [
+    "dyndolod.esp",
+    "dyndolod.esm"
+   ],
+   "file": [
+    "dyndolod.dll"
+   ]
+  },
+  {
+   "tag": "TexGen",
+   "score": 8,
+   "path": [
+    "texgen"
+   ],
+   "name": [
+    "texgen"
+   ]
+  },
+  {
+   "tag": "xLODGen",
+   "score": 9,
+   "path": [
+    "xlodgen",
+    "terrain lod"
+   ],
+   "name": [
+    "xlodgen",
+    "lodgen"
+   ]
+  },
+  {
+   "tag": "LOD",
+   "score": 10,
+   "path": [
+    "lod",
+    "terrain lod",
+    "object lod",
+    "tree lod"
+   ],
+   "plugin": [
+    "lod"
+   ]
+  },
+  {
+   "tag": "Occlusion",
+   "score": 8,
+   "plugin": [
+    "occlusion.esp"
+   ],
+   "name": [
+    "occlusion"
+   ]
+  },
+  {
+   "tag": "World",
+   "score": 7,
+   "path": [
+    "worldspaces",
+    "landscape",
+    "architecture",
+    "dungeons",
+    "interiors",
+    "lod",
+    "cells"
+   ],
+   "root": [
+    "worldspaces",
+    "cells"
+   ]
+  },
+  {
+   "tag": "landscape",
+   "score": 10,
+   "path": [
+    "landscape",
+    "terrain"
+   ]
+  },
+  {
+   "tag": "architecture",
+   "score": 10,
+   "path": [
+    "architecture"
+   ]
+  },
+  {
+   "tag": "settlement",
+   "score": 8,
+   "name": [
+    "city",
+    "cities",
+    "town",
+    "village",
+    "settlement"
+   ],
+   "path": [
+    "city",
+    "cities",
+    "town",
+    "village",
+    "settlement"
+   ],
+   "plugin": [
+    "city",
+    "cities",
+    "town",
+    "village"
+   ]
+  },
+  {
+   "tag": "city-overhaul",
+   "score": 10,
+   "name": [
+    "jk's",
+    "city overhaul",
+    "cities overhaul",
+    "great cities",
+    "cities of the north",
+    "cotn",
+    "spaghetti"
+   ],
+   "plugin": [
+    "jk's",
+    "great cities",
+    "cotn",
+    "cities of the north",
+    "spaghetti"
+   ]
+  },
+  {
+   "tag": "interior-overhaul",
+   "score": 10,
+   "name": [
+    "interior",
+    "interiors",
+    "snazzy"
+   ],
+   "path": [
+    "interiors",
+    "interior"
+   ],
+   "plugin": [
+    "interior",
+    "interiors",
+    "snazzy"
+   ]
+  },
+  {
+   "tag": "dungeon",
+   "score": 8,
+   "name": [
+    "dungeon",
+    "dungeons",
+    "cave",
+    "caves"
+   ],
+   "path": [
+    "dungeons",
+    "caves"
+   ]
+  },
+  {
+   "tag": "player-home",
+   "score": 10,
+   "name": [
+    "playerhome",
+    "player home",
+    "house",
+    "home",
+    "breezehome",
+    "lakeview"
+   ],
+   "path": [
+    "playerhome",
+    "player home",
+    "house"
+   ],
+   "plugin": [
+    "playerhome",
+    "house"
+   ]
+  },
+  {
+   "tag": "JK Skyrim",
+   "score": 10,
+   "name": [
+    "jk's",
+    "jk skyrim",
+    "jkrojmal"
+   ],
+   "path": [
+    "jkrojmal",
+    "jks",
+    "jk skyrim"
+   ],
+   "plugin": [
+    "jk's",
+    "jk skyrim",
+    "jks"
+   ]
+  },
+  {
+   "tag": "Lux",
+   "score": 10,
+   "name": [
+    "lux"
+   ],
+   "path": [
+    "lux"
+   ],
+   "plugin": [
+    "lux.esp"
+   ]
+  },
+  {
+   "tag": "Lux Orbis",
+   "score": 10,
+   "name": [
+    "lux orbis",
+    "luxorbis"
+   ],
+   "path": [
+    "lux orbis",
+    "luxorbis"
+   ],
+   "plugin": [
+    "lux orbis",
+    "luxorbis"
+   ]
+  },
+  {
+   "tag": "Lux Via",
+   "score": 10,
+   "name": [
+    "lux via",
+    "luxvia"
+   ],
+   "path": [
+    "lux via",
+    "luxvia"
+   ],
+   "plugin": [
+    "lux via",
+    "luxvia"
+   ]
+  },
+  {
+   "tag": "ELFX",
+   "score": 9,
+   "name": [
+    "elfx",
+    "enhanced lights and fx"
+   ],
+   "path": [
+    "elfx",
+    "enhanced lights and fx"
+   ],
+   "plugin": [
+    "elfx"
+   ]
+  },
+  {
+   "tag": "Embers XD",
+   "score": 8,
+   "name": [
+    "embers xd"
+   ],
+   "path": [
+    "embers xd"
+   ],
+   "plugin": [
+    "embers xd"
+   ]
+  },
+  {
+   "tag": "Northern Roads",
+   "score": 10,
+   "name": [
+    "northern roads"
+   ],
+   "path": [
+    "northern roads"
+   ],
+   "plugin": [
+    "northern roads"
+   ]
+  },
+  {
+   "tag": "COTN",
+   "score": 10,
+   "name": [
+    "cotn",
+    "cities of the north"
+   ],
+   "path": [
+    "cotn",
+    "cities of the north",
+    "citiesofthenorth"
+   ],
+   "plugin": [
+    "cotn",
+    "cities of the north"
+   ]
+  },
+  {
+   "tag": "Spaghetti Cities",
+   "score": 10,
+   "name": [
+    "spaghetti"
+   ],
+   "path": [
+    "spaghetti"
+   ],
+   "plugin": [
+    "spaghetti"
+   ]
+  },
+  {
+   "tag": "Great Cities",
+   "score": 10,
+   "name": [
+    "great cities",
+    "the great city",
+    "great towns",
+    "great villages"
+   ],
+   "plugin": [
+    "great cities",
+    "great city",
+    "great towns",
+    "great villages"
+   ]
+  },
+  {
+   "tag": "Ryn's",
+   "score": 9,
+   "name": [
+    "ryn's",
+    "ryns"
+   ],
+   "path": [
+    "ryn's",
+    "ryns"
+   ],
+   "plugin": [
+    "ryn's",
+    "ryns"
+   ]
+  },
+  {
+   "tag": "Snazzy Interiors",
+   "score": 10,
+   "name": [
+    "snazzy interiors",
+    "snazzy"
+   ],
+   "path": [
+    "snazzy interiors",
+    "snazzy"
+   ],
+   "plugin": [
+    "snazzy"
+   ]
+  },
+  {
+   "tag": "character-assets",
+   "score": 8,
+   "path": [
+    "actors/character",
+    "character assets"
+   ],
+   "root": [
+    "facegendata",
+    "facegeom",
+    "facetint"
+   ]
+  },
+  {
+   "tag": "body",
+   "score": 10,
+   "name": [
+    "body",
+    "cbbe",
+    "3ba",
+    "bhunp",
+    "unp",
+    "himbo"
+   ],
+   "path": [
+    "body",
+    "cbbe",
+    "3ba",
+    "bhunp",
+    "unp",
+    "himbo",
+    "actors/character"
+   ]
+  },
+  {
+   "tag": "skin",
+   "score": 8,
+   "all": [
+    {
+     "root": [
+      "textures"
+     ]
+    },
+    {
+     "path": [
+      "actors/character"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "CBBE",
+   "score": 10,
+   "name": [
+    "cbbe"
+   ],
+   "path": [
+    "cbbe"
+   ]
+  },
+  {
+   "tag": "3BA",
+   "score": 10,
+   "name": [
+    "3ba",
+    "3bbb"
+   ],
+   "path": [
+    "3ba",
+    "3bbb"
+   ]
+  },
+  {
+   "tag": "BHUNP",
+   "score": 10,
+   "name": [
+    "bhunp"
+   ],
+   "path": [
+    "bhunp"
+   ]
+  },
+  {
+   "tag": "UNP",
+   "score": 9,
+   "name": [
+    "unp",
+    "uunp"
+   ],
+   "path": [
+    "unp",
+    "uunp"
+   ]
+  },
+  {
+   "tag": "HIMBO",
+   "score": 10,
+   "name": [
+    "himbo"
+   ],
+   "path": [
+    "himbo"
+   ]
+  },
+  {
+   "tag": "SOS",
+   "score": 10,
+   "name": [
+    "schlongs of skyrim",
+    "sos"
+   ],
+   "path": [
+    "sos",
+    "schlongs of skyrim"
+   ],
+   "plugin": [
+    "schlongs of skyrim",
+    "sos"
+   ]
+  },
+  {
+   "tag": "HDT-SMP",
+   "score": 10,
+   "name": [
+    "hdt-smp",
+    "fsmp",
+    "faster hdt"
+   ],
+   "path": [
+    "hdt-smp",
+    "fsmp",
+    "faster hdt"
+   ],
+   "file": [
+    "hdtsmp64.dll",
+    "fasterhdtsmp.dll"
+   ]
+  },
+  {
+   "tag": "CBPC",
+   "score": 9,
+   "name": [
+    "cbpc"
+   ],
+   "path": [
+    "cbpc"
+   ],
+   "file": [
+    "cbpc.dll"
+   ]
+  },
+  {
+   "tag": "BodySlide",
+   "score": 9,
+   "name": [
+    "bodyslide",
+    "outfit studio"
+   ],
+   "path": [
+    "bodyslide",
+    "calientetools",
+    "slidergroups",
+    "slidersets"
+   ]
+  },
+  {
+   "tag": "High Poly Head",
+   "score": 10,
+   "name": [
+    "high poly head"
+   ],
+   "path": [
+    "high poly head",
+    "highpolyhead"
+   ],
+   "plugin": [
+    "high poly head"
+   ]
+  },
+  {
+   "tag": "facegen",
+   "score": 10,
+   "root": [
+    "facegendata",
+    "facegeom",
+    "facetint"
+   ],
+   "path": [
+    "facegendata",
+    "facegeom",
+    "facetint"
+   ]
+  },
+  {
+   "tag": "NPC",
+   "score": 8,
+   "name": [
+    "npc",
+    "follower",
+    "companion",
+    "serana",
+    "bijin",
+    "pandorable",
+    "kalilies"
+   ],
+   "path": [
+    "npc",
+    "follower",
+    "followers",
+    "facegendata"
+   ],
+   "plugin": [
+    "npc",
+    "follower"
+   ]
+  },
+  {
+   "tag": "npc-overhaul",
+   "score": 10,
+   "name": [
+    "npc overhaul",
+    "bijin",
+    "pandorable",
+    "kalilies",
+    "northbourne"
+   ],
+   "plugin": [
+    "npc overhaul",
+    "bijin",
+    "pandorable",
+    "kalilies",
+    "northbourne"
+   ]
+  },
+  {
+   "tag": "follower",
+   "score": 10,
+   "name": [
+    "follower",
+    "followers",
+    "companion"
+   ],
+   "path": [
+    "follower",
+    "followers",
+    "companion"
+   ],
+   "plugin": [
+    "follower",
+    "companion"
+   ]
+  },
+  {
+   "tag": "Serana",
+   "score": 9,
+   "name": [
+    "serana"
+   ],
+   "path": [
+    "serana"
+   ],
+   "plugin": [
+    "serana"
+   ]
+  },
+  {
+   "tag": "Bijin",
+   "score": 10,
+   "name": [
+    "bijin"
+   ],
+   "path": [
+    "bijin"
+   ],
+   "plugin": [
+    "bijin"
+   ]
+  },
+  {
+   "tag": "Pandorable",
+   "score": 10,
+   "name": [
+    "pandorable"
+   ],
+   "path": [
+    "pandorable"
+   ],
+   "plugin": [
+    "pandorable"
+   ]
+  },
+  {
+   "tag": "Kalilies",
+   "score": 10,
+   "name": [
+    "kalilies"
+   ],
+   "path": [
+    "kalilies"
+   ],
+   "plugin": [
+    "kalilies"
+   ]
+  },
+  {
+   "tag": "RS Children",
+   "score": 10,
+   "name": [
+    "rs children",
+    "rschildren"
+   ],
+   "path": [
+    "rs children",
+    "rschildren"
+   ],
+   "plugin": [
+    "rschildren",
+    "rs children"
+   ]
+  },
+  {
+   "tag": "Northbourne NPCs",
+   "score": 10,
+   "name": [
+    "northbourne"
+   ],
+   "path": [
+    "northbourne"
+   ],
+   "plugin": [
+    "northbourne"
+   ]
+  },
+  {
+   "tag": "KS Hairdos",
+   "score": 9,
+   "name": [
+    "ks hair",
+    "kshair",
+    "ks hairdos"
+   ],
+   "path": [
+    "ks hair",
+    "kshair",
+    "ks hairdos"
+   ],
+   "plugin": [
+    "ks hair",
+    "kshair"
+   ]
+  },
+  {
+   "tag": "Apachii",
+   "score": 9,
+   "name": [
+    "apachii"
+   ],
+   "path": [
+    "apachii"
+   ],
+   "plugin": [
+    "apachii"
+   ]
+  },
+  {
+   "tag": "Dint999",
+   "score": 9,
+   "name": [
+    "dint999",
+    "dint"
+   ],
+   "path": [
+    "dint999",
+    "dint"
+   ],
+   "plugin": [
+    "dint999",
+    "dint"
+   ]
+  },
+  {
+   "tag": "hair",
+   "score": 8,
+   "name": [
+    "hair",
+    "hairstyle",
+    "apachii",
+    "ks hair",
+    "kshair"
+   ],
+   "path": [
+    "hair",
+    "hairstyle",
+    "apachii",
+    "ks hair",
+    "kshair"
+   ]
+  },
+  {
+   "tag": "eyes",
+   "score": 8,
+   "name": [
+    "eyes",
+    "eye"
+   ],
+   "path": [
+    "eyes",
+    "eye"
+   ]
+  },
+  {
+   "tag": "overlay",
+   "score": 8,
+   "name": [
+    "tattoo",
+    "overlay",
+    "warpaint"
+   ],
+   "path": [
+    "tattoo",
+    "overlay",
+    "warpaint"
+   ]
+  },
+  {
+   "tag": "equipment",
+   "score": 8,
+   "path": [
+    "armor",
+    "armour",
+    "clothes",
+    "clothing",
+    "weapons"
+   ],
+   "plugin": [
+    "armor",
+    "armour",
+    "weapon",
+    "clothing"
+   ]
+  },
+  {
+   "tag": "armor",
+   "score": 10,
+   "name": [
+    "armor",
+    "armour"
+   ],
+   "path": [
+    "armor",
+    "armour"
+   ],
+   "plugin": [
+    "armor",
+    "armour"
+   ]
+  },
+  {
+   "tag": "weapon",
+   "score": 10,
+   "name": [
+    "weapon",
+    "weapons",
+    "sword",
+    "bow",
+    "axe",
+    "mace",
+    "dagger"
+   ],
+   "path": [
+    "weapon",
+    "weapons"
+   ],
+   "plugin": [
+    "weapon",
+    "weapons"
+   ]
+  },
+  {
+   "tag": "clothing",
+   "score": 10,
+   "name": [
+    "clothes",
+    "clothing",
+    "robe",
+    "outfit"
+   ],
+   "path": [
+    "clothes",
+    "clothing",
+    "outfit"
+   ],
+   "plugin": [
+    "clothes",
+    "clothing",
+    "outfit"
+   ]
+  },
+  {
+   "tag": "jewelry",
+   "score": 8,
+   "name": [
+    "jewelry",
+    "jewellery",
+    "ring",
+    "amulet"
+   ],
+   "path": [
+    "jewelry",
+    "jewellery",
+    "ring",
+    "amulet"
+   ],
+   "plugin": [
+    "jewelry",
+    "ring",
+    "amulet"
+   ]
+  },
+  {
+   "tag": "cloak",
+   "score": 8,
+   "name": [
+    "cloak",
+    "cloaks"
+   ],
+   "path": [
+    "cloak",
+    "cloaks"
+   ],
+   "plugin": [
+    "cloak",
+    "cloaks"
+   ]
+  },
+  {
+   "tag": "backpack",
+   "score": 8,
+   "name": [
+    "backpack",
+    "knapsack"
+   ],
+   "path": [
+    "backpack",
+    "knapsack"
+   ],
+   "plugin": [
+    "backpack"
+   ]
+  },
+  {
+   "tag": "quest",
+   "score": 8,
+   "root": [
+    "seq"
+   ],
+   "name": [
+    "quest",
+    "adventure",
+    "story"
+   ],
+   "path": [
+    "quest",
+    "dialogue",
+    "dialog",
+    "seq"
+   ],
+   "plugin": [
+    "quest"
+   ]
+  },
+  {
+   "tag": "dialogue",
+   "score": 8,
+   "name": [
+    "dialogue",
+    "dialog"
+   ],
+   "path": [
+    "dialogue",
+    "dialog",
+    "voice"
+   ],
+   "plugin": [
+    "dialogue",
+    "dialog"
+   ]
+  },
+  {
+   "tag": "audio",
+   "score": 10,
+   "root": [
+    "sound",
+    "voice",
+    "music"
+   ],
+   "ext": [
+    ".wav",
+    ".xwm",
+    ".fuz",
+    ".lip"
+   ]
+  },
+  {
+   "tag": "voice",
+   "score": 10,
+   "root": [
+    "voice"
+   ],
+   "path": [
+    "voice"
+   ],
+   "ext": [
+    ".fuz",
+    ".lip"
+   ]
+  },
+  {
+   "tag": "voiced",
+   "score": 10,
+   "ext": [
+    ".fuz",
+    ".lip"
+   ]
+  },
+  {
+   "tag": "DBVO",
+   "score": 10,
+   "name": [
+    "dbvo",
+    "dragonborn voice over"
+   ],
+   "path": [
+    "dbvo",
+    "dragonborn voice over"
+   ],
+   "plugin": [
+    "dbvo"
+   ]
+  },
+  {
+   "tag": "xVASynth",
+   "score": 8,
+   "name": [
+    "xvasynth",
+    "xva synth"
+   ],
+   "path": [
+    "xvasynth",
+    "xva synth"
+   ]
+  },
+  {
+   "tag": "music",
+   "score": 8,
+   "root": [
+    "music"
+   ],
+   "path": [
+    "music"
+   ],
+   "ext": [
+    ".xwm",
+    ".wav"
+   ]
+  },
+  {
+   "tag": "perks",
+   "score": 10,
+   "name": [
+    "perk",
+    "perks",
+    "ordinator",
+    "adamant"
+   ],
+   "path": [
+    "perk",
+    "perks"
+   ],
+   "plugin": [
+    "perk",
+    "ordinator",
+    "adamant"
+   ]
+  },
+  {
+   "tag": "perk-overhaul",
+   "score": 10,
+   "plugin": [
+    "ordinator",
+    "adamant",
+    "vokrii"
+   ],
+   "name": [
+    "ordinator",
+    "adamant",
+    "vokrii",
+    "perk overhaul"
+   ]
+  },
+  {
+   "tag": "magic",
+   "score": 10,
+   "name": [
+    "magic",
+    "spell",
+    "spells",
+    "apocalypse",
+    "mysticism",
+    "odin"
+   ],
+   "path": [
+    "magic",
+    "spell",
+    "spells"
+   ],
+   "plugin": [
+    "magic",
+    "spell",
+    "apocalypse",
+    "mysticism",
+    "odin"
+   ]
+  },
+  {
+   "tag": "spell-pack",
+   "score": 9,
+   "name": [
+    "apocalypse",
+    "odin",
+    "mysticism",
+    "spell pack"
+   ],
+   "plugin": [
+    "apocalypse",
+    "odin",
+    "mysticism"
+   ]
+  },
+  {
+   "tag": "shouts",
+   "score": 8,
+   "name": [
+    "shout",
+    "shouts",
+    "thunderchild"
+   ],
+   "plugin": [
+    "shout",
+    "thunderchild"
+   ]
+  },
+  {
+   "tag": "crafting",
+   "score": 7,
+   "name": [
+    "crafting",
+    "craft",
+    "smithing",
+    "forge"
+   ],
+   "path": [
+    "crafting",
+    "smithing"
+   ],
+   "plugin": [
+    "crafting",
+    "smithing"
+   ]
+  },
+  {
+   "tag": "alchemy",
+   "score": 7,
+   "name": [
+    "alchemy",
+    "apothecary"
+   ],
+   "plugin": [
+    "alchemy",
+    "apothecary"
+   ]
+  },
+  {
+   "tag": "survival",
+   "score": 10,
+   "name": [
+    "survival",
+    "needs",
+    "sunhelm",
+    "frostfall",
+    "campfire",
+    "wet and cold"
+   ],
+   "path": [
+    "survival",
+    "needs",
+    "frostfall",
+    "campfire"
+   ],
+   "plugin": [
+    "survival",
+    "needs",
+    "sunhelm",
+    "frostfall",
+    "campfire"
+   ]
+  },
+  {
+   "tag": "economy",
+   "score": 8,
+   "name": [
+    "economy",
+    "trade",
+    "trading",
+    "merchant",
+    "gold"
+   ],
+   "path": [
+    "economy",
+    "trade",
+    "merchant"
+   ],
+   "plugin": [
+    "economy",
+    "trade",
+    "merchant"
+   ]
+  },
+  {
+   "tag": "immersion",
+   "score": 7,
+   "name": [
+    "immersive",
+    "realistic",
+    "frostfall",
+    "wet and cold",
+    "campfire"
+   ],
+   "plugin": [
+    "immersive",
+    "realistic",
+    "frostfall",
+    "wet and cold",
+    "campfire"
+   ]
+  },
+  {
+   "tag": "AI Overhaul",
+   "score": 10,
+   "name": [
+    "ai overhaul"
+   ],
+   "path": [
+    "ai overhaul"
+   ],
+   "plugin": [
+    "ai overhaul"
+   ]
+  },
+  {
+   "tag": "Immersive Citizens",
+   "score": 10,
+   "name": [
+    "immersive citizens"
+   ],
+   "path": [
+    "immersive citizens"
+   ],
+   "plugin": [
+    "immersive citizens"
+   ]
+  },
+  {
+   "tag": "Alternate Start",
+   "score": 9,
+   "name": [
+    "alternate start",
+    "live another life",
+    "lal"
+   ],
+   "plugin": [
+    "alternatestart",
+    "alternate start",
+    "live another life"
+   ]
+  },
+  {
+   "tag": "Realm of Lorkhan",
+   "score": 8,
+   "name": [
+    "realm of lorkhan"
+   ],
+   "plugin": [
+    "realm of lorkhan"
+   ]
+  },
+  {
+   "tag": "LOTD",
+   "score": 10,
+   "name": [
+    "legacy of the dragonborn",
+    "lotd"
+   ],
+   "path": [
+    "legacy of the dragonborn",
+    "lotd"
+   ],
+   "plugin": [
+    "legacyofthedragonborn",
+    "legacy of the dragonborn",
+    "lotd"
+   ]
+  },
+  {
+   "tag": "Enairim",
+   "score": 10,
+   "name": [
+    "enairim",
+    "ordinator",
+    "apocalypse",
+    "summermyst",
+    "imperious",
+    "thunderchild",
+    "sacrosanct",
+    "growl",
+    "wintersun",
+    "andromeda",
+    "odin",
+    "vokrii"
+   ],
+   "plugin": [
+    "ordinator",
+    "apocalypse",
+    "summermyst",
+    "imperious",
+    "thunderchild",
+    "sacrosanct",
+    "growl",
+    "wintersun",
+    "andromeda",
+    "odin",
+    "vokrii"
+   ]
+  },
+  {
+   "tag": "Ordinator",
+   "score": 10,
+   "name": [
+    "ordinator"
+   ],
+   "plugin": [
+    "ordinator.esp"
+   ]
+  },
+  {
+   "tag": "Apocalypse",
+   "score": 10,
+   "name": [
+    "apocalypse"
+   ],
+   "plugin": [
+    "apocalypse.esp"
+   ]
+  },
+  {
+   "tag": "Summermyst",
+   "score": 10,
+   "name": [
+    "summermyst"
+   ],
+   "plugin": [
+    "summermyst.esp"
+   ]
+  },
+  {
+   "tag": "Imperious",
+   "score": 9,
+   "name": [
+    "imperious"
+   ],
+   "plugin": [
+    "imperious.esp"
+   ]
+  },
+  {
+   "tag": "Thunderchild",
+   "score": 10,
+   "name": [
+    "thunderchild"
+   ],
+   "plugin": [
+    "thunderchild.esp"
+   ]
+  },
+  {
+   "tag": "Wintersun",
+   "score": 9,
+   "name": [
+    "wintersun"
+   ],
+   "plugin": [
+    "wintersun"
+   ]
+  },
+  {
+   "tag": "Sacrosanct",
+   "score": 9,
+   "name": [
+    "sacrosanct"
+   ],
+   "plugin": [
+    "sacrosanct"
+   ]
+  },
+  {
+   "tag": "Growl",
+   "score": 9,
+   "name": [
+    "growl"
+   ],
+   "plugin": [
+    "growl"
+   ]
+  },
+  {
+   "tag": "Simonrim",
+   "score": 10,
+   "name": [
+    "simonrim",
+    "adamant",
+    "mysticism",
+    "thaumaturgy",
+    "apothecary",
+    "pilgrim",
+    "arena",
+    "blade and blunt",
+    "manbeast"
+   ],
+   "plugin": [
+    "adamant",
+    "mysticism",
+    "thaumaturgy",
+    "apothecary",
+    "pilgrim",
+    "arena",
+    "bladeandblunt",
+    "manbeast"
+   ]
+  },
+  {
+   "tag": "enemies",
+   "score": 7,
+   "name": [
+    "bandit",
+    "draugr",
+    "falmer",
+    "dragon",
+    "chaurus",
+    "enemy",
+    "creature",
+    "monster"
+   ],
+   "path": [
+    "bandit",
+    "draugr",
+    "falmer",
+    "dragon",
+    "chaurus",
+    "enemy",
+    "creature",
+    "monster"
+   ],
+   "plugin": [
+    "bandit",
+    "draugr",
+    "falmer",
+    "dragon",
+    "chaurus",
+    "enemy",
+    "creature",
+    "monster"
+   ]
+  },
+  {
+   "tag": "creatures",
+   "score": 10,
+   "name": [
+    "creature",
+    "creatures",
+    "animal",
+    "animals",
+    "wildlife",
+    "monster",
+    "mihail",
+    "4thunknown"
+   ],
+   "path": [
+    "creature",
+    "creatures",
+    "animals",
+    "wildlife",
+    "monster",
+    "mihail",
+    "4thunknown"
+   ],
+   "plugin": [
+    "creature",
+    "creatures",
+    "animal",
+    "wildlife",
+    "monster"
+   ]
+  },
+  {
+   "tag": "animals",
+   "score": 8,
+   "name": [
+    "animal",
+    "animals",
+    "wildlife",
+    "horse",
+    "dog",
+    "wolf",
+    "bear"
+   ],
+   "path": [
+    "animals",
+    "wildlife",
+    "horse",
+    "dog",
+    "wolf",
+    "bear"
+   ],
+   "plugin": [
+    "animal",
+    "wildlife",
+    "horse"
+   ]
+  },
+  {
+   "tag": "dragons",
+   "score": 8,
+   "name": [
+    "dragon",
+    "dragons"
+   ],
+   "path": [
+    "dragon",
+    "dragons"
+   ],
+   "plugin": [
+    "dragon",
+    "dragons"
+   ]
+  },
+  {
+   "tag": "draugr",
+   "score": 8,
+   "name": [
+    "draugr"
+   ],
+   "path": [
+    "draugr"
+   ],
+   "plugin": [
+    "draugr"
+   ]
+  },
+  {
+   "tag": "bandits",
+   "score": 8,
+   "name": [
+    "bandit",
+    "bandits",
+    "obis"
+   ],
+   "path": [
+    "bandit",
+    "bandits"
+   ],
+   "plugin": [
+    "bandit",
+    "obis"
+   ]
+  },
+  {
+   "tag": "Mihail",
+   "score": 10,
+   "name": [
+    "mihail"
+   ],
+   "path": [
+    "mihail"
+   ],
+   "plugin": [
+    "mihail"
+   ]
+  },
+  {
+   "tag": "4thUnknown",
+   "score": 10,
+   "name": [
+    "4thunknown",
+    "4th unknown"
+   ],
+   "path": [
+    "4thunknown",
+    "4th unknown"
+   ],
+   "plugin": [
+    "4thunknown",
+    "4th unknown"
+   ]
+  },
+  {
+   "tag": "Skyrim Immersive Creatures",
+   "score": 10,
+   "name": [
+    "skyrim immersive creatures",
+    "sic"
+   ],
+   "plugin": [
+    "skyrim immersive creatures",
+    "sic"
+   ]
+  },
+  {
+   "tag": "OBIS",
+   "score": 10,
+   "name": [
+    "obis"
+   ],
+   "plugin": [
+    "obis"
+   ]
+  },
+  {
+   "tag": "SexLab",
+   "score": 10,
+   "path": [
+    "sexlab"
+   ],
+   "plugin": [
+    "sexlab",
+    "slal"
+   ],
+   "name": [
+    "sexlab"
+   ]
+  },
+  {
+   "tag": "SL",
+   "score": 10,
+   "path": [
+    "sexlab",
+    "sl_"
+   ],
+   "plugin": [
+    "sexlab",
+    "slal"
+   ]
+  },
+  {
+   "tag": "SLAL",
+   "score": 10,
+   "path": [
+    "slal"
+   ],
+   "plugin": [
+    "slal"
+   ]
+  },
+  {
+   "tag": "SexLab Aroused",
+   "score": 10,
+   "name": [
+    "aroused",
+    "sexlab aroused"
+   ],
+   "path": [
+    "aroused"
+   ],
+   "plugin": [
+    "aroused"
+   ]
+  },
+  {
+   "tag": "OStim",
+   "score": 10,
+   "path": [
+    "ostim"
+   ],
+   "plugin": [
+    "ostim"
+   ],
+   "name": [
+    "ostim"
+   ]
+  },
+  {
+   "tag": "OStim Animations",
+   "score": 10,
+   "all": [
+    {
+     "path": [
+      "ostim"
+     ]
+    },
+    {
+     "path": [
+      "animationdata",
+      "animations"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "OSex",
+   "score": 9,
+   "name": [
+    "osex"
+   ],
+   "path": [
+    "osex"
+   ],
+   "plugin": [
+    "osex"
+   ]
+  },
+  {
+   "tag": "Devious Devices",
+   "score": 10,
+   "name": [
+    "devious devices",
+    "devious"
+   ],
+   "path": [
+    "devious devices",
+    "devious"
+   ],
+   "plugin": [
+    "devious devices",
+    "devious"
+   ]
+  },
+  {
+   "tag": "ZAZ",
+   "score": 10,
+   "name": [
+    "zaz"
+   ],
+   "path": [
+    "zaz"
+   ],
+   "plugin": [
+    "zaz"
+   ]
+  },
+  {
+   "tag": "Flower Girls",
+   "score": 9,
+   "name": [
+    "flower girls",
+    "flowergirls"
+   ],
+   "path": [
+    "flower girls",
+    "flowergirls"
+   ],
+   "plugin": [
+    "flower girls",
+    "flowergirls"
+   ]
+  },
+  {
+   "tag": "NSFW",
+   "score": 9,
+   "name": [
+    "nsfw",
+    "adult",
+    "erotic",
+    "nude",
+    "naked",
+    "sexlab",
+    "ostim",
+    "devious"
+   ],
+   "path": [
+    "nsfw",
+    "adult",
+    "erotic",
+    "nude",
+    "naked",
+    "sexlab",
+    "ostim",
+    "devious"
+   ]
+  },
+  {
+   "tag": "BDSM",
+   "score": 10,
+   "name": [
+    "bdsm",
+    "bondage",
+    "devious"
+   ],
+   "path": [
+    "bdsm",
+    "bondage",
+    "devious"
+   ],
+   "plugin": [
+    "bdsm",
+    "bondage",
+    "devious"
+   ]
+  },
+  {
+   "tag": "arousal-system",
+   "score": 10,
+   "name": [
+    "aroused",
+    "arousal"
+   ],
+   "path": [
+    "aroused",
+    "arousal"
+   ],
+   "plugin": [
+    "aroused",
+    "arousal"
+   ]
+  },
+  {
+   "tag": "patch",
+   "score": 10,
+   "name": [
+    "patch"
+   ],
+   "path": [
+    "patch"
+   ],
+   "plugin": [
+    "patch"
+   ]
+  },
+  {
+   "tag": "compatibility",
+   "score": 8,
+   "name": [
+    "compatibility",
+    "compatible",
+    "compat",
+    "fix"
+   ],
+   "path": [
+    "compatibility",
+    "compat",
+    "fix"
+   ],
+   "plugin": [
+    "compatibility",
+    "compat",
+    "fix"
+   ]
+  },
+  {
+   "tag": "addon",
+   "score": 8,
+   "name": [
+    "addon",
+    "add-on",
+    "extension"
+   ],
+   "path": [
+    "addon",
+    "add-on",
+    "extension"
+   ],
+   "plugin": [
+    "addon",
+    "extension"
+   ]
+  },
+  {
+   "tag": "fix",
+   "score": 8,
+   "name": [
+    "fix",
+    "bugfix",
+    "bug fix",
+    "fixed"
+   ],
+   "path": [
+    "fix",
+    "bugfix",
+    "bug fix"
+   ],
+   "plugin": [
+    "fix"
+   ]
+  },
+  {
+   "tag": "OCF",
+   "score": 8,
+   "name": [
+    "ocf",
+    "open community framework"
+   ],
+   "path": [
+    "ocf",
+    "open community framework"
+   ],
+   "plugin": [
+    "ocf"
+   ]
+  },
+  {
+   "tag": "BDOR",
+   "score": 8,
+   "name": [
+    "bdor",
+    "black desert"
+   ],
+   "path": [
+    "bdor",
+    "black desert"
+   ],
+   "plugin": [
+    "bdor"
+   ]
+  },
+  {
+   "tag": "FuzzBeed",
+   "score": 8,
+   "name": [
+    "fuzzbeed"
+   ],
+   "path": [
+    "fuzzbeed"
+   ],
+   "plugin": [
+    "fuzzbeed"
+   ]
+  },
+  {
+   "tag": "Ivy",
+   "score": 8,
+   "name": [
+    "ivy"
+   ],
+   "path": [
+    "ivy"
+   ],
+   "plugin": [
+    "ivy"
+   ]
+  },
+  {
+   "tag": "MorrowLoot Ultimate",
+   "score": 8,
+   "name": [
+    "morrowloot",
+    "morrowloot ultimate"
+   ],
+   "plugin": [
+    "morrowloot"
+   ]
+  },
+  {
+   "tag": "Hunterborn",
+   "score": 8,
+   "name": [
+    "hunterborn"
+   ],
+   "plugin": [
+    "hunterborn"
+   ]
+  },
+  {
+   "tag": "Frostfall",
+   "score": 9,
+   "name": [
+    "frostfall"
+   ],
+   "plugin": [
+    "frostfall"
+   ]
+  },
+  {
+   "tag": "Campfire",
+   "score": 9,
+   "name": [
+    "campfire"
+   ],
+   "plugin": [
+    "campfire"
+   ]
+  },
+  {
+   "tag": "Wet and Cold",
+   "score": 8,
+   "name": [
+    "wet and cold"
+   ],
+   "plugin": [
+    "wetandcold",
+    "wet and cold"
+   ]
+  },
+  {
+   "tag": "Requiem",
+   "score": 9,
+   "name": [
+    "requiem"
+   ],
+   "plugin": [
+    "requiem"
+   ]
+  },
+  {
+   "tag": "ASIS",
+   "score": 7,
+   "name": [
+    "asis"
+   ],
+   "plugin": [
+    "asis"
+   ]
+  },
+  {
+   "tag": "KSTM",
+   "score": 6,
+   "name": [
+    "killable children",
+    "kstm"
+   ],
+   "plugin": [
+    "killingchildren",
+    "killablechildren",
+    "killable children"
+   ]
+  },
+  {
+   "tag": "ENBOOST",
+   "score": 5,
+   "name": [
+    "enboost",
+    "enb boost"
+   ],
+   "file": [
+    "enblocal.ini"
+   ],
+   "path": [
+    "enblocal.ini"
+   ]
+  },
+  {
+   "tag": "DolbyAtmos",
+   "score": 4,
+   "name": [
+    "dolbyatmos",
+    "dolby"
+   ],
+   "file": [
+    "dolby",
+    "dolbystate.txt"
+   ],
+   "path": [
+    "dolby",
+    "dolbystate.txt"
+   ]
+  },
+  {
+   "tag": "Zombie Behavior",
+   "score": 4,
+   "name": [
+    "zombie behavior",
+    "zombie randomizer",
+    "mzw zombie"
+   ],
+   "plugin": [
+    "mzw-zombierandomizing",
+    "zombierandomizing",
+    "zombie"
+   ]
+  },
+  {
+   "tag": "Climates of Tamriel",
+   "score": 9,
+   "name": [
+    "climates of tamriel",
+    "cot weather"
+   ],
+   "plugin": [
+    "climatesoftamriel",
+    "climates of tamriel"
+   ],
+   "path": [
+    "climatesoftamriel"
+   ]
+  },
+  {
+   "tag": "Perfect",
+   "score": 5,
+   "name": [
+    "perfectargonian",
+    "perfect blm",
+    "perfectblm",
+    "perfect eyes"
+   ],
+   "plugin": [
+    "perfectargonian",
+    "perfectblm"
+   ]
+  },
+  {
+   "tag": "Ashara",
+   "score": 6,
+   "name": [
+    "ashara"
+   ],
+   "path": [
+    "ashara"
+   ],
+   "plugin": [
+    "ashara"
+   ]
+  },
+  {
+   "tag": "BTSP",
+   "score": 6,
+   "name": [
+    "btsp"
+   ],
+   "path": [
+    "btsp"
+   ],
+   "plugin": [
+    "btsp"
+   ]
+  },
+  {
+   "tag": "Book of Silence",
+   "score": 7,
+   "name": [
+    "book of silence",
+    "amidiborn",
+    "aMidianBorn"
+   ],
+   "path": [
+    "book of silence",
+    "amidiborn"
+   ],
+   "plugin": [
+    "book of silence",
+    "amidiborn"
+   ]
+  },
+  {
+   "tag": "RND",
+   "score": 8,
+   "name": [
+    "rnd",
+    "realistic needs",
+    "realisticneeds",
+    "realistic needs and diseases"
+   ],
+   "plugin": [
+    "rnd",
+    "realisticneeds",
+    "realistic needs"
+   ],
+   "path": [
+    "rnd",
+    "realisticneeds"
+   ]
+  },
+  {
+   "tag": "PO3 Ultimate",
+   "score": 4,
+   "name": [
+    "po3 ultimate",
+    "po3 ultimate dlc",
+    "po3:ultimate"
+   ],
+   "plugin": [
+    "po3_ultimate",
+    "po3 ultimate"
+   ]
+  },
+  {
+   "tag": "Guilds",
+   "score": 6,
+   "name": [
+    "guild",
+    "thieves guild",
+    "companions",
+    "dark brotherhood",
+    "college of winterhold"
+   ],
+   "path": [
+    "guild",
+    "thievesguild",
+    "companions",
+    "darkbrotherhood",
+    "collegeofwinterhold",
+    "faction"
+   ],
+   "plugin": [
+    "guild",
+    "thievesguild",
+    "companions",
+    "darkbrotherhood",
+    "faction"
+   ]
+  },
+  {
+   "tag": "faction",
+   "score": 6,
+   "name": [
+    "faction",
+    "factions",
+    "civil war",
+    "civilwar"
+   ],
+   "path": [
+    "faction",
+    "factions",
+    "civilwar"
+   ],
+   "plugin": [
+    "faction",
+    "civilwar"
+   ]
+  },
+  {
+   "tag": "loot",
+   "score": 6,
+   "name": [
+    "loot",
+    "leveled list",
+    "leveledlist",
+    "better imbue",
+    "betterimbue"
+   ],
+   "path": [
+    "loot",
+    "leveledlist",
+    "leveled list"
+   ],
+   "plugin": [
+    "loot",
+    "leveledlist",
+    "betterimbue"
+   ]
+  },
+  {
+   "tag": "containers",
+   "score": 5,
+   "name": [
+    "chest",
+    "chests",
+    "container",
+    "containers",
+    "barrel"
+   ],
+   "path": [
+    "chest",
+    "container",
+    "containers",
+    "barrel"
+   ],
+   "plugin": [
+    "chest",
+    "container"
+   ]
+  },
+  {
+   "tag": "pets",
+   "score": 6,
+   "name": [
+    "pet",
+    "pets",
+    "wildlife",
+    "animal companion"
+   ],
+   "path": [
+    "pets",
+    "wildlife"
+   ],
+   "plugin": [
+    "pets",
+    "wildlife"
+   ]
+  },
+  {
+   "tag": "wildlife",
+   "score": 7,
+   "name": [
+    "wildlife",
+    "fauna"
+   ],
+   "path": [
+    "wildlife",
+    "fauna"
+   ],
+   "plugin": [
+    "wildlife",
+    "fauna"
+   ]
+  },
+  {
+   "tag": "accessories",
+   "score": 6,
+   "name": [
+    "accessory",
+    "accessories",
+    "earring",
+    "necklace",
+    "amulet",
+    "rings"
+   ],
+   "path": [
+    "accessories",
+    "jewelry",
+    "earring",
+    "necklace",
+    "amulet",
+    "rings"
+   ],
+   "plugin": [
+    "accessories",
+    "jewelry"
+   ]
+  },
+  {
+   "tag": "travel",
+   "score": 5,
+   "name": [
+    "traveling",
+    "travel",
+    "acquisitive soul",
+    "acquisitivesoul",
+    "announce mystic",
+    "announcemystic"
+   ],
+   "plugin": [
+    "traveling",
+    "acquisitivesoul",
+    "announcemystic"
+   ],
+   "path": [
+    "traveling",
+    "travel"
+   ]
+  },
+  {
+   "tag": "Dual Sheath",
+   "score": 7,
+   "name": [
+    "dual sheath",
+    "dualsheath"
+   ],
+   "path": [
+    "dualsheath"
+   ],
+   "plugin": [
+    "dualsheath"
+   ]
+  },
+  {
+   "tag": "Ethereal",
+   "score": 6,
+   "name": [
+    "ethereal"
+   ],
+   "plugin": [
+    "ethereal"
+   ],
+   "path": [
+    "ethereal"
+   ]
+  },
+  {
+   "tag": "cutting",
+   "score": 5,
+   "name": [
+    "cutting",
+    "decapitation",
+    "decapitate"
+   ],
+   "plugin": [
+    "cutting",
+    "decapitation",
+    "decapitate"
+   ],
+   "path": [
+    "cutting",
+    "decapitation"
+   ]
+  },
+  {
+   "tag": "FSSE",
+   "score": 6,
+   "name": [
+    "fsse"
+   ],
+   "plugin": [
+    "fsse"
+   ],
+   "path": [
+    "fsse"
+   ]
+  },
+  {
+   "tag": "Magemisc",
+   "score": 5,
+   "name": [
+    "magemisc",
+    "mage misc"
+   ],
+   "plugin": [
+    "magemisc"
+   ],
+   "path": [
+    "magemisc"
+   ]
+  },
+  {
+   "tag": "cells",
+   "score": 7,
+   "path": [
+    "cells"
+   ],
+   "file": [
+    ".cell"
+   ]
+  },
+  {
+   "tag": "worldspace",
+   "score": 8,
+   "path": [
+    "worldspaces",
+    "worldspace"
+   ],
+   "name": [
+    "worldspace",
+    "worldspaces"
+   ]
+  },
+  {
+   "tag": "house",
+   "score": 7,
+   "name": [
+    "house",
+    "home",
+    "breezehome",
+    "lakeview"
+   ],
+   "path": [
+    "house",
+    "home",
+    "breezehome",
+    "lakeview"
+   ],
+   "plugin": [
+    "house",
+    "home",
+    "breezehome",
+    "lakeview"
+   ]
+  },
+  {
+   "tag": "xml-ui",
+   "score": 8,
+   "all": [
+    {
+     "path": [
+      "interface"
+     ]
+    },
+    {
+     "ext": [
+      ".xml"
+     ]
+    }
+   ]
+  },
+  {
+   "tag": "tga-texture",
+   "score": 6,
+   "ext": [
+    ".tga"
+   ]
+  },
+  {
+   "tag": "nif-mesh",
+   "score": 7,
+   "ext": [
+    ".nif"
+   ]
+  }
+ ]
+}

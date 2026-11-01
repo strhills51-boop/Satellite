@@ -39,6 +39,7 @@ pub mod run;
 pub mod session;
 pub mod sync;
 pub mod table;
+pub mod tag_rules;
 pub mod tags;
 
 pub use ids::{ArchiveId, ChainId, ContextId, DirId, ModId, NameId, PathId};

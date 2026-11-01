@@ -44,6 +44,8 @@ struct Seen {
     elapsed: std::time::Duration,
     /// Scan aggregates, kept only for `--find` (filters need them after the facts are dropped).
     metrics: Option<sat_core::facts::ModMetrics>,
+    /// Tags found by the rule set (`--tags`), best first.
+    tags: Vec<String>,
 }
 
 /// Millions of small allocations (path strings, per-dir vectors) dominate table builds; the system allocator on
@@ -233,6 +235,20 @@ fn analyze(args: &[String]) -> Result<(), String> {
         })
         .transpose()?;
     let keep_metrics = find.is_some();
+    // @sat:cli.tags
+    // tags from a rule set: the built-in one (the monolith's detectors), or a file given with --tag-rules
+    let rules = if has(args, "--tags") || flag_value(args, "--tag-rules").is_some() {
+        Some(match flag_value(args, "--tag-rules") {
+            Some(f) => {
+                let text = std::fs::read_to_string(f).map_err(|e| format!("--tag-rules {f}: {e}"))?;
+                let set = serde_json::from_str(&text).map_err(|e| format!("--tag-rules {f}: {e}"))?;
+                sat_core::tag_rules::Compiled::new(set)?
+            }
+            None => sat_core::tag_rules::Compiled::builtin(),
+        })
+    } else {
+        None
+    };
     let manager = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
     // The project is the canon (ADR 0006); modlist.txt is a side. First run imports it.
     let project_path = flag_value(args, "--project")
@@ -442,6 +458,9 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 archive_files: o.facts.metrics.archive_files,
                 elapsed: o.elapsed,
                 metrics: (keep_metrics && !o.facts.missing).then(|| o.facts.metrics.clone()),
+                tags: rules.as_ref().map_or_else(Vec::new, |r| {
+                    r.tags(&o.facts).into_iter().map(|(t, _)| t).collect()
+                }),
             });
         });
         done.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -600,7 +619,9 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 continue;
             }
             let seen = by_name.get(&e.name.to_lowercase());
+            let tags = seen.filter(|_| rules.is_some()).map(|o| o.tags.join(", "));
             let view = sat_core::metrics::ModView {
+                tags: tags.as_deref(),
                 metrics: seen.and_then(|o| o.metrics.as_ref()),
                 stat: index.get(&e.name.to_lowercase()).map(|&m| proj.stat(m)),
                 name: &e.name,
@@ -618,6 +639,30 @@ fn analyze(args: &[String]) -> Result<(), String> {
             }
         }
         eprintln!("find: {hits} mod(s) match `{}`", expr.source());
+    }
+
+    if let Some(r) = &rules {
+        let mut count: std::collections::BTreeMap<&str, usize> = Default::default();
+        let mut tagged = 0;
+        for o in &outcomes {
+            tagged += usize::from(!o.tags.is_empty());
+            for t in &o.tags {
+                *count.entry(t.as_str()).or_default() += 1;
+            }
+        }
+        let mut top: Vec<(&str, usize)> = count.into_iter().collect();
+        top.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        eprintln!(
+            "tags ({}): {tagged} of {} mods tagged, {} distinct; top: {}",
+            r.set().name,
+            outcomes.len(),
+            top.len(),
+            top.iter()
+                .take(15)
+                .map(|(t, n)| format!("{t} {n}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 
     // plugins: the manager's lists + versions across mods + mod priorities

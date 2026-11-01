@@ -47,6 +47,12 @@ pub const MOD_METRICS: &[MetricDef] = &[
     m("name", "Имя мода", "order", Unit::Text),
     m("separator", "Разделитель", "order", Unit::Text),
     m("enabled", "Включён", "order", Unit::Flag),
+    m(
+        "tags",
+        "Теги (найденные и свои, через запятую)",
+        "order",
+        Unit::Text,
+    ),
     m("priority", "Приоритет (позиция в списке)", "order", Unit::Count),
     m("size", "Размер папки", "filesystem", Unit::Bytes),
     m("files", "Файлов", "filesystem", Unit::Count),
@@ -91,6 +97,8 @@ pub struct ModView<'a> {
     pub stat: Option<&'a ModStat>,
     pub name: &'a str,
     pub separator: Option<&'a str>,
+    /// Tags of the mod joined with `, ` (`tags ~ "skse"`); `None` when not known.
+    pub tags: Option<&'a str>,
     pub enabled: bool,
     pub priority: u32,
 }
@@ -104,6 +112,7 @@ impl ModView<'_> {
             "name" => return Value::Text(self.name.to_string()),
             "separator" => return self.separator.map_or(Value::Null, |s| Value::Text(s.to_string())),
             "enabled" => return Value::Bool(self.enabled),
+            "tags" => return self.tags.map_or(Value::Null, |t| Value::Text(t.to_string())),
             "priority" => return n(u64::from(self.priority)),
             _ => {}
         }
@@ -173,6 +182,7 @@ mod tests {
             stat: Some(&stat),
             name: &f.name,
             separator: Some("Textures"),
+            tags: Some("Textures, 4K"),
             enabled: true,
             priority: 40,
         };
@@ -180,7 +190,9 @@ mod tests {
         assert!(q(
             "size > 1 GB && ext.dds == dds && dir.textures > 0 && wins > 10"
         ));
-        assert!(q("separator ~ \"tex\" && !overridden && priority < 100"));
+        assert!(q(
+            "separator ~ \"tex\" && !overridden && priority < 100 && tags ~ \"4k\""
+        ));
         assert!(!q("plugins > 0"));
         // not scanned: facts metrics are null, canon metrics still answer
         let blind = ModView { metrics: None, ..v };
