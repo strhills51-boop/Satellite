@@ -42,6 +42,8 @@ struct Seen {
     files: u32,
     archive_files: u32,
     elapsed: std::time::Duration,
+    /// Scan aggregates, kept only for `--find` (filters need them after the facts are dropped).
+    metrics: Option<sat_core::facts::ModMetrics>,
 }
 
 /// Millions of small allocations (path strings, per-dir vectors) dominate table builds; the system allocator on
@@ -214,6 +216,23 @@ fn subfolders(dir: &std::path::Path) -> Vec<String> {
 fn analyze(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let all_folders = !has(args, "--listed-only");
+    // a filter is checked before the scan: a typo should not cost a scan of the build
+    let find = flag_value(args, "--find")
+        .map(|src| {
+            sat_core::expr::Expr::compile(src, &sat_core::metrics::is_mod_metric).map_err(|e| {
+                format!(
+                    "--find: {e}\n  {src}\n  {}^\n  metrics: {}, ext.<extension>, dir.<top folder>",
+                    " ".repeat(e.at),
+                    sat_core::metrics::MOD_METRICS
+                        .iter()
+                        .map(|d| d.id)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+        })
+        .transpose()?;
+    let keep_metrics = find.is_some();
     let manager = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
     // The project is the canon (ADR 0006); modlist.txt is a side. First run imports it.
     let project_path = flag_value(args, "--project")
@@ -422,6 +441,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 files: o.facts.metrics.files,
                 archive_files: o.facts.metrics.archive_files,
                 elapsed: o.elapsed,
+                metrics: (keep_metrics && !o.facts.missing).then(|| o.facts.metrics.clone()),
             });
         });
         done.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -564,6 +584,41 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let t = Instant::now();
     let _again = OverwriteProjection::compute(&table, prio);
     timings.insert("overwrite_recompute", t.elapsed().as_millis());
+
+    // @sat:cli.find
+    if let Some(expr) = &find {
+        let by_name: std::collections::HashMap<String, &Seen> =
+            outcomes.iter().map(|o| (o.name.to_lowercase(), o)).collect();
+        let mut sep: Option<&str> = None;
+        let mut hits = 0;
+        for (pos, e) in list.entries.iter().enumerate() {
+            if e.kind == sat_core::canon::EntryKind::Separator {
+                sep = Some(e.name.trim_end_matches("_separator"));
+                continue;
+            }
+            if e.kind != sat_core::canon::EntryKind::Mod {
+                continue;
+            }
+            let seen = by_name.get(&e.name.to_lowercase());
+            let view = sat_core::metrics::ModView {
+                metrics: seen.and_then(|o| o.metrics.as_ref()),
+                stat: index.get(&e.name.to_lowercase()).map(|&m| proj.stat(m)),
+                name: &e.name,
+                separator: sep,
+                enabled: e.enabled,
+                priority: pos as u32,
+            };
+            if expr.test(&|id| view.get(id)) {
+                hits += 1;
+                println!(
+                    "{pos:>6}  {}{}",
+                    e.name,
+                    sep.map(|s| format!("   [{s}]")).unwrap_or_default()
+                );
+            }
+        }
+        eprintln!("find: {hits} mod(s) match `{}`", expr.source());
+    }
 
     // plugins: the manager's lists + versions across mods + mod priorities
     let t = Instant::now();

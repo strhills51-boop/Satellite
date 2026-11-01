@@ -103,6 +103,21 @@ sat-cli analyze X:\MO2 --report report.json
   пересканирования нет).
 
 
+### Поиск модов по условию
+
+```bat
+sat-cli analyze X:\MO2 --no-save --find "size > 1 GB && plugins > 0"
+sat-cli analyze X:\MO2 --no-save --find "ext.dds >= 500 && !enabled"
+sat-cli analyze X:\MO2 --no-save --find "name ~ \"texture\" && loses > wins"
+```
+
+Печатает подходящие моды: позиция, имя, разделитель. Язык: сравнения `> >= < <= == !=`, `~` — «содержит» (без
+регистра), `&& || !`, скобки, арифметика, `min max round floor ceil abs clamp`, размеры `KB MB GB TB`. Метрики:
+`name separator enabled priority size files dirs root_files depth archives archive_files plugins dds vram nif pex
+hkx dll nested_archives source_files wins loses mid unique overridden`, а также `ext.<расширение>` (`ext.esp`) и
+`dir.<папка верхнего уровня>` (`dir.meshes`). Ошибка показывает место; опечатка ловится до скана. Тот же язык
+пойдёт в условные стикеры и кейсы счётчиков (ADR 0013).
+
 ### Игнор-лист конфликтов
 
 ```bat

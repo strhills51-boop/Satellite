@@ -21,11 +21,13 @@
 pub mod canon;
 pub mod decisions;
 pub mod engine;
+pub mod expr;
 pub mod facts;
 pub mod identity;
 pub mod ids;
 pub mod ignore;
 pub mod interner;
+pub mod metrics;
 pub mod order;
 pub mod overwrite;
 pub mod plugin_edit;
