@@ -27,6 +27,7 @@
 | API приложения: команды, запросы, события поверх сессии, без транспорта (ADR 0004) | `@sat:app` (`@sat:app.command`, `@sat:app.query`, `@sat:app.event`, `@sat:app.dispatch`) | транспорт — оболочки (`apps/`) |
 | Внешний вид цепочки и контекста: эмодзи и оттенок из состава (не из порядка) | `@sat:identity` (`@sat:identity.of`) | сами цепочки — `@sat:overwrite.projection` |
 | Бейджи перезаписи на карточке (модель «коллекция цепочек» монолита): по контексту, значки крупнейших цепочек, `+N` | `@sat:app.badges` (`Query::Rows { badges }`) | модель `OW N` — та же выдача, другой показ на странице |
+| Решения по конфликтам: цепочка «решена» на подписи содержимого, переживает перестановку и пробег | `@sat:decisions` (`@sat:decisions.chains`), в сессии `@sat:session.decide`, команда `SetChainDone` | хранение в проекте — следующий шаг (контейнер, ADR 0007) |
 | Сводка мода: с кем и в чём конфликтует (соперники ▲/▼, «зубы» по цепочкам, цепочки с путями), плагины мода | `@sat:app.mod-detail` (`Query::ModDetail`) | счётчики W/L/M на карточке — `Counters` |
 | Фокус по ссылке («перейти к моду»), раскрывая свёрнутый блок | `@sat:order.cursor.focus-entry` (`Command::Focus`) | навигация клавишами — `@sat:order.cursor.navigate` |
 | Оболочка разработки: сборка MO2 в браузере на localhost, песочница | `@sat:devserver`, `@sat:devserver.load`, `@sat:devserver.http` | смысл команд — `@sat:app` |
@@ -94,6 +95,7 @@
 
 ### `crates/sat-core` — ядро, без ввода-вывода
 - `crates/sat-core/src/lib.rs` — `@sat:core`, оглавление слоёв.
+- `crates/sat-core/src/decisions.rs` — `@sat:decisions`: решённые цепочки по подписи содержимого.
 - `crates/sat-core/src/engine.rs` — `@sat:engine`: виды истины, наборы изменений, граф проекций (ADR 0010).
 - `crates/sat-core/src/identity.rs` — `@sat:identity`: эмодзи и оттенок цепочек и контекстов из состава.
 - `crates/sat-core/src/ids.rs` — `@sat:ids`: типизированные `u32`-идентификаторы.

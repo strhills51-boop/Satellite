@@ -1,6 +1,7 @@
 //! Satellite domain core. @sat:core
 //!
 //! Layering (ADR 0002):
+//! - [`decisions`] — user decisions on conflicts (settled chains) by content signature;
 //! - [`engine`] — truth kinds, change sets, the projection graph (ADR 0010);
 //! - [`facts`] — what scanners observed (input to the warm tier);
 //! - [`canon`] — the manager's state (order, enabled, separators);
@@ -18,6 +19,7 @@
 //! Owns: the crate layout (which module is which layer); nothing else.
 
 pub mod canon;
+pub mod decisions;
 pub mod engine;
 pub mod facts;
 pub mod identity;

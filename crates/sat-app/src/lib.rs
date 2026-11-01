@@ -69,6 +69,12 @@ pub enum Command {
         view: ViewId,
         key: Key,
     },
+    /// Mark a chain settled ("done") or not, by its content signature (hex string: JSON numbers lose 64-bit
+    /// precision).
+    SetChainDone {
+        signature: String,
+        done: bool,
+    },
     Undo,
     Redo,
     OpenView,
@@ -124,13 +130,17 @@ pub struct Opponent {
     pub key: Option<Key>,
     pub name: String,
     pub pos: Option<u32>,
+    /// Separator of the participant's block (participants are grouped by it, like the monolith).
+    pub separator: Option<String>,
+    /// This row is the focused mod itself.
+    pub me: bool,
     pub enabled: bool,
     /// Files where this mod overrides the focused one.
     pub beats_me: u32,
     /// Files where the focused mod overrides this one.
     pub i_beat: u32,
-    /// One tooth per listed chain of the focused mod (same order as `chains`): `w` the focused mod wins against
-    /// this opponent there, `l` loses, `-` the opponent is not in that chain.
+    /// One tooth per listed chain of the focused mod (same order as `chains`): `w` this participant wins that
+    /// chain, `l` it is overridden there, `-` it is not in that chain.
     pub teeth: String,
 }
 
@@ -138,8 +148,14 @@ pub struct Opponent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChainView {
     pub id: u32,
+    pub signature: String,
+    pub done: bool,
+    pub emoji: String,
+    pub hue: u16,
     /// Generated from the paths: top folder and the most common extension.
     pub title: String,
+    /// Generated name: title · first mod → last mod (monolith chain names).
+    pub name: String,
     pub files: u32,
     pub bytes: u64,
     /// Stack, winner first.
@@ -200,6 +216,10 @@ pub struct ContextBadge {
 /// One chain icon.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChainBadge {
+    /// Content signature, hex (`@sat:identity.of`).
+    pub signature: String,
+    /// Settled by the user: shown as a check mark.
+    pub done: bool,
     pub emoji: String,
     pub hue: u16,
     pub files: u32,
@@ -280,6 +300,8 @@ pub enum Event {
     ViewClosed {
         view: ViewId,
     },
+    /// A decision changed: badges and the summary re-read.
+    Decided,
     /// The command was valid but changed nothing.
     Nothing,
 }
@@ -294,6 +316,8 @@ pub enum AppError {
     Unbound(String),
     #[error("bad chord {0:?}: {1}")]
     Chord(String, String),
+    #[error("bad chain signature {0:?}")]
+    Signature(String),
 }
 
 // @sat:app.dispatch
@@ -347,6 +371,16 @@ impl App {
                 .command(|b| b.set_collapsed(view, separator, collapsed))?,
             C::SetFilter { view, filter } => self.session.command(|b| b.set_filter(view, filter))?,
             C::Focus { view, key } => self.session.command(|b| Ok(b.focus_entry(view, key)))?,
+            C::SetChainDone { signature, done } => {
+                let sig = u64::from_str_radix(&signature, 16)
+                    .map_err(|_| AppError::Signature(signature.clone()))?;
+                return Ok(if self.session.set_chain_done(sig, done) {
+                    self.revision += 1;
+                    Event::Decided
+                } else {
+                    Event::Nothing
+                });
+            }
             C::Undo => self.session.command(|b| Ok(b.undo()))?,
             C::Redo => self.session.command(|b| Ok(b.redo()))?,
             C::OpenView => {
@@ -443,7 +477,7 @@ impl App {
                             selected: r.selected,
                             badges: match (badges, index.get(&r.name.to_lowercase())) {
                                 (n, Some(&m)) if n > 0 && r.kind == RowKind::Mod => {
-                                    mod_badges(&ow, &names, m, n)
+                                    mod_badges(&ow, &names, self.session.decisions(), m, n)
                                 }
                                 _ => Vec::new(),
                             },
@@ -531,6 +565,7 @@ impl App {
 fn mod_badges(
     ow: &sat_core::overwrite::OverwriteProjection,
     table: &sat_core::table::ProviderTable,
+    decisions: &sat_core::decisions::ChainDecisions,
     m: ModId,
     limit: u8,
 ) -> Vec<ContextBadge> {
@@ -562,6 +597,8 @@ fn mod_badges(
                     let stack = ow.chain_mods(c);
                     let id = sat_core::identity::identity(stack.iter().map(|&x| name(x)));
                     ChainBadge {
+                        signature: format!("{:016x}", id.signature),
+                        done: decisions.is_done(id.signature),
                         emoji: id.emoji.to_string(),
                         hue: id.hue,
                         files: ow.chain(c).files,
@@ -661,9 +698,22 @@ impl App {
                     .take(64)
                     .map(|&p| table.path_string(p))
                     .collect();
+                let id = sat_core::identity::identity(stack.iter().map(|&x| table.mod_name(x)));
+                let title = chain_title(&paths);
+                let first = table.mod_name(stack[stack.len() - 1]);
+                let last = table.mod_name(stack[0]);
                 ChainView {
                     id: c.0,
-                    title: chain_title(&paths),
+                    signature: format!("{:016x}", id.signature),
+                    done: self.session.decisions().is_done(id.signature),
+                    emoji: id.emoji.to_string(),
+                    hue: id.hue,
+                    name: if title.is_empty() {
+                        format!("{first} → {last}")
+                    } else {
+                        format!("{title} · {first} → {last}")
+                    },
+                    title,
                     files: ow.chain(c).files,
                     bytes: ow.chain(c).bytes,
                     stack: stack.iter().map(|&x| table.mod_name(x).to_string()).collect(),
@@ -672,6 +722,8 @@ impl App {
                 }
             })
             .collect();
+        opp.entry(m).or_default();
+        let book = self.session.book();
         let mut opponents: Vec<Opponent> = opp
             .into_iter()
             .map(|(o, (beats_me, i_beat))| {
@@ -679,21 +731,19 @@ impl App {
                 let okey = book.key_of(&oname);
                 let teeth = listed
                     .iter()
-                    .map(|&c| {
-                        let stack = ow.chain_mods(c);
-                        match (
-                            stack.iter().position(|&x| x == m),
-                            stack.iter().position(|&x| x == o),
-                        ) {
-                            (Some(a), Some(b)) if a < b => 'w',
-                            (Some(_), Some(_)) => 'l',
-                            _ => '-',
-                        }
+                    .map(|&c| match ow.chain_mods(c).iter().position(|&x| x == o) {
+                        Some(0) => 'w',
+                        Some(_) => 'l',
+                        None => '-',
                     })
                     .collect();
                 Opponent {
                     key: okey,
                     pos: okey.map(|k| book.pos(k) as u32),
+                    separator: okey
+                        .and_then(|k| book.separator_of(k))
+                        .map(|s| book.name(s).trim_end_matches("_separator").to_string()),
+                    me: o == m,
                     enabled: ow.priorities().is_active(o),
                     name: oname,
                     beats_me,
@@ -702,7 +752,6 @@ impl App {
                 }
             })
             .collect();
-        // in list order, like the monolith's participant rows; Overwrite last
         opponents.sort_by_key(|o| (o.pos.is_none(), o.pos, o.name.clone()));
         let s = ow.stat(m);
         let mod_plugins: Vec<PluginView> = plugins
@@ -848,14 +897,65 @@ mod tests {
         let Reply::ModDetail { detail } = a.query(Query::ModDetail { key: key_a }).unwrap() else {
             panic!()
         };
-        assert_eq!(detail.opponents.len(), 1);
+        // participants: B, then A itself (list order), grouped under separator S
+        let names: Vec<&str> = detail.opponents.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["B", "A"]);
         let b = &detail.opponents[0];
         assert_eq!(
-            (b.name.as_str(), b.i_beat, b.beats_me, b.teeth.as_str()),
-            ("B", 1, 0, "w")
+            (
+                b.i_beat,
+                b.beats_me,
+                b.teeth.as_str(),
+                b.me,
+                b.separator.as_deref()
+            ),
+            (1, 0, "l", false, Some("S"))
         );
-        assert_eq!(detail.chains[0].title, "textures · dds");
-        assert_eq!(detail.chains[0].stack, ["A", "B"]);
+        assert_eq!(detail.opponents[1].teeth, "w");
+        assert!(detail.opponents[1].me);
+        let ch = &detail.chains[0];
+        assert_eq!(ch.title, "textures · dds");
+        assert_eq!(ch.name, "textures · dds · B → A");
+        assert_eq!(ch.stack, ["A", "B"]);
+        // settle the chain: the badge shows it on both mods, and it survives a move
+        assert!(matches!(
+            a.command(Command::SetChainDone {
+                signature: ch.signature.clone(),
+                done: true
+            })
+            .unwrap(),
+            Event::Decided
+        ));
+        let b_key = b.key.unwrap();
+        a.command(Command::Move {
+            keys: vec![key_a],
+            before: Some(b_key),
+        })
+        .unwrap();
+        let Reply::Rows { rows: after, .. } = a
+            .query(Query::Rows {
+                view: 0,
+                start: 0,
+                count: 10,
+                badges: 4,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert!(
+            after
+                .iter()
+                .filter(|r| r.kind == RowKind::Mod)
+                .all(|r| r.badges[0].chains[0].done)
+        );
+        assert!(matches!(
+            a.command(Command::SetChainDone {
+                signature: "zz".into(),
+                done: true
+            }),
+            Err(AppError::Signature(_))
+        ));
         // a link from the summary moves the focus
         a.command(Command::Focus {
             view: 0,
@@ -873,6 +973,6 @@ mod tests {
         else {
             panic!()
         };
-        assert_eq!(focus_row, Some(1));
+        assert_eq!(focus_row, Some(2), "B is below A after the move");
     }
 }

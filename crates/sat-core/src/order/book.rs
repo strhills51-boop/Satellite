@@ -445,6 +445,11 @@ impl OrderBook {
         &self.items[k as usize].name
     }
 
+    /// The separator whose block holds `k` (none before the first separator).
+    pub fn separator_of(&self, k: Key) -> Option<Key> {
+        self.seq.separator_before(self.seq.pos(k))
+    }
+
     pub fn kind(&self, k: Key) -> EntryKind {
         self.items[k as usize].kind
     }

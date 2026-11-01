@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
+use crate::decisions::ChainDecisions;
 use crate::engine::{Change, Graph, Input, Keys, ProjectionId, Truth};
 use crate::ids::ModId;
 use crate::order::{self, OrderBook, OrderError};
@@ -54,6 +55,8 @@ pub struct Session {
     overwrite: Option<Arc<OverwriteProjection>>,
     /// How the last overwrite was brought up to date (observability, tests).
     last_overwrite: Recompute,
+    /// User decisions on conflicts (settled chains).
+    decisions: ChainDecisions,
     /// How many times each projection was computed (observability, tests).
     computed: FxHashMap<ProjectionId, u64>,
 }
@@ -111,6 +114,7 @@ impl Session {
             priorities: None,
             overwrite: None,
             last_overwrite: Recompute::Full,
+            decisions: ChainDecisions::default(),
             computed: FxHashMap::default(),
         }
     }
@@ -153,6 +157,23 @@ impl Session {
     ) -> Result<Option<order::Change>, crate::resource::CommandError> {
         let action = crate::resource::command::authorize(registry.get(id), id)?;
         Ok(self.command(|bk| action.apply(bk, v))?)
+    }
+
+    pub fn decisions(&self) -> &ChainDecisions {
+        &self.decisions
+    }
+
+    // @sat:session.decide
+    /// Marks a chain (by content signature) settled or not; the change goes to the graph as `Truth::Decisions`.
+    /// Returns whether anything changed.
+    pub fn set_chain_done(&mut self, signature: u64, done: bool) -> bool {
+        match self.decisions.set(signature, done) {
+            Some(c) => {
+                self.graph.apply(&c);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Plugin facts of the same run as the table (versions across mods).

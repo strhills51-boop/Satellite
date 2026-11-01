@@ -95,22 +95,36 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .block h3::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 .block.empty h3::before { background: var(--miss); }
 .muted { color: var(--muted); font-size: 12px; }
-.chain { border: 1px solid var(--line); border-radius: 10px; padding: 5px 8px; margin-bottom: 5px; background: var(--pop); cursor: pointer; }
-.chain .t { display: flex; gap: 6px; align-items: baseline; }
-.chain .t b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chain .t span { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
-.chain .stack { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chain .stack .me { color: var(--accent2); }
-.chain .paths { font: 11px var(--mono); color: var(--muted); margin-top: 3px; display: none; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
-.chain.open .paths { display: block; }
-.opp { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 4px 6px; align-items: center; padding: 4px 6px; border-radius: 8px; cursor: pointer;
-  border-bottom: 1px dashed color-mix(in srgb, #facc15 45%, transparent); }
-.opp:hover { background: var(--pop); }
-.opp .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); } .opp.off .dot { background: var(--miss); }
-.opp .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.opp .nums { font: 11px var(--mono); } .opp .nums .w { color: var(--w-txt); } .opp .nums .l { color: var(--l-txt); }
-.teeth { grid-column: 2 / 4; display: flex; gap: 1px; height: 6px; }
-.teeth i { flex: 1; max-width: 10px; background: var(--miss); } .teeth i.w { background: var(--win); } .teeth i.l { background: var(--lose); }
+/* summary conflicts block (monolith): chain list with icon, generated name and a "done" toggle; participants grouped
+   by separator, the row background is the teeth (one segment per listed chain), dashed amber edge, focused mod green */
+.chains { border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--primary) 12%, var(--pop)); padding: 6px; margin-bottom: 8px; }
+.chn { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto 20px; gap: 6px; align-items: center; padding: 3px 6px; margin: 2px 0;
+  border-radius: 999px; border: 1px solid hsl(var(--h) 60% 60% / .35); cursor: pointer; }
+.chn:hover, .chn.sel { border-color: hsl(var(--h) 70% 65% / .9); background: hsl(var(--h) 50% 40% / .14); }
+.chn .ico { width: 16px; height: 16px; flex-basis: 16px; font-size: 10px; }
+.chn .nm { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chn .fc { font: 11px var(--mono); color: var(--muted); }
+.chn .dn { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); background: transparent; padding: 0; font-size: 11px; line-height: 16px; color: var(--muted); }
+.chn.done .dn { border-color: var(--ok); color: var(--ok); }
+.chn.done .nm { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ok) 60%, transparent); }
+.chn.paths-open + .paths { display: block; }
+.paths { display: none; font: 11px var(--mono); color: var(--muted); white-space: pre; overflow: hidden; text-overflow: ellipsis; padding: 2px 8px 6px 30px; }
+.more { color: var(--muted); font-size: 12px; padding: 2px 6px; cursor: pointer; }
+.chains:not(.all) .chn.extra { display: none; }
+.grp { font-size: 12px; font-weight: 600; color: var(--muted); padding: 6px 4px 2px; display: flex; gap: 6px; }
+.prt { position: relative; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: 6px; align-items: center; height: 28px; padding: 0 8px;
+  cursor: pointer; border-bottom: 1px dashed color-mix(in srgb, #facc15 55%, transparent); overflow: hidden; }
+.prt .bg { position: absolute; inset: 0; display: flex; gap: 1px; opacity: .55; pointer-events: none; }
+.prt .bg i { flex: 1; } .prt .bg i.w { background: color-mix(in srgb, var(--win) 70%, transparent); } .prt .bg i.l { background: color-mix(in srgb, var(--lose) 60%, transparent); }
+.prt .bg i.hl { outline: 1px solid var(--accent2); outline-offset: -1px; }
+.prt > :not(.bg) { position: relative; }
+.prt .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); } .prt.off .dot { background: var(--miss); }
+.prt .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prt .nums { font: 11px var(--mono); } .prt .nums .w { color: var(--w-txt); } .prt .nums .l { color: var(--l-txt); }
+.prt .ps { font: 11px var(--mono); color: var(--muted); }
+.prt.me { box-shadow: inset 3px 0 #facc15; background: color-mix(in srgb, var(--win) 30%, transparent); }
+.prt:hover { filter: brightness(1.15); }
+.ico.done { background: color-mix(in srgb, var(--ok) 30%, transparent); border-color: var(--ok); }
 .plug { display: grid; grid-template-columns: 56px 1fr; gap: 6px; font-size: 12px; padding: 2px 0; }
 .plug .idx { font-family: var(--mono); color: var(--muted); }
 .dotc { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
@@ -147,8 +161,8 @@ footer b { color: var(--accent2); font-weight: 500; }
 "use strict";
 const $ = id => document.getElementById(id);
 const list = $("list"), layer = $("layer"), spacer = $("spacer");
-const ROW = 44, VIEW = 0, MAXPX = 8_000_000;
-let len = 0, pool = [], busy = false, again = false, shownKey = null, detailSeq = 0;
+const ROW = 44, VIEW = 0, MAXPX = 8_000_000, CHAINS_SHOWN = 6;
+let len = 0, pool = [], busy = false, again = false, shownKey = null, detailSeq = 0, shownChains = [];
 let badgeModel = "classic", density = 6;
 try { badgeModel = localStorage.getItem("sat-badges") || "classic"; density = +(localStorage.getItem("sat-density") || 6); } catch (_) {}
 
@@ -210,7 +224,7 @@ function strip(r) {
     return `<span class="owpill" style="--h:${h}" title="${files} конфликтных файлов · ${n} цепочек · ${r.badges.length} контекстов"><b></b>OW ${files}</span>`;
   }
   return `<span class="strip">` + r.badges.map(b => `<span class="ctx" style="--h:${b.hue}" title="контекст · ${b.files} файлов · ${b.chains.length + b.more} цепочек"><b></b>` +
-    b.chains.map(c => `<span class="ico${c.place === 0 ? " won" : ""}" style="--h:${c.hue}" title="${esc(c.stack.join(" → "))} · ${c.files} ф. · ${c.place === 0 ? "выигрывает" : "проигрывает"}">${c.emoji}</span>`).join("") +
+    b.chains.map(c => `<span class="ico${c.done ? " done" : c.place === 0 ? " won" : ""}" style="--h:${c.hue}" title="${esc(c.stack.join(" → "))} · ${c.files} ф. · ${c.place === 0 ? "выигрывает" : "проигрывает"}${c.done ? " · решено" : ""}">${c.done ? "✓" : c.emoji}</span>`).join("") +
     (b.more ? `<i>+${b.more}</i>` : "") + `</span>`).join("") + `</span>`;
 }
 
@@ -269,21 +283,29 @@ async function detail(key) {
   $("bMod").innerHTML = `<h3>Мод</h3><div><b>${esc(d.name)}</b></div>` + (c ? `<div class="muted">выигрывает <span style="color:var(--w-txt)">${num(c.win)}</span> ·
     проигрывает <span style="color:var(--l-txt)">${num(c.lose)}</span> · в середине ${num(c.mid)} · уникальных ${num(c.unique)}${c.x ? " · <b style='color:var(--x-txt)'>не виден в игре</b>" : ""}</div>` : "");
   const conf = $("bConf");
-  if (!d.opponents.length) {
+  if (d.opponents.length <= 1) {
     conf.className = "block empty";
     conf.innerHTML = `<h3>Конфликты</h3><div class="muted">Ни с кем не конфликтует.</div>`;
   } else {
     conf.className = "block ok";
-    const chains = d.chains.map(ch => `<div class="chain"><div class="t"><b>${esc(ch.title || "файлы")}</b><span>${num(ch.files)} ф.</span></div>` +
-      `<div class="stack">${ch.stack.map((n, i) => i === ch.place ? `<span class="me">${esc(n)}</span>` : esc(n)).join(" ▸ ")}</div>` +
-      `<div class="paths">${esc(ch.samples.join("\n"))}</div></div>`).join("");
-    const opps = d.opponents.map(o => `<div class="opp${o.enabled ? "" : " off"}" data-key="${o.key ?? ""}" title="${o.key === null ? "Overwrite" : "перейти к моду"}">` +
-      `<span class="dot"></span><span class="n">${esc(o.name)}</span>` +
-      `<span class="nums">${o.i_beat ? `<span class="w">▲${num(o.i_beat)}</span> ` : ""}${o.beats_me ? `<span class="l">▼${num(o.beats_me)}</span>` : ""}</span>` +
-      `<div class="teeth">${[...o.teeth].map(t => `<i class="${t === "-" ? "" : t}"></i>`).join("")}</div></div>`).join("");
-    conf.innerHTML = `<h3>Конфликты</h3><div class="muted" style="margin-bottom:6px">${d.opponents.length} соперников · ${d.chains.length + d.more_chains} цепочек.
-      ▲ — файлов, где этот мод перекрывает соперника, ▼ — где соперник перекрывает его. Зубы — по цепочкам ниже; клик по цепочке — пути.</div>
-      ${opps}<div style="margin-top:10px">${chains}${d.more_chains ? `<div class="muted">и ещё ${d.more_chains} цепочек</div>` : ""}</div>`;
+    shownChains = d.chains;
+    const chains = d.chains.map((ch, i) => `<div class="chn${ch.done ? " done" : ""}${i >= CHAINS_SHOWN ? " extra" : ""}" style="--h:${ch.hue}" data-i="${i}" title="${esc(ch.stack.join(" → "))}">` +
+      `<span class="ico${ch.done ? " done" : ""}" style="--h:${ch.hue}">${ch.done ? "✓" : ch.emoji}</span><span class="nm">${esc(ch.name)}</span>` +
+      `<span class="fc">${num(ch.files)}</span><button class="dn" data-sig="${ch.signature}" data-done="${ch.done}" title="${ch.done ? "снять отметку" : "отметить решённой"}">${ch.done ? "✓" : "○"}</button></div>` +
+      `<div class="paths">${esc(ch.samples.join("\n"))}</div>`).join("");
+    const hidden = Math.max(0, d.chains.length - CHAINS_SHOWN) + d.more_chains;
+    let lastSep = null, rows = "";
+    for (const o of d.opponents) {
+      const sep = o.separator ?? "—";
+      if (sep !== lastSep) { rows += `<div class="grp">▾ ${esc(sep)}</div>`; lastSep = sep; }
+      rows += `<div class="prt${o.enabled ? "" : " off"}${o.me ? " me" : ""}" data-key="${o.key ?? ""}" title="${o.key === null ? "Overwrite" : o.me ? "этот мод" : "перейти к моду"}">` +
+        `<span class="bg">${[...o.teeth].map((t, i) => `<i class="${t === "-" ? "" : t}" data-i="${i}"></i>`).join("")}</span>` +
+        `<span class="dot"></span><span class="n">${esc(o.name)}</span>` +
+        `<span class="nums">${o.i_beat ? `<span class="w">▲${num(o.i_beat)}</span> ` : ""}${o.beats_me ? `<span class="l">▼${num(o.beats_me)}</span>` : ""}</span>` +
+        `<span class="ps">${o.pos ?? ""}</span></div>`;
+    }
+    conf.innerHTML = `<h3>Конфликты</h3><div class="chains">${chains}${hidden ? `<div class="more" data-more="1" title="показать все">+${hidden}</div>` : ""}</div>` +
+      `<div class="muted" style="margin:0 2px 4px">Участники: фон — зубы по цепочкам выше (зелёный — выигрывает, красный — перекрыт). ▲ — где этот мод перекрывает участника, ▼ — где участник перекрывает его.</div>${rows}`;
   }
   const pl = $("bPlug");
   pl.className = d.plugins.length ? "block ok" : "block empty";
@@ -298,6 +320,7 @@ async function run(c) {
   $("err").textContent = "";
   try {
     const ev = await command(c);
+    if (ev.type === "decided") { pool.forEach(el => { el._sig = null; }); await sync(false); if (shownKey !== null) detail(shownKey); return; }
     if (ev.type === "changed") {
       await sync(true);
       if (ev.canon) { totals(); tiles(); if (shownKey !== null) detail(shownKey); }
@@ -336,9 +359,21 @@ $("tiles").addEventListener("click", ev => {
   run({ type: "focus", view: VIEW, key: +t.dataset.key }).then(() => list.focus({ preventScroll: true }));
 });
 $("bConf").addEventListener("click", ev => {
-  const o = ev.target.closest(".opp");
+  if (ev.target.closest("[data-more]")) { ev.target.closest(".chains").classList.toggle("all"); return; }
+  const ok = ev.target.closest(".dn");
+  if (ok) return run({ type: "set-chain-done", signature: ok.dataset.sig, done: ok.dataset.done !== "true" });
+  const o = ev.target.closest(".prt");
   if (o && o.dataset.key !== "") return run({ type: "focus", view: VIEW, key: +o.dataset.key }).then(() => list.focus({ preventScroll: true }));
-  const ch = ev.target.closest(".chain"); if (ch) ch.classList.toggle("open");
+  const ch = ev.target.closest(".chn");
+  if (ch) {
+    const was = ch.classList.contains("sel");
+    document.querySelectorAll("#bConf .chn.sel").forEach(x => x.classList.remove("sel", "paths-open"));
+    document.querySelectorAll("#bConf .bg i.hl").forEach(x => x.classList.remove("hl"));
+    if (!was) {
+      ch.classList.add("sel", "paths-open");
+      document.querySelectorAll(`#bConf .bg i[data-i="${ch.dataset.i}"]`).forEach(x => x.classList.add("hl"));
+    }
+  }
 });
 let ft;
 $("filter").addEventListener("input", ev => {
