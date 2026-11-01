@@ -1033,9 +1033,10 @@ fn bench_synth(args: &[String]) -> Result<(), String> {
         let p = OverwriteProjection::compute(&table, prio.clone());
         let tt = p.totals();
         eprintln!(
-            "compute#{round}: conflict_paths={} chains={} contexts={} X={} in {:?}",
+            "compute#{round}: conflict_paths={} chains={} normalized={} contexts={} X={} in {:?}",
             tt.conflict_paths,
             tt.chains,
+            tt.normalized,
             tt.contexts,
             tt.fully_overridden,
             t.elapsed()
@@ -1070,7 +1071,10 @@ fn bench_synth(args: &[String]) -> Result<(), String> {
     eprintln!("update in place: move one mod in {:?}", t.elapsed());
     let t = Instant::now();
     let _ = inc.totals();
-    eprintln!("contexts on first read after the move: {:?}", t.elapsed());
+    eprintln!(
+        "contexts and normalized chains on first read after the move: {:?}",
+        t.elapsed()
+    );
     let mut off = moved_prio.clone();
     off[moved] = Priorities::INACTIVE;
     let mut tog = inc.clone();

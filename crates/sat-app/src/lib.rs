@@ -468,7 +468,7 @@ pub struct App {
     flows: std::collections::HashMap<ViewId, FlowIndex>,
     /// Sorted columns of the context table that is open.
     open_context: Option<context::OpenContext>,
-    /// Headings of the normalized chains, per revision.
+    /// Headings of the normalized chains, per overwrite computation.
     heads: Option<(u64, Arc<Vec<chains::Head>>)>,
 }
 

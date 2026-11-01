@@ -46,11 +46,24 @@ pub struct RouteGroups {
     of_chain: FxHashMap<ChainId, u32>,
 }
 
-#[derive(Default)]
 struct Draft {
     nodes: FxHashSet<ModId>,
     edges: FxHashSet<(ModId, ModId)>,
     chains: Vec<ChainId>,
+    /// Every edge goes from higher to lower priority: such a graph cannot have a cycle, so a route that is ordered
+    /// too joins without a graph walk (the common case: only loose-over-archive breaks the order).
+    ordered: bool,
+}
+
+impl Default for Draft {
+    fn default() -> Self {
+        Self {
+            nodes: FxHashSet::default(),
+            edges: FxHashSet::default(),
+            chains: Vec::new(),
+            ordered: true,
+        }
+    }
 }
 
 /// Whether the edges with `add` stay acyclic (Kahn).
@@ -135,10 +148,12 @@ impl RouteGroups {
             for c in chains {
                 let stack = ow.chain_mods(c);
                 let edges: Vec<(ModId, ModId)> = stack.windows(2).map(|p| (p[0], p[1])).collect();
+                let prio = ow.priorities();
+                let ordered = edges.iter().all(|&(a, b)| prio.get(a) > prio.get(b));
                 let fits = |d: &Draft| {
                     d.chains.len() < CHAIN_CAP
                         && d.nodes.len() + stack.iter().filter(|m| !d.nodes.contains(m)).count() <= NODE_CAP
-                        && acyclic(&d.nodes, &d.edges, &edges)
+                        && ((d.ordered && ordered) || acyclic(&d.nodes, &d.edges, &edges))
                 };
                 let i = match drafts.iter().position(fits) {
                     Some(i) => i,
@@ -150,6 +165,7 @@ impl RouteGroups {
                 let d = &mut drafts[i];
                 d.nodes.extend(stack.iter().copied());
                 d.edges.extend(edges);
+                d.ordered &= ordered;
                 d.chains.push(c);
             }
             for d in drafts {

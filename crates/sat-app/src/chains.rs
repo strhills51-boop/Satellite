@@ -109,16 +109,18 @@ pub(crate) struct Part {
 
 impl App {
     // @sat:app.chains.heads
-    /// Headings of the normalized chains, built once per revision.
+    /// Headings of the normalized chains, built once per overwrite computation: cursor moves, colours and
+    /// decisions do not rebuild them (settled-or-not is read at use).
     pub(crate) fn heads(&mut self) -> Arc<Vec<Head>> {
-        if let Some((rev, h)) = &self.heads
-            && *rev == self.revision
+        let ow = self.session.overwrite();
+        let version = self.session.computed("overwrite");
+        if let Some((v, h)) = &self.heads
+            && *v == version
         {
             return h.clone();
         }
-        let ow = self.session.overwrite();
         let h = Arc::new(build(&ow, self.session.table()));
-        self.heads = Some((self.revision, h.clone()));
+        self.heads = Some((version, h.clone()));
         h
     }
 }
