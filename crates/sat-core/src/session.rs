@@ -49,6 +49,8 @@ pub struct Session {
     p_plugins: ProjectionId,
     plugin_versions: Arc<PluginVersions>,
     plugin_canon: PluginCanon,
+    /// Paths that are no conflict (`@sat:ignore`).
+    ignore: crate::ignore::IgnoreRules,
     plugins: Option<Arc<PluginList>>,
     conflicts: Option<Arc<ConflictIndex>>,
     priorities: Option<Arc<Priorities>>,
@@ -74,7 +76,10 @@ impl Session {
     pub fn new(book: OrderBook, table: Arc<ProviderTable>) -> Self {
         let mut graph = Graph::new();
         let p_conflicts = graph
-            .register("conflicts", &[Input::Truth(Truth::Facts)])
+            .register(
+                "conflicts",
+                &[Input::Truth(Truth::Facts), Input::Truth(Truth::Settings)],
+            )
             .expect("fresh graph");
         let p_priorities = graph
             .register(
@@ -109,6 +114,7 @@ impl Session {
             p_plugins,
             plugin_versions: Arc::new(PluginVersions::default()),
             plugin_canon: PluginCanon::default(),
+            ignore: Default::default(),
             plugins: None,
             conflicts: None,
             priorities: None,
@@ -195,6 +201,23 @@ impl Session {
     }
 
     /// The manager's plugin lists (import, or after an edit of the plugin order).
+    pub fn conflict_ignore(&self) -> &crate::ignore::IgnoreRules {
+        &self.ignore
+    }
+
+    // @sat:session.ignore
+    /// Replaces the conflict ignore rules: the conflict index is rebuilt (a Settings change), the overwrite follows.
+    pub fn set_conflict_ignore(&mut self, rules: crate::ignore::IgnoreRules) {
+        if rules == self.ignore {
+            return;
+        }
+        self.ignore = rules;
+        self.graph.apply(&Change {
+            truth: Truth::Settings,
+            keys: Keys::All,
+        });
+    }
+
     pub fn plugin_canon(&self) -> &PluginCanon {
         &self.plugin_canon
     }
@@ -278,7 +301,7 @@ impl Session {
                     prio,
                 )));
             } else if p == self.p_conflicts {
-                self.conflicts = Some(Arc::new(ConflictIndex::build(&self.table)));
+                self.conflicts = Some(Arc::new(ConflictIndex::build_with(&self.table, &self.ignore)));
             } else if p == self.p_priorities {
                 let top = self.index.get(&OVERWRITE.to_lowercase()).copied();
                 let index = &self.index;
@@ -390,6 +413,19 @@ mod tests {
         let full = OverwriteProjection::compute(s.table(), prio);
         assert_eq!(full.stats(), ow.stats());
         assert_eq!(full.totals(), ow.totals());
+    }
+
+    #[test]
+    fn ignore_rules_rebuild_conflicts_and_the_overwrite_follows() {
+        let mut s = session();
+        assert_eq!(s.overwrite().totals().conflict_paths, 2);
+        s.set_conflict_ignore(crate::ignore::IgnoreRules::new(["meshes/"]));
+        assert_eq!(s.overwrite().totals().conflict_paths, 1);
+        assert_eq!(s.computed("conflicts"), 2);
+        // the same rules again change nothing
+        s.set_conflict_ignore(crate::ignore::IgnoreRules::new(["Meshes\\"]));
+        s.overwrite();
+        assert_eq!(s.computed("conflicts"), 2);
     }
 
     #[test]

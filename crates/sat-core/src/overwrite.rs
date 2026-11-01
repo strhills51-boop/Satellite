@@ -126,6 +126,7 @@ pub struct ConflictIndex {
     mod_slot_offsets: Vec<u32>,
     mod_slots: Vec<u32>,
     solo: Vec<Solo>,
+    ignored: usize,
 }
 
 /// Picks the provider of `m` that represents it on a single-mod path: loose before archive, then table order.
@@ -138,6 +139,12 @@ fn own_best(table: &ProviderTable, range: std::ops::Range<usize>) -> usize {
 
 impl ConflictIndex {
     pub fn build(table: &ProviderTable) -> Self {
+        Self::build_with(table, &crate::ignore::IgnoreRules::default())
+    }
+
+    /// Builds the index leaving out contested paths the user ignores (`@sat:ignore`): they are no conflict and
+    /// no part of any chain; a path only one mod provides is never affected.
+    pub fn build_with(table: &ProviderTable, ignore: &crate::ignore::IgnoreRules) -> Self {
         let mods = table.mod_count();
         let paths = table.path_count();
         let mut path_kind = vec![NONE; paths];
@@ -145,6 +152,7 @@ impl ConflictIndex {
         let mut solo = vec![Solo::default(); mods];
         let mut mod_counts = vec![0u32; mods + 1];
         let mut seen: Vec<ModId> = Vec::new();
+        let mut ignored = 0;
         for (pi, kind) in path_kind.iter_mut().enumerate() {
             let p = PathId::from_idx(pi);
             let range = table.path_providers(p);
@@ -163,6 +171,8 @@ impl ConflictIndex {
                 sl.bytes += table.size(i);
                 sl.vram_kib += u64::from(table.vram_kib(i));
                 *kind = m.0;
+            } else if seen.len() > 1 && !ignore.is_empty() && ignore.matches(&table.path_string(p)) {
+                ignored += 1;
             } else if seen.len() > 1 {
                 *kind = CONTESTED | contested.len() as u32;
                 contested.push(p);
@@ -193,7 +203,13 @@ impl ConflictIndex {
             mod_slot_offsets: mod_counts,
             mod_slots,
             solo,
+            ignored,
         }
+    }
+
+    /// Contested paths left out by the ignore rules.
+    pub fn ignored_count(&self) -> usize {
+        self.ignored
     }
 
     pub fn contested_count(&self) -> usize {

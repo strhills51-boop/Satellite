@@ -100,6 +100,10 @@ pub enum Command {
         name: String,
         checked: bool,
     },
+    /// Replace the conflict ignore rules (`meta.ini`, `docs/`, `a/b.dds`): conflicts and chains are recomputed.
+    SetConflictIgnore {
+        rules: Vec<String>,
+    },
     /// Hide a plugin (blacklist) or show it again.
     SetPluginHidden {
         name: String,
@@ -599,6 +603,19 @@ impl App {
                 return Ok(Event::Changed {
                     revision: self.revision,
                     views,
+                    canon: true,
+                });
+            }
+            C::SetConflictIgnore { rules } => {
+                let rules = sat_core::ignore::IgnoreRules::new(rules);
+                if &rules == self.session.conflict_ignore() {
+                    return Ok(Event::Nothing);
+                }
+                self.session.set_conflict_ignore(rules);
+                self.revision += 1;
+                return Ok(Event::Changed {
+                    revision: self.revision,
+                    views: Vec::new(),
                     canon: true,
                 });
             }

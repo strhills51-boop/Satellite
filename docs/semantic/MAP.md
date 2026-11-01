@@ -28,6 +28,7 @@
 | Стиль карточки (контейнер записи, ADR 0012): раскладка и вид, интернирование, отмена, в проекте | `@sat:order.decor.style` (`CardStyle`), `@sat:order.book.style` (`set_style`, `Op::Style`), `@sat:order.book.patch-style` (одно поле на многих, один шаг отмены), команды `SetStyle` / `PatchStyle` (`@sat:app.patch-style`, merge patch), редактор — `@sat:app.decoration` (`Query::Decoration`: выделение и его стили для «mixed») | цвет записи — `set_color` |
 | Раскладка потоком (ADR 0012 §2): блоки разделителей, ряды карточек, окно рядов по высоте, ряд фокуса | `@sat:order.flow` (`FlowParams`, `flow_lines`), `@sat:order.flow.index` (`flow_index`), `@sat:order.flow.row-y` (`flow_row_y`), охват блоков (`@sat:order.flow.scope`, `flow_index_in`: классический вид монолита — текущий разделитель или выбранные стопкой), запрос страницы `@sat:app.lines` (`Query::Lines`) | стиль как данные — `@sat:order.decor.style` |
 | Внешний вид цепочки и контекста: эмодзи и оттенок из состава (не из порядка) | `@sat:identity` (`@sat:identity.of`) | сами цепочки — `@sat:overwrite.projection` |
+| Игнор-лист конфликтов (монолит `conflictIgnorePaths`): `meta.ini` — файл где угодно, `docs/` — папка где угодно, `a/b.dds` — один путь | `@sat:ignore`, `@sat:ignore.matches`; применение — `ConflictIndex::build_with` (`@sat:overwrite.conflicts`); в сессии — `@sat:session.ignore` (истина Settings); в проекте — `conflict_ignore`; команда окна `SetConflictIgnore`; строка — `@sat:cli.ignore` | проверяются только оспариваемые пути |
 | Нормализованные цепочки (слой монолита v499–v501): точные цепочки одного победителя → одна, супер-маршрут, без циклов, капы 256 / 128 | `@sat:routes` (`RouteGroups`, `OverwriteProjection::routes`), `@sat:routes.groups`, `@sat:routes.of-mod`; заголовки и «решено» — `@sat:app.chains`, `@sat:app.chains.heads`; бейджи — `@sat:app.badges.normalized` | точные стеки — `@sat:overwrite.projection`; решения — на точных (`@sat:decisions`) |
 | Бейджи перезаписи на карточке (модель «коллекция цепочек» монолита): по контексту, значки крупнейших цепочек, `+N` | `@sat:app.badges` (`Query::Rows { badges }`) | модель `OW N` — та же выдача, другой показ на странице |
 | Таблица конфликтов контекста (монолит, флажок «цветные типы»): моды × файлы окнами по обеим осям, группы по разделителям, порядок «цепочка / сила» | `@sat:app.context-table` (`Query::Contexts`), `@sat:app.context-table.window` (`Query::ContextTable`) | цепочки и стеки — `@sat:overwrite.projection`; цвет типа файла — страница |
@@ -104,6 +105,7 @@
 - `crates/sat-core/src/decisions.rs` — `@sat:decisions`: решённые цепочки по подписи содержимого.
 - `crates/sat-core/src/engine.rs` — `@sat:engine`: виды истины, наборы изменений, граф проекций (ADR 0010).
 - `crates/sat-core/src/identity.rs` — `@sat:identity`: эмодзи и оттенок цепочек и контекстов из состава.
+- `crates/sat-core/src/ignore.rs` — `@sat:ignore`: правила игнор-листа конфликтов, нормальная форма, сопоставление.
 - `crates/sat-core/src/ids.rs` — `@sat:ids`: типизированные `u32`-идентификаторы.
 - `crates/sat-core/src/interner.rs` — `@sat:interner`: арена строк, свёртка регистра, каталоги, `file_key`.
 - `crates/sat-core/src/facts.rs` — `@sat:facts`: факты сканера.
@@ -168,8 +170,9 @@
 - `crates/sat-scan/tests/scan.rs` — `@sat:scan.it`: интеграционный тест.
 
 ### `tools`
-- `tools/sat-cli/src/main.rs` — `@sat:cli`: `analyze`, `donor`, `sync`, `commit`, `inspect`, `bench-synth`.
+- `tools/sat-cli/src/main.rs` — `@sat:cli`: `analyze`, `donor`, `sync`, `commit`, `ignore`, `inspect`, `bench-synth`.
 - `tools/sat-cli/src/commit_cmd.rs` — `@sat:cli.commit`: `sync` (записи и решения) и `commit` (план, `--apply`).
+- `tools/sat-cli/src/ignore_cmd.rs` — `@sat:cli.ignore`: игнор-лист конфликтов в проекте.
 - `tools/sat-cli/src/bench_order.rs` — `@sat:cli.bench-order`: бенчмарк движка порядка.
 
 ## Документы

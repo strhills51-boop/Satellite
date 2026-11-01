@@ -48,6 +48,7 @@ struct Seen {
 /// Windows is markedly slower at that than mimalloc.
 mod bench_order;
 mod commit_cmd;
+mod ignore_cmd;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -59,10 +60,11 @@ fn main() {
         Some("donor") => donor(&args[1..]),
         Some("sync") => commit_cmd::sync(&args[1..]),
         Some("commit") => commit_cmd::commit(&args[1..]),
+        Some("ignore") => ignore_cmd::ignore(&args[1..]),
         Some("inspect") => inspect(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply]\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -243,6 +245,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 p.decor = old.decor;
                 p.decisions = old.decisions;
                 p.plugin_blacklist = old.plugin_blacklist;
+                p.conflict_ignore = old.conflict_ignore;
             }
             eprintln!(
                 "project: re-imported canon from modlist.txt into {}",
@@ -548,7 +551,15 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let prio = priorities(&list, &table, &index);
 
     let t = Instant::now();
-    let proj = OverwriteProjection::compute(&table, prio.clone());
+    let conflict_index = std::sync::Arc::new(ConflictIndex::build_with(&table, &project.conflict_ignore));
+    if conflict_index.ignored_count() > 0 {
+        eprintln!(
+            "conflict ignore: {} rule(s), {} contested path(s) left out",
+            project.conflict_ignore.rules().len(),
+            conflict_index.ignored_count()
+        );
+    }
+    let proj = OverwriteProjection::compute_with(conflict_index, &table, prio.clone());
     timings.insert("overwrite_compute", t.elapsed().as_millis());
     let t = Instant::now();
     let _again = OverwriteProjection::compute(&table, prio);

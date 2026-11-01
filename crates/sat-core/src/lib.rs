@@ -24,6 +24,7 @@ pub mod engine;
 pub mod facts;
 pub mod identity;
 pub mod ids;
+pub mod ignore;
 pub mod interner;
 pub mod order;
 pub mod overwrite;

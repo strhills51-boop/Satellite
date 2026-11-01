@@ -49,6 +49,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut decisions = None;
     let mut records = Vec::new();
     let mut blacklist = Vec::new();
+    let mut ignore = Default::default();
     let book = match std::fs::read(&project_file)
         .ok()
         .and_then(|b| serde_json::from_slice::<Project>(&b).ok())
@@ -62,6 +63,7 @@ fn load(args: &[String]) -> Result<App, String> {
             decisions = Some(p.decisions.clone());
             records = p.sync.clone();
             blacklist = p.plugin_blacklist.clone();
+            ignore = p.conflict_ignore.clone();
             p.book().0
         }
         _ => {
@@ -105,6 +107,7 @@ fn load(args: &[String]) -> Result<App, String> {
     if let Some(d) = decisions {
         session.set_decisions(d);
     }
+    session.set_conflict_ignore(ignore);
     session.set_plugin_facts(Arc::new(versions));
     session.set_plugin_canon(PluginCanon {
         load_order: profile::parse_loadorder(&read("loadorder.txt").unwrap_or_default()),

@@ -103,6 +103,17 @@ sat-cli analyze X:\MO2 --report report.json
   пересканирования нет).
 
 
+### Игнор-лист конфликтов
+
+```bat
+sat-cli ignore X:\MO2 --add meta.ini --add docs/ --add textures/sky/a.dds
+sat-cli ignore X:\MO2 --remove docs/
+```
+
+Пути, которые не считаются конфликтом: `meta.ini` — файл с таким именем где угодно, `docs/` — папка с таким именем
+где угодно, `textures/sky/a.dds` — ровно этот путь (регистр и `\` не важны). Список хранится в проекте и
+применяется при следующем `analyze` и в `sat-devserver`.
+
 ### Расхождения диска с проектом и фиксация
 
 ```bat
