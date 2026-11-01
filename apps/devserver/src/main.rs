@@ -33,11 +33,71 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 // @sat:devserver.load
 /// Opens the build: the project's canon and decorations if `sat-cli` saved one, else `modlist.txt`; scans (cached)
 /// every listed mod and Overwrite; reads the plugin lists.
+// @sat:devserver.offline
+/// Opens a project folder (`<profile>/satellite`: `project.v0.json` + `facts/`) with no build at all: the order,
+/// decoration, conflicts, plugins and metrics come from the project (ADR 0007 — the project is self-sufficient).
+fn load_offline(dir: &std::path::Path) -> Result<App, String> {
+    let file = dir.join("project.v0.json");
+    let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let p = Project::from_json(&bytes).map_err(|e| format!("{}: {e}", file.display()))?;
+    let store = sat_stll::facts::FactsStore::new(dir.join("facts"));
+    let t = Instant::now();
+    let mut builder = TableBuilder::new();
+    let mut versions = PluginVersions::default();
+    let (mut found, mut absent) = (0, 0);
+    let names = p
+        .canon
+        .entries
+        .iter()
+        .filter(|e| e.is_mod())
+        .map(|e| (e.name.clone(), p.entities.id_of(&e.name).cloned()))
+        .chain(std::iter::once((
+            OVERWRITE.to_string(),
+            Some(sat_core::entity::EntityId("overwrite".into())),
+        )));
+    for (name, id) in names {
+        let facts = match id.and_then(|id| store.get(&id)) {
+            Some((_, f)) => {
+                found += 1;
+                f
+            }
+            None => {
+                absent += 1;
+                sat_core::facts::ModFacts::missing(name)
+            }
+        };
+        let mid = builder.add(&facts);
+        versions.add(mid, &facts);
+    }
+    eprintln!(
+        "offline: project {} — facts of {found} mods ({absent} without facts) in {:.1} s",
+        dir.display(),
+        t.elapsed().as_secs_f64()
+    );
+    let mut session = Session::new(p.book().0, Arc::new(builder.finish()));
+    session.set_decisions(p.decisions.clone());
+    session.set_conflict_ignore(p.conflict_ignore.clone());
+    session.set_plugin_facts(Arc::new(versions));
+    // the manager's plugin lists are not in the project yet (ADR 0007: a `bethesda.plugins` section): only the
+    // user's hidden plugins come along
+    session.set_plugin_canon(PluginCanon {
+        blacklist: p.plugin_blacklist.clone(),
+        ..PluginCanon::default()
+    });
+    let mut app = App::new(session, Registry::with_builtins());
+    app.set_sync(p.sync.clone(), Vec::new());
+    app.set_tag_catalog(p.tags.clone());
+    Ok(app)
+}
+
 fn load(args: &[String]) -> Result<App, String> {
+    if let Some(dir) = flag(args, "--project") {
+        return load_offline(std::path::Path::new(dir));
+    }
     let path = args
         .first()
         .filter(|a| !a.starts_with("--"))
-        .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--port N]")?;
+        .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--port N]\n       sat-devserver --project <project folder> [--port N]   (no build needed)")?;
     let mut inst = Instance::load(path).map_err(|e| e.to_string())?;
     if let Some(p) = flag(args, "--profile") {
         inst.profile = p.to_string();

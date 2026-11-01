@@ -1,0 +1,18 @@
+[package]
+name = "sat-stll"
+description = "The Satellite project on disk (.stll, ADR 0007): project sections and per-mod facts, readable without the build."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sat-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bincode.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

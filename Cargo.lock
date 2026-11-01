@@ -312,6 +312,7 @@ dependencies = [
  "sat-formats",
  "sat-mo2",
  "sat-scan",
+ "sat-stll",
  "serde",
  "serde_json",
 ]
@@ -338,6 +339,7 @@ dependencies = [
  "sat-core",
  "sat-mo2",
  "sat-scan",
+ "sat-stll",
  "serde_json",
  "tiny_http",
 ]
@@ -370,6 +372,17 @@ dependencies = [
  "sat-core",
  "sat-formats",
  "serde",
+ "tempfile",
+]
+
+[[package]]
+name = "sat-stll"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "sat-core",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

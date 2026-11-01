@@ -377,6 +377,32 @@ fn analyze(args: &[String]) -> Result<(), String> {
         );
     }
 
+    // facts of the project (ADR 0007 step 2): written after a scan, read instead of one with --offline
+    let offline = has(args, "--offline");
+    let save_facts = !has(args, "--no-save") && !offline;
+    let facts_store = sat_stll::facts::FactsStore::new(
+        project_path
+            .parent()
+            .map_or_else(|| PathBuf::from("facts"), |d| d.join("facts")),
+    );
+    let fact_ids: std::collections::HashMap<String, sat_core::entity::EntityId> = project
+        .entities
+        .iter()
+        .map(|e| (e.name.to_lowercase(), e.id.clone()))
+        .chain(std::iter::once((
+            OVERWRITE.to_lowercase(),
+            sat_core::entity::EntityId("overwrite".into()),
+        )))
+        .collect();
+    let fact_id = |name: &str| fact_ids.get(&name.to_lowercase()).cloned();
+    let mut facts_written = 0usize;
+    if offline {
+        eprintln!(
+            "offline: facts from {} instead of a scan",
+            facts_store.dir().display()
+        );
+    }
+
     let mut run = RunState::default();
     let mut jobs: Vec<ScanJob> = list
         .entries
@@ -434,7 +460,23 @@ fn analyze(args: &[String]) -> Result<(), String> {
         let mut builder = TableBuilder::new();
         let mut plugin_versions = PluginVersions::default();
         let mut seen = Vec::with_capacity(jobs.len());
-        sat_scan::scan_batched(&jobs, &opts, &progress, SCAN_BATCH, |_, o| {
+        let mut sink = |o: sat_scan::ScanOutcome| {
+            // @sat:cli.facts
+            // the project keeps what the scan saw, by entity id, so it works without the build
+            if save_facts
+                && !o.facts.missing
+                && let Some(eid) = fact_id(&o.facts.name)
+            {
+                match facts_store.put(&eid, o.signature, &o.facts) {
+                    Ok(sat_stll::facts::Put::Written) => facts_written += 1,
+                    Ok(sat_stll::facts::Put::Unchanged) => {}
+                    Err(e) => {
+                        if issues.len() < 200 {
+                            issues.push(format!("{}: project facts not saved: {e}", o.facts.name));
+                        }
+                    }
+                }
+            }
             let id = builder.add(&o.facts);
             plugin_versions.add(id, &o.facts);
             issue_count += o.issues.len();
@@ -462,7 +504,25 @@ fn analyze(args: &[String]) -> Result<(), String> {
                     r.tags(&o.facts).into_iter().map(|(t, _)| t).collect()
                 }),
             });
-        });
+        };
+        if offline {
+            // the build is not here: the project's facts stand in for the scan
+            for job in &jobs {
+                let stored = fact_id(&job.name).and_then(|eid| facts_store.get(&eid));
+                let (signature, facts) = stored.unwrap_or_else(|| (0, ModFacts::missing(job.name.clone())));
+                progress.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                sink(sat_scan::ScanOutcome {
+                    facts,
+                    from_cache: true,
+                    route: sat_scan::Route::Reuse,
+                    issues: Vec::new(),
+                    signature,
+                    elapsed: std::time::Duration::ZERO,
+                });
+            }
+        } else {
+            sat_scan::scan_batched(&jobs, &opts, &progress, SCAN_BATCH, |_, o| sink(o));
+        }
         done.store(true, std::sync::atomic::Ordering::Relaxed);
         (seen, builder, plugin_versions)
     });
@@ -538,7 +598,15 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 name,
             })
             .collect();
-        let r = project.observe(&disk);
+        // offline there is no mods folder to compare with: the records of the last real run stand
+        let r = if offline {
+            sat_core::sync::records::Reconcile {
+                records: project.sync.clone(),
+                matched: Vec::new(),
+            }
+        } else {
+            project.observe(&disk)
+        };
         let count = |pred: &dyn Fn(&Mismatch, EntityKind) -> bool| {
             r.records.iter().filter(|x| pred(&x.mismatch, x.entity)).count()
         };
@@ -726,7 +794,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .iter()
         .filter_map(|o| o.error.as_ref().map(|e| format!("{}: {e}", o.name)))
         .collect();
-    let publish = seals.is_empty() && !has(args, "--no-save");
+    let publish = seals.is_empty() && !has(args, "--no-save") && !offline;
     if seals.is_empty() {
         for (to, why) in [
             (RunStatus::Committing, "seals passed"),
@@ -802,6 +870,18 @@ fn analyze(args: &[String]) -> Result<(), String> {
     if publish {
         let bytes = project.to_json()?;
         sat_mo2::write_atomic(&project_path, &bytes).map_err(|e| e.to_string())?;
+        // facts of entities that left the project go with them
+        let keep: std::collections::HashSet<&str> = fact_ids.values().map(|i| i.0.as_str()).collect();
+        let dropped = facts_store.retain(&keep).map_err(|e| e.to_string())?;
+        eprintln!(
+            "project facts: {facts_written} mod(s) written, {} unchanged, {dropped} dropped → {}",
+            outcomes
+                .iter()
+                .filter(|o| !o.missing)
+                .count()
+                .saturating_sub(facts_written),
+            facts_store.dir().display()
+        );
     }
     Ok(())
 }

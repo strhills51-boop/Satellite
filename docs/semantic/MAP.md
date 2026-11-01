@@ -101,6 +101,7 @@
 | Перезапуск анализаторов по кешированному индексу | `@sat:scan.walk.reanalyze` | — |
 | Донор: соответствие, категории, оценка | `@sat:sync.donor` | — |
 | Устойчивые id сущностей (ADR 0007): имя — атрибут; переименование не теряет декорацию, метки, подпись | `@sat:entity` (`EntityId`, `@sat:entity.mint`), `@sat:entity.registry` (`Entities`: id ↔ имя, `follow`), `@sat:entity.rename`; проект — схема 2, разделы по id: `@sat:project.load` (миграция 1 → 2), `@sat:project.apply-plan`; перекладка ключей декорации — `@sat:order.decor.rekey` | книга порядка внутри сессии — по именам и `Key`; перевод на границе проекта |
+| Факты модов в проекте (холодный ярус, ADR 0007 шаг 2): проект работает без сборки | `@sat:stll`, `@sat:stll.facts` (`FactsStore`: по id сущности, подпись содержимого, запись только изменившихся), `@sat:stll.facts.format`, `@sat:stll.facts.put`, `@sat:stll.facts.get`; запись после скана и `--offline` — `@sat:cli.facts`; окно без сборки — `@sat:devserver.offline` (`--project`) | кеш скана машины — `@sat:scan.cache` |
 | Записи SYNC и сверка диска с проектом | `@sat:sync.records.reconcile` | ключ сопоставления — `normalize_name`, ключ отпечатка — точное имя в нижнем регистре |
 | Фиксация (техпроцесс «скан/синхронизация → обработка → фиксация», NG-D003 §7): решения по записям, план, бэкап, журнал, откат | ответы — `@sat:sync.records.resolution`; план — `@sat:sync.plan`, `@sat:sync.plan.build`, `@sat:sync.plan.canon`, `@sat:sync.plan.order`; исполнение — `@sat:mo2.commit`, `@sat:mo2.commit.execute`, `@sat:mo2.commit.undo`; API приложения — `@sat:app.sync`, `@sat:app.sync.decide` (`Command::Decide`, `Query::Sync`: записи, ответы, план; исполнения нет); командная строка — `@sat:cli.commit`, `@sat:cli.commit.sync`, `@sat:cli.commit.run` | сверка — `@sat:sync.records.reconcile`; запись файлов — `@sat:mo2.write-atomic` |
 
@@ -172,6 +173,10 @@
 - `crates/sat-mo2/src/commit.rs` — `@sat:mo2.commit`: исполнение плана — версия-бэкап, журнал, операции, запись профиля, откат.
 - `crates/sat-mo2/src/profile.rs` — `@sat:mo2.profile`: файлы профиля байт в байт.
 - `crates/sat-mo2/src/meta.rs` — `@sat:mo2.meta`: `meta.ini`.
+
+### `crates/sat-stll` — проект на диске (ADR 0007)
+- `crates/sat-stll/src/lib.rs` — `@sat:stll`: проект на диске (раскладка; позже — один файл `.stll`).
+- `crates/sat-stll/src/facts.rs` — `@sat:stll.facts`: факты модов в проекте по id сущности.
 
 ### `crates/sat-scan` — обход папок модов (холодный ярус)
 - `crates/sat-scan/src/lib.rs` — `@sat:scan`: `ScanJob`, `ScanOptions`, `ScanProgress`, `scan` / `scan_batched`, выбор маршрута.

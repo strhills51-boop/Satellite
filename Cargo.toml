@@ -15,6 +15,7 @@ sat-core = { path = "crates/sat-core" }
 sat-mo2 = { path = "crates/sat-mo2" }
 sat-scan = { path = "crates/sat-scan" }
 sat-app = { path = "crates/sat-app" }
+sat-stll = { path = "crates/sat-stll" }
 rayon = "1.11"
 rustc-hash = "2.1"
 thiserror = "2"
