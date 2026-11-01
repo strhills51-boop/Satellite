@@ -26,7 +26,7 @@
 html, body { height: 100%; margin: 0; }
 body { background: linear-gradient(var(--bg), var(--bg2)); color: var(--fg); font: 14px/1.35 var(--ui); display: grid;
   grid-template-rows: auto 1fr auto; height: 100vh; }
-button, input { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; }
+button, input, select { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; }
 button { cursor: pointer; } button:hover { border-color: var(--primary-line); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -63,9 +63,21 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .on .toggle { background: var(--ok); }
 .name { grid-column: 2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 2px; }
 .off .name { color: var(--muted); }
-.counters { grid-row: 2; grid-column: 1 / 3; display: flex; justify-content: flex-end; gap: 10px; font: 11px var(--mono); color: var(--muted); }
+.line2 { grid-row: 2; grid-column: 1 / 3; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.counters { margin-left: auto; display: flex; gap: 10px; font: 11px var(--mono); color: var(--muted); flex: 0 0 auto; }
+/* overwrite badges (monolith classic model): per context a pill with its colour dot and one icon per chain */
+.strip { display: flex; gap: 4px; min-width: 0; overflow: hidden; }
+.ctx { display: inline-flex; align-items: center; gap: 3px; height: 17px; padding: 0 4px 0 3px; border-radius: 999px; flex: 0 1 auto; min-width: 0; overflow: hidden;
+  border: 1px solid hsl(var(--h) 60% 60% / .30); background: hsl(var(--h) 50% 40% / .12); }
+.ctx > b { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: hsl(var(--h) 70% 60%); box-shadow: 0 0 6px hsl(var(--h) 70% 60% / .5); }
+.ico { width: 15px; height: 15px; flex: 0 0 15px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; line-height: 1;
+  background: hsl(var(--h) 55% 45% / .34); border: 1px solid hsl(var(--h) 60% 60% / .70); }
+.ico.won { box-shadow: 0 0 0 1px var(--win); }
+.ctx i { font: 10px var(--mono); font-style: normal; color: var(--muted); padding-left: 1px; }
+.owpill { font: 11px var(--mono); padding: 0 6px; border-radius: 999px; border: 1px solid hsl(var(--h) 60% 60% / .35); background: hsl(var(--h) 50% 40% / .14); display: inline-flex; gap: 4px; align-items: center; }
+.owpill b { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--h) 70% 60%); }
 .counters .w { color: var(--w-txt); } .counters .l { color: var(--l-txt); } .counters .m { color: var(--m-txt); } .counters .x { color: var(--x-txt); font-weight: 600; }
-.prio { position: absolute; left: 10px; bottom: 4px; font: 10px var(--mono); color: var(--muted); }
+.prio { color: var(--muted); }
 .row.sep { height: var(--row); background: var(--bg2); font-weight: 600; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
 .row.sep .size { margin-left: auto; font: 11px var(--mono); color: var(--muted); font-weight: 400; }
 .row.foreign .name { font-style: italic; color: var(--muted); }
@@ -118,7 +130,10 @@ footer b { color: var(--accent2); font-weight: 500; }
   <section id="tilesec"><h2>Разделители <small id="sepcount"></small></h2><div id="tiles"></div></section>
   <section>
     <h2>Моды <small id="modcount"></small></h2>
-    <div class="tools"><input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени"><span id="err" role="status"></span></div>
+    <div class="tools"><input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени">
+      <select id="badgeModel" aria-label="Модель бейджей"><option value="classic">Коллекция цепочек</option><option value="summary">OW N</option></select>
+      <select id="density" aria-label="Плотность"><option value="3">Плотно · 3</option><option value="6">Обычно · 6</option><option value="12">Свободно · 12</option></select>
+      <span id="err" role="status"></span></div>
     <div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
   </section>
   <section id="summary" aria-label="Сводка">
@@ -134,6 +149,8 @@ const $ = id => document.getElementById(id);
 const list = $("list"), layer = $("layer"), spacer = $("spacer");
 const ROW = 44, VIEW = 0, MAXPX = 8_000_000;
 let len = 0, pool = [], busy = false, again = false, shownKey = null, detailSeq = 0;
+let badgeModel = "classic", density = 6;
+try { badgeModel = localStorage.getItem("sat-badges") || "classic"; density = +(localStorage.getItem("sat-density") || 6); } catch (_) {}
 
 async function post(path, body) {
   const r = await fetch(path, { method: "POST", body: JSON.stringify(body) });
@@ -180,7 +197,21 @@ function paint(el, r) {
     c.mid ? `<span class="m" title="в середине стека">M${c.mid}</span>` : "",
     c.unique ? `<span title="уникальных файлов">+${c.unique}</span>` : "",
   ].join("") : "";
-  el.innerHTML = `<div class="card"><span class="toggle" title="вкл/выкл"></span><span class="name">${esc(r.name)}</span><div class="counters">${counters}</div></div><span class="prio">${r.pos}</span>`;
+  el.innerHTML = `<div class="card"><span class="toggle" title="вкл/выкл"></span><span class="name">${esc(r.name)}</span>` +
+    `<div class="line2">${strip(r)}<div class="counters">${counters}<span class="prio" title="приоритет MO2">${r.pos}</span></div></div></div>`;
+}
+
+/** Overwrite badges of a card: "classic" = per context, one icon per chain; "summary" = one OW pill. */
+function strip(r) {
+  if (!r.badges || !r.badges.length) return "";
+  if (badgeModel === "summary") {
+    const files = r.badges.reduce((a, b) => a + b.files, 0), h = r.badges[0].hue;
+    const n = r.badges.reduce((a, b) => a + b.chains.length + b.more, 0);
+    return `<span class="owpill" style="--h:${h}" title="${files} конфликтных файлов · ${n} цепочек · ${r.badges.length} контекстов"><b></b>OW ${files}</span>`;
+  }
+  return `<span class="strip">` + r.badges.map(b => `<span class="ctx" style="--h:${b.hue}" title="контекст · ${b.files} файлов · ${b.chains.length + b.more} цепочек"><b></b>` +
+    b.chains.map(c => `<span class="ico${c.place === 0 ? " won" : ""}" style="--h:${c.hue}" title="${esc(c.stack.join(" → "))} · ${c.files} ф. · ${c.place === 0 ? "выигрывает" : "проигрывает"}">${c.emoji}</span>`).join("") +
+    (b.more ? `<i>+${b.more}</i>` : "") + `</span>`).join("") + `</span>`;
 }
 
 /** Re-reads only the rows in the window; `follow` keeps the keyboard focus visible. */
@@ -190,7 +221,7 @@ async function sync(follow) {
   try {
     ensurePool();
     const first = Math.floor(vtop() / ROW);
-    const rep = await query({ type: "rows", view: VIEW, start: first, count: pool.length });
+    const rep = await query({ type: "rows", view: VIEW, start: first, count: pool.length, badges: density });
     len = rep.len;
     spacer.style.height = Math.min(len * ROW, MAXPX) + "px";
     $("modcount").textContent = num(len) + " строк";
@@ -314,6 +345,10 @@ $("filter").addEventListener("input", ev => {
   clearTimeout(ft);
   ft = setTimeout(() => run({ type: "set-filter", view: VIEW, filter: { text: ev.target.value, enabled: null, color: null, show_muted: false } }), 150);
 });
+$("badgeModel").value = badgeModel; $("density").value = String(density);
+const repaint = () => { pool.forEach(el => { el._sig = null; }); sync(false); };
+$("badgeModel").onchange = ev => { badgeModel = ev.target.value; try { localStorage.setItem("sat-badges", badgeModel); } catch (_) {} repaint(); };
+$("density").onchange = ev => { density = +ev.target.value; try { localStorage.setItem("sat-density", density); } catch (_) {} repaint(); };
 $("theme").onclick = () => {
   const r = document.documentElement;
   r.dataset.theme = r.dataset.theme === "light" ? "dark" : "light";

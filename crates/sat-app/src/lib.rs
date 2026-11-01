@@ -87,6 +87,9 @@ pub enum Query {
         view: ViewId,
         start: usize,
         count: usize,
+        /// Chain icons per context badge on mod cards (the "density"); 0 = no badges.
+        #[serde(default)]
+        badges: u8,
     },
     Totals,
     /// The plugin list (full; a few thousand entries).
@@ -176,6 +179,34 @@ pub struct RowView {
     pub selected: bool,
     /// Overwrite counters of a mod: wins, losses, middle, unique; X = fully overridden.
     pub counters: Option<Counters>,
+    /// Overwrite badges, one per context of the mod (empty when not asked or no conflicts).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub badges: Vec<ContextBadge>,
+}
+
+// @sat:app.badges
+/// One context badge of a mod card (monolith "classic" overwrite badges): the context's colour and the icons of
+/// the mod's largest chains in it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContextBadge {
+    pub hue: u16,
+    pub chains: Vec<ChainBadge>,
+    /// Chains of this mod in the context not shown as icons.
+    pub more: u32,
+    /// Conflict files of this mod in the context.
+    pub files: u32,
+}
+
+/// One chain icon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChainBadge {
+    pub emoji: String,
+    pub hue: u16,
+    pub files: u32,
+    /// Place of the mod in the chain's stack (0 = it wins there).
+    pub place: u8,
+    /// Stack, winner first (tooltip).
+    pub stack: Vec<String>,
 }
 
 /// The counter group at the bottom right of a mod card.
@@ -356,7 +387,12 @@ impl App {
     /// Answers a query (projections are brought up to date lazily, only what the query needs).
     pub fn query(&mut self, q: Query) -> Result<Reply, AppError> {
         Ok(match q {
-            Query::Rows { view, start, count } => {
+            Query::Rows {
+                view,
+                start,
+                count,
+                badges,
+            } => {
                 let ow = self.session.overwrite();
                 let plugins = self.session.plugins();
                 let names = self.session.table().clone();
@@ -405,6 +441,12 @@ impl App {
                             muted: r.muted,
                             focused: r.focused,
                             selected: r.selected,
+                            badges: match (badges, index.get(&r.name.to_lowercase())) {
+                                (n, Some(&m)) if n > 0 && r.kind == RowKind::Mod => {
+                                    mod_badges(&ow, &names, m, n)
+                                }
+                                _ => Vec::new(),
+                            },
                             counters,
                         }
                     })
@@ -483,6 +525,59 @@ impl App {
             },
         })
     }
+}
+
+/// Context badges of one mod: chains grouped by context, largest first, `limit` icons per context.
+fn mod_badges(
+    ow: &sat_core::overwrite::OverwriteProjection,
+    table: &sat_core::table::ProviderTable,
+    m: ModId,
+    limit: u8,
+) -> Vec<ContextBadge> {
+    let mut chains = ow.mod_chains(m);
+    if chains.is_empty() {
+        return Vec::new();
+    }
+    chains.sort_by_key(|&c| std::cmp::Reverse((ow.chain(c).files, c.0)));
+    let mut by_ctx: Vec<(Option<sat_core::ids::ContextId>, Vec<sat_core::ids::ChainId>)> = Vec::new();
+    for c in chains {
+        let ctx = ow.chain_context(c);
+        match by_ctx.iter_mut().find(|(k, _)| *k == ctx) {
+            Some((_, v)) => v.push(c),
+            None => by_ctx.push((ctx, vec![c])),
+        }
+    }
+    let name = |x: ModId| table.mod_name(x);
+    by_ctx
+        .into_iter()
+        .map(|(ctx, cs)| {
+            let hue = ctx.map_or(210, |k| {
+                sat_core::identity::identity(ow.contexts()[k.idx()].mods.iter().map(|&x| name(x))).hue
+            });
+            let files = cs.iter().map(|&c| ow.chain(c).files).sum();
+            let shown: Vec<ChainBadge> = cs
+                .iter()
+                .take(limit as usize)
+                .map(|&c| {
+                    let stack = ow.chain_mods(c);
+                    let id = sat_core::identity::identity(stack.iter().map(|&x| name(x)));
+                    ChainBadge {
+                        emoji: id.emoji.to_string(),
+                        hue: id.hue,
+                        files: ow.chain(c).files,
+                        place: stack.iter().position(|&x| x == m).unwrap_or(0) as u8,
+                        stack: stack.iter().map(|&x| name(x).to_string()).collect(),
+                    }
+                })
+                .collect();
+            ContextBadge {
+                hue,
+                more: (cs.len() - shown.len()) as u32,
+                files,
+                chains: shown,
+            }
+        })
+        .collect()
 }
 
 const CHAIN_LIMIT: usize = 60;
@@ -719,6 +814,7 @@ mod tests {
                 view: 0,
                 start: 0,
                 count: 10,
+                badges: 4,
             })
             .unwrap()
         else {
@@ -732,6 +828,12 @@ mod tests {
         // A is now below B = higher priority: it wins the shared texture
         let a_row = &rows[2];
         assert_eq!(a_row.counters.unwrap().win, 1);
+        // one context, one chain icon; the same chain shows the same icon on both mods
+        assert_eq!(a_row.badges.len(), 1);
+        let icon = &a_row.badges[0].chains[0];
+        assert_eq!((icon.place, icon.files, icon.stack.len()), (0, 1, 2));
+        assert_eq!(rows[1].badges[0].chains[0].emoji, icon.emoji);
+        assert_eq!(rows[1].badges[0].chains[0].place, 1);
         assert!(a_row.focused && a_row.selected);
         let json = serde_json::to_string(&a.query(Query::Totals).unwrap()).unwrap();
         assert!(json.contains("\"conflict_paths\":1"), "{json}");
@@ -765,6 +867,7 @@ mod tests {
                 view: 0,
                 start: 0,
                 count: 1,
+                badges: 0,
             })
             .unwrap()
         else {
