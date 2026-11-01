@@ -47,6 +47,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let manager: Modlist = profile::parse_modlist(&modlist).0;
     let project_file = inst.profile_dir().join("satellite").join("project.v0.json");
     let mut decisions = None;
+    let mut records = Vec::new();
     let book = match std::fs::read(&project_file)
         .ok()
         .and_then(|b| serde_json::from_slice::<Project>(&b).ok())
@@ -58,6 +59,7 @@ fn load(args: &[String]) -> Result<App, String> {
                 p.decisions.len()
             );
             decisions = Some(p.decisions.clone());
+            records = p.sync.clone();
             p.book().0
         }
         _ => {
@@ -117,7 +119,19 @@ fn load(args: &[String]) -> Result<App, String> {
         totals.chains,
         t.elapsed().as_secs_f64() * 1000.0
     );
-    Ok(App::new(session, Registry::with_builtins()))
+    let mut app = App::new(session, Registry::with_builtins());
+    // the records of the last `sat-cli analyze` and the folders now: decisions and the plan, never a commit here
+    let disk: Vec<String> = std::fs::read_dir(&inst.mods_dir)
+        .map(|rd| {
+            rd.filter_map(Result::ok)
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    eprintln!("sync: {} record(s) from the project", records.len());
+    app.set_sync(records, disk);
+    Ok(app)
 }
 
 fn json(body: String, status: u16) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {

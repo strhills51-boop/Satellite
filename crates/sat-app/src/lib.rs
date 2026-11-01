@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 mod chains;
 mod context;
+mod sync;
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
+pub use sync::{Decision, RecordView};
 
 use serde::{Deserialize, Serialize};
 
@@ -93,6 +95,11 @@ pub enum Command {
         signature: String,
         done: bool,
     },
+    /// Decide a sync record (by fingerprint): pending, ignore, or confirm with an answer that fits it.
+    Decide {
+        fingerprint: String,
+        decision: Decision,
+    },
     Undo,
     Redo,
     OpenView,
@@ -126,6 +133,8 @@ pub enum Query {
     },
     /// Separator tiles of the left column.
     Separators,
+    /// Sync records of the last analysis with their answers, and the commit plan they make now.
+    Sync,
     /// Conflict contexts for the table's selector, largest first.
     Contexts,
     /// A window of the conflict table of the context that mod `key` belongs to.
@@ -405,6 +414,10 @@ pub enum Reply {
     Contexts {
         contexts: Vec<ContextItem>,
     },
+    Sync {
+        records: Vec<RecordView>,
+        plan: Box<sat_core::sync::plan::Plan>,
+    },
     /// `None` when the mod is in no context.
     ContextTable {
         table: Option<Box<ContextTable>>,
@@ -454,6 +467,8 @@ pub enum AppError {
     Chord(String, String),
     #[error("bad chain signature {0:?}")]
     Signature(String),
+    #[error("sync record {0}")]
+    Record(String),
     #[error("bad style patch: {0}")]
     Style(String),
 }
@@ -469,6 +484,8 @@ pub struct App {
     flows: std::collections::HashMap<ViewId, FlowIndex>,
     /// Sorted columns of the context table that is open.
     open_context: Option<context::OpenContext>,
+    /// Sync records and the folder names they were found against.
+    sync: sync::SyncState,
     /// Headings of the normalized chains, per overwrite computation.
     heads: Option<(u64, Arc<Vec<chains::Head>>)>,
 }
@@ -482,6 +499,7 @@ impl App {
             flows: Default::default(),
             open_context: None,
             heads: None,
+            sync: Default::default(),
         }
     }
 
@@ -536,6 +554,17 @@ impl App {
                 .command(|b| b.set_collapsed(view, separator, collapsed))?,
             C::SetFilter { view, filter } => self.session.command(|b| b.set_filter(view, filter))?,
             C::Focus { view, key } => self.session.command(|b| Ok(b.focus_entry(view, key)))?,
+            C::Decide {
+                fingerprint,
+                decision,
+            } => {
+                return Ok(if self.decide(&fingerprint, decision)? {
+                    self.revision += 1;
+                    Event::Decided
+                } else {
+                    Event::Nothing
+                });
+            }
             C::SetChainDone { signature, done } => {
                 let sig = u64::from_str_radix(&signature, 16)
                     .map_err(|_| AppError::Signature(signature.clone()))?;
@@ -771,6 +800,10 @@ impl App {
                     lines,
                 }
             }
+            Query::Sync => Reply::Sync {
+                records: self.record_views(),
+                plan: Box::new(self.commit_plan()),
+            },
             Query::Contexts => Reply::Contexts {
                 contexts: self.contexts(),
             },
