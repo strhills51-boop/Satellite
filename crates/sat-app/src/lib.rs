@@ -64,6 +64,11 @@ pub enum Command {
         view: ViewId,
         filter: Filter,
     },
+    /// Move the focus to an entry (a link from another block: "go to this mod").
+    Focus {
+        view: ViewId,
+        key: Key,
+    },
     Undo,
     Redo,
     OpenView,
@@ -88,6 +93,70 @@ pub enum Query {
     Plugins,
     /// Active key bindings of the list context.
     Keymap,
+    /// Everything the summary shows about one mod: with whom and in what it conflicts, its plugins.
+    ModDetail {
+        key: Key,
+    },
+    /// Separator tiles of the left column.
+    Separators,
+}
+
+/// One separator tile: its block's size and how many mods in it are on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SeparatorTile {
+    pub key: Key,
+    pub name: String,
+    pub index: u32,
+    /// Position of the first mod of the block (MO2 priority), if the block has any.
+    pub first: Option<u32>,
+    pub mods: u32,
+    pub enabled: u32,
+}
+
+// @sat:app.mod-detail
+/// One opponent of a mod: who overrides whom and on how many files.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Opponent {
+    /// Book key (absent for Overwrite, which is not an entry of the list).
+    pub key: Option<Key>,
+    pub name: String,
+    pub pos: Option<u32>,
+    pub enabled: bool,
+    /// Files where this mod overrides the focused one.
+    pub beats_me: u32,
+    /// Files where the focused mod overrides this one.
+    pub i_beat: u32,
+    /// One tooth per listed chain of the focused mod (same order as `chains`): `w` the focused mod wins against
+    /// this opponent there, `l` loses, `-` the opponent is not in that chain.
+    pub teeth: String,
+}
+
+/// One exact chain of the focused mod.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChainView {
+    pub id: u32,
+    /// Generated from the paths: top folder and the most common extension.
+    pub title: String,
+    pub files: u32,
+    pub bytes: u64,
+    /// Stack, winner first.
+    pub stack: Vec<String>,
+    /// Place of the focused mod in the stack (0 = winner).
+    pub place: usize,
+    pub samples: Vec<String>,
+}
+
+/// The summary of one mod.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModDetail {
+    pub key: Key,
+    pub name: String,
+    pub counters: Option<Counters>,
+    pub opponents: Vec<Opponent>,
+    pub chains: Vec<ChainView>,
+    /// Chains not listed (the list keeps the largest).
+    pub more_chains: usize,
+    pub plugins: Vec<PluginView>,
 }
 
 /// One row as a window shows it (ADR 0008 row + the mod card counters).
@@ -154,6 +223,12 @@ pub enum Reply {
     },
     Keymap {
         bindings: Vec<(String, String)>,
+    },
+    ModDetail {
+        detail: Box<ModDetail>,
+    },
+    Separators {
+        tiles: Vec<SeparatorTile>,
     },
 }
 
@@ -240,6 +315,7 @@ impl App {
                 .session
                 .command(|b| b.set_collapsed(view, separator, collapsed))?,
             C::SetFilter { view, filter } => self.session.command(|b| b.set_filter(view, filter))?,
+            C::Focus { view, key } => self.session.command(|b| Ok(b.focus_entry(view, key)))?,
             C::Undo => self.session.command(|b| Ok(b.undo()))?,
             C::Redo => self.session.command(|b| Ok(b.redo()))?,
             C::OpenView => {
@@ -368,6 +444,34 @@ impl App {
                     .collect();
                 Reply::Plugins { plugins }
             }
+            Query::ModDetail { key } => Reply::ModDetail {
+                detail: Box::new(self.mod_detail(key)),
+            },
+            Query::Separators => {
+                let book = self.session.book();
+                let mut tiles: Vec<SeparatorTile> = Vec::new();
+                for (pos, (name, kind, enabled)) in book.entries().enumerate() {
+                    match kind {
+                        sat_core::canon::EntryKind::Separator => tiles.push(SeparatorTile {
+                            key: book.key_at(pos),
+                            name: name.trim_end_matches("_separator").to_string(),
+                            index: tiles.len() as u32 + 1,
+                            first: None,
+                            mods: 0,
+                            enabled: 0,
+                        }),
+                        sat_core::canon::EntryKind::Mod => {
+                            if let Some(t) = tiles.last_mut() {
+                                t.first.get_or_insert(pos as u32);
+                                t.mods += 1;
+                                t.enabled += u32::from(enabled);
+                            }
+                        }
+                        sat_core::canon::EntryKind::Foreign => {}
+                    }
+                }
+                Reply::Separators { tiles }
+            }
             Query::Keymap => Reply::Keymap {
                 bindings: self
                     .registry
@@ -378,6 +482,165 @@ impl App {
                     .collect(),
             },
         })
+    }
+}
+
+const CHAIN_LIMIT: usize = 60;
+const SAMPLE_LIMIT: usize = 6;
+
+/// Title of a chain from its paths: the most common top folder and extension (`textures · dds`).
+fn chain_title(paths: &[String]) -> String {
+    let mut top: std::collections::BTreeMap<&str, usize> = Default::default();
+    let mut ext: std::collections::BTreeMap<&str, usize> = Default::default();
+    for p in paths {
+        *top.entry(p.split('/').next().unwrap_or("")).or_default() += 1;
+        if let Some((_, e)) = p.rsplit_once('.') {
+            *ext.entry(e).or_default() += 1;
+        }
+    }
+    let best = |m: &std::collections::BTreeMap<&str, usize>| {
+        m.iter()
+            .max_by_key(|(k, n)| (**n, std::cmp::Reverse(**k)))
+            .map(|(k, _)| k.to_string())
+    };
+    match (best(&top), best(&ext)) {
+        (Some(t), Some(e)) if !t.contains('.') => format!("{t} · {e}"),
+        (Some(t), _) => t,
+        _ => String::new(),
+    }
+}
+
+impl App {
+    fn mod_detail(&mut self, key: Key) -> ModDetail {
+        let ow = self.session.overwrite();
+        let plugins = self.session.plugins();
+        let table = self.session.table().clone();
+        let book = self.session.book();
+        let name = book.name(key).to_string();
+        let index: std::collections::HashMap<String, ModId> = table
+            .mod_names()
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.to_lowercase(), ModId::from_idx(i)))
+            .collect();
+        let Some(&m) = index.get(&name.to_lowercase()) else {
+            return ModDetail {
+                key,
+                name,
+                counters: None,
+                opponents: Vec::new(),
+                chains: Vec::new(),
+                more_chains: 0,
+                plugins: Vec::new(),
+            };
+        };
+        let mut chains = ow.mod_chains(m);
+        chains.sort_by_key(|&c| std::cmp::Reverse((ow.chain(c).files, c.0)));
+        let more_chains = chains.len().saturating_sub(CHAIN_LIMIT);
+        // opponents over every chain; teeth over the listed ones
+        let mut opp: std::collections::HashMap<ModId, (u32, u32)> = Default::default();
+        for &c in &chains {
+            let stack = ow.chain_mods(c);
+            let me = stack.iter().position(|&x| x == m).unwrap_or(0);
+            let files = ow.chain(c).files;
+            for (i, &o) in stack.iter().enumerate() {
+                if o == m {
+                    continue;
+                }
+                let e = opp.entry(o).or_default();
+                if i < me {
+                    e.0 += files;
+                } else {
+                    e.1 += files;
+                }
+            }
+        }
+        let listed: Vec<_> = chains.iter().copied().take(CHAIN_LIMIT).collect();
+        let chain_views: Vec<ChainView> = listed
+            .iter()
+            .map(|&c| {
+                let stack = ow.chain_mods(c);
+                let paths: Vec<String> = ow
+                    .chain_paths(c)
+                    .iter()
+                    .take(64)
+                    .map(|&p| table.path_string(p))
+                    .collect();
+                ChainView {
+                    id: c.0,
+                    title: chain_title(&paths),
+                    files: ow.chain(c).files,
+                    bytes: ow.chain(c).bytes,
+                    stack: stack.iter().map(|&x| table.mod_name(x).to_string()).collect(),
+                    place: stack.iter().position(|&x| x == m).unwrap_or(0),
+                    samples: paths.into_iter().take(SAMPLE_LIMIT).collect(),
+                }
+            })
+            .collect();
+        let mut opponents: Vec<Opponent> = opp
+            .into_iter()
+            .map(|(o, (beats_me, i_beat))| {
+                let oname = table.mod_name(o).to_string();
+                let okey = book.key_of(&oname);
+                let teeth = listed
+                    .iter()
+                    .map(|&c| {
+                        let stack = ow.chain_mods(c);
+                        match (
+                            stack.iter().position(|&x| x == m),
+                            stack.iter().position(|&x| x == o),
+                        ) {
+                            (Some(a), Some(b)) if a < b => 'w',
+                            (Some(_), Some(_)) => 'l',
+                            _ => '-',
+                        }
+                    })
+                    .collect();
+                Opponent {
+                    key: okey,
+                    pos: okey.map(|k| book.pos(k) as u32),
+                    enabled: ow.priorities().is_active(o),
+                    name: oname,
+                    beats_me,
+                    i_beat,
+                    teeth,
+                }
+            })
+            .collect();
+        // in list order, like the monolith's participant rows; Overwrite last
+        opponents.sort_by_key(|o| (o.pos.is_none(), o.pos, o.name.clone()));
+        let s = ow.stat(m);
+        let mod_plugins: Vec<PluginView> = plugins
+            .plugins
+            .iter()
+            .filter(|p| p.versions.iter().any(|v| v.owner == m))
+            .map(|p| PluginView {
+                name: p.name.clone(),
+                index: p.index.map(|i| i.to_string()),
+                colour: p.colour,
+                listed: p.listed,
+                active: p.active,
+                owner: p.winner.map(|w| table.mod_name(p.versions[w].owner).to_string()),
+                versions: p.versions.len(),
+                missing_masters: p.missing_masters.clone(),
+            })
+            .collect();
+        ModDetail {
+            key,
+            name,
+            counters: Some(Counters {
+                win: s.win,
+                lose: s.lose,
+                mid: s.mid,
+                unique: s.unique,
+                x: s.fully_overridden,
+                plugins: mod_plugins.len() as u32,
+            }),
+            opponents,
+            chains: chain_views,
+            more_chains,
+            plugins: mod_plugins,
+        }
     }
 }
 
@@ -479,5 +742,34 @@ mod tests {
             }),
             Err(AppError::Unbound(_))
         ));
+        let key_a = rows[2].key;
+        let Reply::ModDetail { detail } = a.query(Query::ModDetail { key: key_a }).unwrap() else {
+            panic!()
+        };
+        assert_eq!(detail.opponents.len(), 1);
+        let b = &detail.opponents[0];
+        assert_eq!(
+            (b.name.as_str(), b.i_beat, b.beats_me, b.teeth.as_str()),
+            ("B", 1, 0, "w")
+        );
+        assert_eq!(detail.chains[0].title, "textures · dds");
+        assert_eq!(detail.chains[0].stack, ["A", "B"]);
+        // a link from the summary moves the focus
+        a.command(Command::Focus {
+            view: 0,
+            key: b.key.unwrap(),
+        })
+        .unwrap();
+        let Reply::Rows { focus_row, .. } = a
+            .query(Query::Rows {
+                view: 0,
+                start: 0,
+                count: 1,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(focus_row, Some(1));
     }
 }

@@ -396,6 +396,40 @@ impl OrderBook {
         self.navigate(v, Nav::Row(r as u32), Select::Replace).ok()
     }
 
+    // @sat:order.cursor.focus-entry
+    /// Puts view `v`'s focus on `key` (a link from another window: "go to this mod"). A mod hidden in a collapsed
+    /// separator block is revealed by expanding that block; a mod hidden by the filter or a collapsed group is
+    /// not reachable and returns `None`.
+    pub fn focus_entry(&mut self, v: ViewId, key: Key) -> Option<Change> {
+        self.check_view(v).ok()?;
+        if !self.seq.contains(key) {
+            return None;
+        }
+        let mut opened = None;
+        if self.seq.row(key, v).is_none()
+            && let Some(sep) = self.seq.separator_before(self.seq.pos(key))
+            && self.view(v).collapsed.contains(&sep)
+        {
+            opened = self.set_collapsed(v, sep, false).ok().flatten();
+        }
+        let r = self.seq.row(key, v)?;
+        let c = self.navigate(v, Nav::Row(r as u32), Select::Replace).ok()?;
+        let Some(mut first) = opened else { return Some(c) };
+        // one change: the expansion's patches, then the cursor's
+        for later in c.views {
+            match first.views.iter_mut().find(|x| x.view == later.view) {
+                Some(x) => {
+                    x.patches.extend(later.patches);
+                    x.len = later.len;
+                }
+                None => first.views.push(later),
+            }
+        }
+        first.revision = c.revision;
+        first.truth.extend(c.truth);
+        Some(first)
+    }
+
     /// Entries left the list: they leave every selection; a removed focus goes to the entry now at `pos`.
     pub(super) fn cursor_forget(&mut self, keys: &[Key], pos: usize, out: &mut Out) {
         let len = self.seq.len();

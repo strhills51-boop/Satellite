@@ -4,102 +4,136 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Satellite NG</title>
-<!-- Part of @sat:devserver: the list window of the dev shell. It holds no truth: every key or click is a command,
-     every change comes back as an event, and the page re-reads only the rows it shows (ADR 0004 §4). -->
+<!-- Part of @sat:devserver: the main screen in the monolith's layout (docs/UI-PARITY.md §1): separator tiles,
+     the mod list, the summary stack. It holds no truth: keys and clicks are commands, every change comes back as
+     an event, the page re-reads only the rows it shows and repaints only rows whose content changed. -->
 <style>
 :root {
-  --bg: #f1f3f6; --panel: #ffffff; --fg: #1c2230; --muted: #6a7385; --line: #d7dce4;
-  --accent: #2f6fb3; --sel: #dbe8f6; --sep: #e6e9ef; --off: #9aa3b2;
-  --win: #2f8f5b; --lose: #c2413b; --mid: #c08a1a; --uniq: #2f6fb3; --x: #7b52b9;
-  --c0: #c2413b; --c1: #2f8f5b; --c2: #c08a1a; --c3: #7b52b9;
-  --black: #2b2f36; --red: #c2413b; --yellow: #c08a1a; --white: #b9c0cc; --blue: #2f6fb3; --green: #2f8f5b;
-  --row: 44px; --sep-row: 30px;
-  --ui: "Segoe UI", system-ui, -apple-system, sans-serif;
-  --mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
+  /* monolith tokens (docs/UI-PARITY.md §3) */
+  --bg: #10141b; --bg2: #161c25; --panel: #1b2230; --pop: #1f2733; --line: #344155; --fg: #e7edf7; --muted: #99a8bc;
+  --primary: #2457a8; --primary-line: #2b69ca; --accent: #65a8ff; --accent2: #9ac6ff; --ok: #22c55e;
+  --win: rgb(67, 142, 96); --lose: rgb(181, 82, 82); --miss: rgba(72, 84, 101, .94);
+  --w-txt: #86efac; --l-txt: #fca5a5; --m-txt: #fcd34d; --x-txt: #c4b5fd;
+  --black: #0b0d10; --red: #ef4444; --yellow: #f59e0b; --white: #94a3b8; --blue: #65a8ff; --green: #22c55e;
+  --row: 44px; --ui: Inter, "Segoe UI", system-ui, sans-serif; --mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
 }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #14171d; --panel: #1b1f27; --fg: #dde2ea; --muted: #8b94a5; --line: #2b313c;
-  --accent: #6ea8e6; --sel: #22354a; --sep: #222731; --off: #5f6878;
-  --win: #4fbf83; --lose: #e0645d; --mid: #e0b04a; --uniq: #6ea8e6; --x: #a888e0;
-  --black: #0d0f12; --white: #6b7280; color-scheme: dark } }
+:root[data-theme="light"] {
+  --bg: #eef1f5; --bg2: #e6eaf0; --panel: #ffffff; --pop: #f6f8fb; --line: #d3d9e2; --fg: #1b2230; --muted: #5f6b7d;
+  --w-txt: #1f7a45; --l-txt: #b42323; --m-txt: #a16207; --x-txt: #6d28d9; --black: #2b2f36; --white: #9aa3b2; color-scheme: light;
+}
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--fg); font: 13px/1.35 var(--ui); display: flex; flex-direction: column; padding: 10px 16px; gap: 8px; }
-header { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; }
-h1 { font-size: 16px; margin: 0; font-weight: 600; }
-.note { color: var(--muted); font-size: 12px; }
-.tabs { display: flex; gap: 4px; }
-.tabs button, input { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 4px 10px; }
-.tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
-.stats { display: flex; flex-wrap: wrap; gap: 4px 16px; font: 12px var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; }
-.stats b { color: var(--accent); font-weight: 500; }
-.bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-input[type="search"] { width: 18em; max-width: 100%; }
-#list { flex: 1; min-height: 200px; overflow-y: auto; overflow-anchor: none; position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; outline: none; }
-#list:focus-visible { border-color: var(--accent); }
+body { background: linear-gradient(var(--bg), var(--bg2)); color: var(--fg); font: 14px/1.35 var(--ui); display: grid;
+  grid-template-rows: auto 1fr auto; height: 100vh; }
+button, input { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; }
+button { cursor: pointer; } button:hover { border-color: var(--primary-line); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { font-weight: 700; }
+.pill { font: 600 11px var(--ui); letter-spacing: .08em; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: #fff; }
+.pipeline { display: flex; align-items: center; gap: 4px; }
+.pipeline span { border: 1px solid var(--ok); border-radius: 10px; padding: 3px 10px; font-size: 13px; }
+.pipeline i { color: var(--muted); font-style: normal; }
+.sandbox { margin-left: auto; color: var(--muted); font-size: 12px; }
+main { display: grid; grid-template-columns: 220px minmax(0, 1fr) 380px; min-height: 0; }
+section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+section h2 { margin: 0; padding: 10px 12px 6px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+#tiles { overflow-y: auto; padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.tile { border: 1px solid var(--line); background: var(--panel); border-radius: 14px; padding: 8px 10px; min-height: 64px; cursor: pointer;
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; }
+.tile:hover, .tile.cur { border-color: var(--primary-line); }
+.tile .ctr { font: 11px var(--mono); color: var(--muted); }
+.tile .on { font: 11px var(--mono); color: var(--ok); text-align: right; }
+.tile b { grid-column: 1 / 3; align-self: end; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tools { display: flex; gap: 8px; padding: 0 10px 8px; align-items: center; }
+.tools input { flex: 1; min-width: 0; }
+#err { color: var(--l-txt); font-size: 12px; }
+#list { flex: 1; overflow-y: auto; overflow-anchor: none; position: relative; outline: none; margin: 0 10px 10px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel); }
+#list:focus { border-color: var(--primary-line); }
 #spacer { width: 1px; }
 #layer { position: sticky; top: 0; height: 0; }
 .row { position: absolute; left: 0; right: 0; height: var(--row); border-bottom: 1px solid var(--line); cursor: default; user-select: none; }
-.row.sel { background: var(--sel); }
-/* mod card (owner's layout): toggle top-left, name centred and cut on the right, counters bottom-right */
-.card { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: 22px 18px; height: 100%; padding: 2px 10px 2px 6px; }
-.toggle { grid-row: 1; grid-column: 1; width: 12px; height: 12px; margin: 5px 0 0 3px; border-radius: 50%; border: 1.5px solid var(--off); }
-.on .toggle { background: var(--accent); border-color: var(--accent); }
-.name { grid-row: 1; grid-column: 2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 2px; }
-.off .name { color: var(--off); }
+.row.sel { background: color-mix(in srgb, var(--primary) 26%, transparent); }
+/* mod card (owner's layout): toggle top-left, centred name cut on the right, counter group bottom-right */
+.card { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: 22px 18px; height: 100%; padding: 2px 10px 2px 8px; }
+.toggle { width: 11px; height: 11px; margin: 6px 0 0 2px; border-radius: 50%; background: var(--miss); cursor: pointer; }
+.on .toggle { background: var(--ok); }
+.name { grid-column: 2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 2px; }
+.off .name { color: var(--muted); }
 .counters { grid-row: 2; grid-column: 1 / 3; display: flex; justify-content: flex-end; gap: 10px; font: 11px var(--mono); color: var(--muted); }
-.counters .w { color: var(--win); } .counters .l { color: var(--lose); } .counters .m { color: var(--mid); } .counters .u { color: var(--uniq); } .counters .x { color: var(--x); font-weight: 600; }
-.prio { position: absolute; left: 8px; bottom: 3px; font: 10px var(--mono); color: var(--muted); }
-.row.sep { height: var(--sep-row); background: var(--sep); font-weight: 600; display: flex; align-items: center; gap: 6px; padding: 0 10px; }
+.counters .w { color: var(--w-txt); } .counters .l { color: var(--l-txt); } .counters .m { color: var(--m-txt); } .counters .x { color: var(--x-txt); font-weight: 600; }
+.prio { position: absolute; left: 10px; bottom: 4px; font: 10px var(--mono); color: var(--muted); }
+.row.sep { height: var(--row); background: var(--bg2); font-weight: 600; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
 .row.sep .size { margin-left: auto; font: 11px var(--mono); color: var(--muted); font-weight: 400; }
 .row.foreign .name { font-style: italic; color: var(--muted); }
-.row[data-color="0"] { box-shadow: inset 4px 0 var(--c0); } .row[data-color="1"] { box-shadow: inset 4px 0 var(--c1); }
-.row[data-color="2"] { box-shadow: inset 4px 0 var(--c2); } .row[data-color="3"] { box-shadow: inset 4px 0 var(--c3); }
-.d1 .card { padding-left: 20px; }
+.row[data-color="0"] { box-shadow: inset 4px 0 #ef4444; } .row[data-color="1"] { box-shadow: inset 4px 0 #22c55e; }
+.row[data-color="2"] { box-shadow: inset 4px 0 #f59e0b; } .row[data-color="3"] { box-shadow: inset 4px 0 #a78bfa; }
+.d1 .card { padding-left: 22px; }
 /* keyboard focus: two opposite corners (monolith) */
 .row.focus::before, .row.focus::after { content: ""; position: absolute; width: 10px; height: 10px; border: 2px solid var(--accent); pointer-events: none; }
 .row.focus::before { top: 2px; left: 2px; border-right: 0; border-bottom: 0; }
 .row.focus::after { bottom: 2px; right: 2px; border-left: 0; border-top: 0; }
-#plugins { flex: 1; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
-table { border-collapse: collapse; width: 100%; font-size: 12px; }
-th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 500; }
-td.idx { font-family: var(--mono); }
-.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
-footer { color: var(--muted); font-size: 12px; }
-kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; background: var(--panel); }
-#err { color: var(--lose); font-size: 12px; min-height: 1em; }
+#summary { overflow-y: auto; padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 10px; border-right: 0; }
+.block { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 8px 10px 10px; }
+.block.ok { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.block h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; display: flex; gap: 8px; align-items: center; }
+.block h3::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.block.empty h3::before { background: var(--miss); }
+.muted { color: var(--muted); font-size: 12px; }
+.chain { border: 1px solid var(--line); border-radius: 10px; padding: 5px 8px; margin-bottom: 5px; background: var(--pop); cursor: pointer; }
+.chain .t { display: flex; gap: 6px; align-items: baseline; }
+.chain .t b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chain .t span { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.chain .stack { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chain .stack .me { color: var(--accent2); }
+.chain .paths { font: 11px var(--mono); color: var(--muted); margin-top: 3px; display: none; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.chain.open .paths { display: block; }
+.opp { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 4px 6px; align-items: center; padding: 4px 6px; border-radius: 8px; cursor: pointer;
+  border-bottom: 1px dashed color-mix(in srgb, #facc15 45%, transparent); }
+.opp:hover { background: var(--pop); }
+.opp .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); } .opp.off .dot { background: var(--miss); }
+.opp .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opp .nums { font: 11px var(--mono); } .opp .nums .w { color: var(--w-txt); } .opp .nums .l { color: var(--l-txt); }
+.teeth { grid-column: 2 / 4; display: flex; gap: 1px; height: 6px; }
+.teeth i { flex: 1; max-width: 10px; background: var(--miss); } .teeth i.w { background: var(--win); } .teeth i.l { background: var(--lose); }
+.plug { display: grid; grid-template-columns: 56px 1fr; gap: 6px; font-size: 12px; padding: 2px 0; }
+.plug .idx { font-family: var(--mono); color: var(--muted); }
+.dotc { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+footer { display: flex; gap: 14px; flex-wrap: wrap; padding: 6px 14px; border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
+footer b { color: var(--accent2); font-weight: 500; }
+@media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) 340px; } #tilesec { display: none; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Satellite NG</h1>
-  <span class="note">песочница: изменения живут в памяти и никуда не пишутся</span>
-  <div class="tabs" role="tablist">
-    <button role="tab" id="tMods" aria-selected="true">Моды</button>
-    <button role="tab" id="tPlugins" aria-selected="false">Плагины</button>
-  </div>
+  <span class="brand">Satellite</span><span class="pill">NG</span>
+  <div class="pipeline" aria-label="Конвейер"><span>Анализ mods</span><i>→</i><span>Конфликты</span><i>→</i><span>Sync</span></div>
+  <button id="theme" title="Светлая / тёмная">◐</button>
+  <span class="sandbox">песочница: изменения живут в памяти и никуда не пишутся</span>
 </header>
-<div class="stats" id="stats">загрузка…</div>
-<div class="bar" id="modbar">
-  <input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени">
-  <span id="err" role="status"></span>
-</div>
-<div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
-<div id="plugins" hidden></div>
-<footer>
-  <kbd>↑</kbd><kbd>↓</kbd> фокус · <kbd>Shift</kbd> расширить · <kbd>Ctrl</kbd> только фокус · <kbd>Пробел</kbd> в выделение ·
-  <kbd>Alt</kbd>+<kbd>↑↓</kbd> двигать выделенное · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>↑↓</kbd> к краю блока ·
-  <kbd>←</kbd><kbd>→</kbd> свернуть / развернуть · <kbd>Enter</kbd> вкл/выкл · <kbd>Ctrl</kbd>+<kbd>A</kbd> · <kbd>Esc</kbd> ·
-  <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd> · счётчики: <span style="color:var(--win)">W</span> выигрывает,
-  <span style="color:var(--lose)">L</span> проигрывает, <span style="color:var(--mid)">M</span> в середине стека, <span style="color:var(--uniq)">+n</span> уникальные, <span style="color:var(--x)">X</span> не виден в игре
-</footer>
+<main>
+  <section id="tilesec"><h2>Разделители <small id="sepcount"></small></h2><div id="tiles"></div></section>
+  <section>
+    <h2>Моды <small id="modcount"></small></h2>
+    <div class="tools"><input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени"><span id="err" role="status"></span></div>
+    <div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
+  </section>
+  <section id="summary" aria-label="Сводка">
+    <div class="block empty" id="bMod"><h3>Мод</h3><div class="muted">Наведи фокус на мод — стрелками или кликом.</div></div>
+    <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
+    <div class="block empty" id="bPlug"><h3>Плагины</h3></div>
+  </section>
+</main>
+<footer id="stats">загрузка…</footer>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
 const list = $("list"), layer = $("layer"), spacer = $("spacer");
 const ROW = 44, VIEW = 0, MAXPX = 8_000_000;
-let len = 0, pool = [], busy = false, again = false, keepTop = 0, writes = 0;
+let len = 0, pool = [], busy = false, again = false, shownKey = null, detailSeq = 0;
 
 async function post(path, body) {
   const r = await fetch(path, { method: "POST", body: JSON.stringify(body) });
@@ -109,50 +143,47 @@ async function post(path, body) {
 }
 const command = c => post("/command", c);
 const query = q => post("/query", q);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const num = n => n.toLocaleString("ru-RU");
 
 function scale() { const t = len * ROW; return t > MAXPX ? (t - list.clientHeight) / (MAXPX - list.clientHeight) : 1; }
 function vtop() { return list.scrollTop * scale(); }
-
 function ensurePool() {
   const need = Math.ceil(list.clientHeight / ROW) + 2;
   while (pool.length < need) { const el = document.createElement("div"); el.className = "row"; layer.appendChild(el); pool.push(el); }
 }
 
-function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
-
-/** Writes a row element only when what it shows changed (no window-wide repaint). */
+/** Writes a row element only when what it shows changed. */
 function paint(el, r) {
   const sig = r ? JSON.stringify(r) : "";
-  if (el._sig === sig) return false;
-  el._sig = sig;
-  if (!r) { el.hidden = true; el._row = null; return true; }
-  el.hidden = false; el._row = r;
+  if (el._sig === sig) return;
+  el._sig = sig; el._row = r;
+  if (!r) { el.hidden = true; return; }
+  el.hidden = false;
   const cls = ["row"];
   if (r.selected) cls.push("sel");
   if (r.focused) cls.push("focus");
-  if (r.color !== null && r.color !== undefined) el.dataset.color = r.color % 4; else delete el.dataset.color;
+  if (r.color !== null) el.dataset.color = r.color % 4; else delete el.dataset.color;
   if (r.kind === "separator" || r.kind === "group") {
-    cls.push("sep");
-    el.className = cls.join(" ");
+    cls.push("sep"); el.className = cls.join(" ");
     el.innerHTML = `<span>${r.collapsed ? "▸" : "▾"}</span><span>${esc(r.name.replace(/_separator$/, ""))}</span><span class="size">${r.size}</span>`;
-    return true;
+    return;
   }
   cls.push(r.kind, `d${Math.min(r.depth, 1)}`, r.enabled ? "on" : "off");
   el.className = cls.join(" ");
   const c = r.counters;
   const counters = c ? [
-    c.x ? `<span class="x">X</span>` : "",
-    c.plugins ? `<span>${c.plugins} esp</span>` : "",
-    c.win ? `<span class="w">W${c.win}</span>` : "",
-    c.lose ? `<span class="l">L${c.lose}</span>` : "",
-    c.mid ? `<span class="m">M${c.mid}</span>` : "",
-    c.unique ? `<span class="u">+${c.unique}</span>` : "",
+    c.x ? `<span class="x" title="не виден в игре">X</span>` : "",
+    c.plugins ? `<span title="плагинов">${c.plugins} esp</span>` : "",
+    c.win ? `<span class="w" title="файлов выигрывает">W${c.win}</span>` : "",
+    c.lose ? `<span class="l" title="файлов проигрывает">L${c.lose}</span>` : "",
+    c.mid ? `<span class="m" title="в середине стека">M${c.mid}</span>` : "",
+    c.unique ? `<span title="уникальных файлов">+${c.unique}</span>` : "",
   ].join("") : "";
-  el.innerHTML = `<div class="card"><span class="toggle"></span><span class="name">${esc(r.name)}</span><div class="counters">${counters}</div></div><span class="prio">${r.pos}</span>`;
-  return true;
+  el.innerHTML = `<div class="card"><span class="toggle" title="вкл/выкл"></span><span class="name">${esc(r.name)}</span><div class="counters">${counters}</div></div><span class="prio">${r.pos}</span>`;
 }
 
-/** Re-reads only the rows in the window. */
+/** Re-reads only the rows in the window; `follow` keeps the keyboard focus visible. */
 async function sync(follow) {
   if (busy) { again = true; return; }
   busy = true;
@@ -162,54 +193,94 @@ async function sync(follow) {
     const rep = await query({ type: "rows", view: VIEW, start: first, count: pool.length });
     len = rep.len;
     spacer.style.height = Math.min(len * ROW, MAXPX) + "px";
+    $("modcount").textContent = num(len) + " строк";
     if (follow && rep.focus_row !== null) {
       const top = rep.focus_row * ROW, vt = vtop(), h = list.clientHeight;
       if (top < vt || top + ROW > vt + h) {
-        list.scrollTop = Math.max(0, (top < vt ? top : top + ROW - h)) / scale();
+        list.scrollTop = Math.max(0, top < vt ? top : top + ROW - h) / scale();
         busy = false; return sync(false);
       }
     }
     const off = -(vtop() - first * ROW);
-    writes = 0;
-    pool.forEach((el, i) => { el.style.transform = `translateY(${off + i * ROW}px)`; if (paint(el, rep.rows[i])) writes++; });
-    list.dataset.writes = writes;
+    pool.forEach((el, i) => { el.style.transform = `translateY(${off + i * ROW}px)`; paint(el, rep.rows[i]); });
+    const f = rep.rows.find(r => r.focused);
+    if (f && f.kind === "mod" && f.key !== shownKey) detail(f.key);
   } catch (e) { $("err").textContent = e.message; }
   busy = false;
   if (again) { again = false; sync(false); }
 }
 
 async function totals() {
-  const t = await query({ type: "totals" });
-  const o = t.overwrite, p = t.plugins;
+  const t = await query({ type: "totals" }), o = t.overwrite, p = t.plugins;
   $("stats").innerHTML = [
-    `строк <b>${len.toLocaleString("ru-RU")}</b>`,
-    `конфликтных путей <b>${o.conflict_paths.toLocaleString("ru-RU")}</b>`,
-    `цепочек <b>${o.chains.toLocaleString("ru-RU")}</b>`,
-    `контекстов <b>${o.contexts}</b>`,
-    `X <b>${o.fully_overridden}</b>`,
-    `плагинов <b>${p.active_full}</b> полных + <b>${p.active_light}</b> лёгких`,
+    `конфликтных путей <b>${num(o.conflict_paths)}</b>`, `цепочек <b>${num(o.chains)}</b>`, `контекстов <b>${o.contexts}</b>`,
+    `X <b>${o.fully_overridden}</b>`, `плагинов <b>${p.active_full}</b> полных + <b>${p.active_light}</b> лёгких`,
     p.overflow_full + p.overflow_light ? `сверх лимита <b>${p.overflow_full}/${p.overflow_light}</b>` : "",
-    `в нескольких модах <b>${p.versioned}</b>`,
-    `без мастеров <b>${p.with_missing_masters}</b>`,
-  ].filter(Boolean).join("<span></span>");
+    `в нескольких модах <b>${p.versioned}</b>`, `без мастеров <b>${p.with_missing_masters}</b>`,
+  ].filter(Boolean).map(s => `<span>${s}</span>`).join("");
+}
+
+async function tiles() {
+  const { tiles } = await query({ type: "separators" });
+  $("sepcount").textContent = tiles.length;
+  $("tiles").innerHTML = tiles.map(t => `<div class="tile" data-key="${t.key}" title="${esc(t.name)}">` +
+    `<span class="ctr">${t.index}:${t.first ?? "—"}:${t.mods}</span><span class="on">${t.enabled}●</span><b>${esc(t.name)}</b></div>`).join("");
+}
+
+/** The summary of the focused mod: with whom and in what it conflicts. */
+async function detail(key) {
+  shownKey = key;
+  const seq = ++detailSeq;
+  const { detail: d } = await query({ type: "mod-detail", key });
+  if (seq !== detailSeq) return;
+  const c = d.counters;
+  $("bMod").className = "block ok";
+  $("bMod").innerHTML = `<h3>Мод</h3><div><b>${esc(d.name)}</b></div>` + (c ? `<div class="muted">выигрывает <span style="color:var(--w-txt)">${num(c.win)}</span> ·
+    проигрывает <span style="color:var(--l-txt)">${num(c.lose)}</span> · в середине ${num(c.mid)} · уникальных ${num(c.unique)}${c.x ? " · <b style='color:var(--x-txt)'>не виден в игре</b>" : ""}</div>` : "");
+  const conf = $("bConf");
+  if (!d.opponents.length) {
+    conf.className = "block empty";
+    conf.innerHTML = `<h3>Конфликты</h3><div class="muted">Ни с кем не конфликтует.</div>`;
+  } else {
+    conf.className = "block ok";
+    const chains = d.chains.map(ch => `<div class="chain"><div class="t"><b>${esc(ch.title || "файлы")}</b><span>${num(ch.files)} ф.</span></div>` +
+      `<div class="stack">${ch.stack.map((n, i) => i === ch.place ? `<span class="me">${esc(n)}</span>` : esc(n)).join(" ▸ ")}</div>` +
+      `<div class="paths">${esc(ch.samples.join("\n"))}</div></div>`).join("");
+    const opps = d.opponents.map(o => `<div class="opp${o.enabled ? "" : " off"}" data-key="${o.key ?? ""}" title="${o.key === null ? "Overwrite" : "перейти к моду"}">` +
+      `<span class="dot"></span><span class="n">${esc(o.name)}</span>` +
+      `<span class="nums">${o.i_beat ? `<span class="w">▲${num(o.i_beat)}</span> ` : ""}${o.beats_me ? `<span class="l">▼${num(o.beats_me)}</span>` : ""}</span>` +
+      `<div class="teeth">${[...o.teeth].map(t => `<i class="${t === "-" ? "" : t}"></i>`).join("")}</div></div>`).join("");
+    conf.innerHTML = `<h3>Конфликты</h3><div class="muted" style="margin-bottom:6px">${d.opponents.length} соперников · ${d.chains.length + d.more_chains} цепочек.
+      ▲ — файлов, где этот мод перекрывает соперника, ▼ — где соперник перекрывает его. Зубы — по цепочкам ниже; клик по цепочке — пути.</div>
+      ${opps}<div style="margin-top:10px">${chains}${d.more_chains ? `<div class="muted">и ещё ${d.more_chains} цепочек</div>` : ""}</div>`;
+  }
+  const pl = $("bPlug");
+  pl.className = d.plugins.length ? "block ok" : "block empty";
+  pl.innerHTML = `<h3>Плагины</h3>` + (d.plugins.length ? d.plugins.map(p => `<div class="plug"><span class="idx">${p.index ?? "—"}</span>` +
+    `<span><span class="dotc" style="background:var(--${p.colour})"></span>${esc(p.name)}` +
+    `${p.versions > 1 ? ` <span class="muted">· ${p.versions} версии, грузится из ${esc(p.owner ?? "")}</span>` : ""}` +
+    `${p.missing_masters.length ? ` <span style="color:var(--l-txt)">· нет: ${esc(p.missing_masters.join(", "))}</span>` : ""}</span></div>`).join("")
+    : `<div class="muted">Нет плагинов.</div>`);
 }
 
 async function run(c) {
   $("err").textContent = "";
   try {
     const ev = await command(c);
-    if (ev.type === "changed") { await sync(true); if (ev.canon) totals(); }
+    if (ev.type === "changed") {
+      await sync(true);
+      if (ev.canon) { totals(); tiles(); if (shownKey !== null) detail(shownKey); }
+    }
   } catch (e) { $("err").textContent = e.message; }
 }
 
 function chord(ev) {
   const named = { " ": "Space", ArrowUp: "ArrowUp", ArrowDown: "ArrowDown", ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight",
     PageUp: "PageUp", PageDown: "PageDown", Home: "Home", End: "End", Enter: "Enter", Escape: "Escape" };
-  let key = named[ev.key] || (ev.key.length === 1 ? ev.key.toUpperCase() : null);
+  const key = named[ev.key] || (ev.key.length === 1 ? ev.key.toUpperCase() : null);
   if (!key) return null;
   return (ev.ctrlKey || ev.metaKey ? "Ctrl+" : "") + (ev.altKey ? "Alt+" : "") + (ev.shiftKey ? "Shift+" : "") + key;
 }
-
 list.addEventListener("keydown", ev => {
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); return run({ type: ev.shiftKey ? "redo" : "undo" }); }
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "y") { ev.preventDefault(); return run({ type: "redo" }); }
@@ -222,36 +293,35 @@ list.addEventListener("click", ev => {
   const el = ev.target.closest(".row"); if (!el || !el._row) return;
   const r = el._row, row = Math.floor((vtop() + (el.getBoundingClientRect().top - list.getBoundingClientRect().top) + 1) / ROW);
   if (ev.target.classList.contains("toggle")) return run({ type: "set-enabled", keys: [r.key], enabled: null });
-  if ((r.kind === "separator" || r.kind === "group") && ev.offsetX < 24) return run({ type: "set-collapsed", view: VIEW, separator: r.key, collapsed: !r.collapsed });
+  if ((r.kind === "separator" || r.kind === "group") && ev.offsetX < 28) return run({ type: "set-collapsed", view: VIEW, separator: r.key, collapsed: !r.collapsed });
   const select = ev.shiftKey ? "extend" : (ev.ctrlKey || ev.metaKey) ? "toggle" : "replace";
-  run({ type: "navigate", view: VIEW, nav: { row: row }, select });
+  run({ type: "navigate", view: VIEW, nav: { row }, select });
 });
 list.addEventListener("scroll", () => sync(false), { passive: true });
 window.addEventListener("resize", () => sync(false));
+$("tiles").addEventListener("click", ev => {
+  const t = ev.target.closest(".tile"); if (!t) return;
+  document.querySelectorAll(".tile.cur").forEach(x => x.classList.remove("cur")); t.classList.add("cur");
+  run({ type: "focus", view: VIEW, key: +t.dataset.key }).then(() => list.focus({ preventScroll: true }));
+});
+$("bConf").addEventListener("click", ev => {
+  const o = ev.target.closest(".opp");
+  if (o && o.dataset.key !== "") return run({ type: "focus", view: VIEW, key: +o.dataset.key }).then(() => list.focus({ preventScroll: true }));
+  const ch = ev.target.closest(".chain"); if (ch) ch.classList.toggle("open");
+});
 let ft;
 $("filter").addEventListener("input", ev => {
   clearTimeout(ft);
   ft = setTimeout(() => run({ type: "set-filter", view: VIEW, filter: { text: ev.target.value, enabled: null, color: null, show_muted: false } }), 150);
 });
+$("theme").onclick = () => {
+  const r = document.documentElement;
+  r.dataset.theme = r.dataset.theme === "light" ? "dark" : "light";
+  try { localStorage.setItem("sat-theme", r.dataset.theme); } catch (_) {}
+};
+try { const t = localStorage.getItem("sat-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
 
-async function showPlugins() {
-  const { plugins } = await query({ type: "plugins" });
-  const rows = plugins.map(p => `<tr><td class="idx">${p.index ?? "—"}</td><td><span class="dot" style="background:var(--${p.colour})"></span>${esc(p.name)}</td>` +
-    `<td>${({ enabled: "отмечен", disabled: "снят", implicit: "неявно (игра)", unlisted: "нет в списках" })[p.listed] ?? p.listed}</td><td>${esc(p.owner ?? "")}</td><td>${p.versions > 1 ? p.versions + " версии" : ""}</td><td>${esc(p.missing_masters.join(", "))}</td></tr>`).join("");
-  $("plugins").innerHTML = `<table><thead><tr><th>Индекс</th><th>Плагин</th><th>В списках MO2</th><th>Из мода</th><th>Версии</th><th>Нет мастеров</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-function tab(plugins) {
-  $("tMods").setAttribute("aria-selected", !plugins); $("tPlugins").setAttribute("aria-selected", plugins);
-  // the list is never display:none — a hidden element loses its scroll position
-  if (plugins) { keepTop = list.scrollTop; list.style.visibility = "hidden"; list.style.position = "absolute"; list.style.height = "0"; }
-  else { list.style.visibility = ""; list.style.position = ""; list.style.height = ""; list.scrollTop = keepTop; }
-  $("modbar").hidden = plugins; $("plugins").hidden = !plugins;
-  if (plugins) showPlugins(); else { sync(false); list.focus({ preventScroll: true }); }
-}
-$("tMods").onclick = () => tab(false);
-$("tPlugins").onclick = () => tab(true);
-
-(async () => { await sync(false); await totals(); list.focus({ preventScroll: true }); })();
+(async () => { await sync(false); await Promise.all([totals(), tiles()]); list.focus({ preventScroll: true }); })();
 </script>
 </body>
 </html>

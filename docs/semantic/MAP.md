@@ -25,6 +25,8 @@
 | Перезапись по требованию: пересчёт только после изменения канона или фактов | `@sat:session.overwrite` → проекции `conflicts` (факты) и `priorities` (канон, факты) → `overwrite` (`conflicts`, `priorities` по ключам — `Input::Keyed`) | декорации и виды её не трогают |
 | Статусы пробега, поколения, печати | `@sat:run.status`, `@sat:run.authority`, `@sat:run.seal` | — |
 | API приложения: команды, запросы, события поверх сессии, без транспорта (ADR 0004) | `@sat:app` (`@sat:app.command`, `@sat:app.query`, `@sat:app.event`, `@sat:app.dispatch`) | транспорт — оболочки (`apps/`) |
+| Сводка мода: с кем и в чём конфликтует (соперники ▲/▼, «зубы» по цепочкам, цепочки с путями), плагины мода | `@sat:app.mod-detail` (`Query::ModDetail`) | счётчики W/L/M на карточке — `Counters` |
+| Фокус по ссылке («перейти к моду»), раскрывая свёрнутый блок | `@sat:order.cursor.focus-entry` (`Command::Focus`) | навигация клавишами — `@sat:order.cursor.navigate` |
 | Оболочка разработки: сборка MO2 в браузере на localhost, песочница | `@sat:devserver`, `@sat:devserver.load`, `@sat:devserver.http` | смысл команд — `@sat:app` |
 | Ресурс: манифест (данные, без кода), род, id без доверия | `@sat:resource` (`@sat:resource.manifest`, `@sat:resource.kind`, `@sat:resource.digest`) | анализатор как контракт — `@sat:scan.analyzer` |
 | Источник загрузки → доверие; возможности на ресурс | `@sat:resource.source`, `@sat:resource.capability` | id-префикс `core.` ничего не даёт |

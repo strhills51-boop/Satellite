@@ -501,3 +501,36 @@ fn keyboard_moves_blocks_whole_and_mods_by_row() {
         ["A_separator", "a1", "B_separator", "b1", "b2", "a2"]
     );
 }
+
+#[test]
+fn focus_entry_reveals_a_collapsed_block_and_patches_stay_exact() {
+    let mut rng = Rng(7);
+    let mut b = OrderBook::from_modlist(&list(300, &mut rng));
+    let v = b.open_view().unwrap();
+    let mut m = Mirror::new(&b, v);
+    // collapse every separator, then jump to a mod deep inside
+    let seps: Vec<Key> = b
+        .rows(v, 0, usize::MAX)
+        .iter()
+        .filter(|r| r.kind == RowKind::Separator)
+        .map(|r| r.key)
+        .collect();
+    for s in &seps {
+        if let Ok(Some(c)) = b.set_collapsed(v, *s, true) {
+            m.apply(&b, &c);
+        }
+    }
+    let target = (0..300u32)
+        .map(|p| b.key_at(p as usize))
+        .find(|&k| b.kind(k) == EntryKind::Mod && b.pos(k) > 150)
+        .unwrap();
+    let c = b.focus_entry(v, target).expect("reachable");
+    m.apply(&b, &c);
+    m.assert_eq(&b, "after focus_entry");
+    assert_eq!(b.focus(v), Some(target));
+    assert!(
+        b.rows(v, 0, usize::MAX)
+            .iter()
+            .any(|r| r.key == target && r.focused)
+    );
+}
