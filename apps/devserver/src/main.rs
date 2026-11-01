@@ -75,6 +75,7 @@ fn load_offline(dir: &std::path::Path) -> Result<App, String> {
         t.elapsed().as_secs_f64()
     );
     let mut session = Session::new(p.book().0, Arc::new(builder.finish()));
+    session.set_member_keys(p.member_keys());
     session.set_decisions(p.decisions.clone());
     session.set_conflict_ignore(p.conflict_ignore.clone());
     session.set_plugin_facts(Arc::new(versions));
@@ -103,6 +104,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let manager: Modlist = profile::parse_modlist(&modlist).0;
     let project_file = inst.profile_dir().join("satellite").join("project.v0.json");
     let mut decisions = None;
+    let mut member_keys = Vec::new();
     let mut records = Vec::new();
     let mut blacklist = Vec::new();
     let mut ignore = Default::default();
@@ -118,6 +120,7 @@ fn load(args: &[String]) -> Result<App, String> {
                 p.decisions.len()
             );
             decisions = Some(p.decisions.clone());
+            member_keys = p.member_keys().collect();
             records = p.sync.clone();
             blacklist = p.plugins.blacklist.clone();
             ignore = p.conflict_ignore.clone();
@@ -162,6 +165,7 @@ fn load(args: &[String]) -> Result<App, String> {
     );
     let table = Arc::new(builder.finish());
     let mut session = Session::new(book, table);
+    session.set_member_keys(member_keys);
     if let Some(d) = decisions {
         session.set_decisions(d);
     }

@@ -149,6 +149,12 @@ impl Project {
     // @sat:project.book
     /// The live book of this project: canon plus decoration (re-keyed from ids to the names the book uses).
     /// Decoration that no longer fits is reported.
+    /// (name, entity id) of every entity: the member keys of a session (`@sat:session.member-keys`), so chain
+    /// decisions follow the entity through a rename.
+    pub fn member_keys(&self) -> impl Iterator<Item = (String, String)> + '_ {
+        self.entities.iter().map(|r| (r.name.clone(), r.id.0.clone()))
+    }
+
     pub fn book(&self) -> (OrderBook, Vec<DecorIssue>) {
         let mut book = OrderBook::from_modlist(&self.canon);
         let issues = if self.decor.is_empty() {

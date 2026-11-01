@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use sat_core::ids::{ChainId, ModId};
 use sat_core::overwrite::OverwriteProjection;
-use sat_core::table::ProviderTable;
+use sat_core::session::Session;
 
 use crate::{App, chain_title};
 
@@ -44,16 +44,18 @@ impl Head {
     }
 }
 
-pub(crate) fn exact_signature(ow: &OverwriteProjection, table: &ProviderTable, c: ChainId) -> u64 {
-    sat_core::identity::identity(ow.chain_mods(c).iter().map(|&x| table.mod_name(x))).signature
+/// Content signature of an exact chain: over the members' stable keys (`@sat:session.member-keys`).
+pub(crate) fn exact_signature(ow: &OverwriteProjection, s: &Session, c: ChainId) -> u64 {
+    sat_core::identity::identity(ow.chain_mods(c).iter().map(|&x| s.member_key(x))).signature
 }
 
-fn build(ow: &OverwriteProjection, table: &ProviderTable) -> Vec<Head> {
+fn build(ow: &OverwriteProjection, s: &Session) -> Vec<Head> {
+    let table = s.table();
     ow.routes()
         .groups()
         .iter()
         .map(|g| {
-            let mut sources: Vec<u64> = g.chains.iter().map(|&c| exact_signature(ow, table, c)).collect();
+            let mut sources: Vec<u64> = g.chains.iter().map(|&c| exact_signature(ow, s, c)).collect();
             sources.sort_unstable();
             let mut h: u64 = 0xcbf2_9ce4_8422_2325;
             for s in &sources {
@@ -62,7 +64,7 @@ fn build(ow: &OverwriteProjection, table: &ProviderTable) -> Vec<Head> {
                     h = h.wrapping_mul(0x0100_0000_01b3);
                 }
             }
-            let id = sat_core::identity::identity(g.route.iter().map(|&x| table.mod_name(x)));
+            let id = sat_core::identity::identity(g.route.iter().map(|&x| s.member_key(x)));
             let mut paths: Vec<String> = Vec::new();
             for &c in &g.chains {
                 if paths.len() >= 64 {
@@ -98,6 +100,9 @@ fn build(ow: &OverwriteProjection, table: &ProviderTable) -> Vec<Head> {
         .collect()
 }
 
+/// Headings with what they were built from: (overwrite computation, member-keys revision).
+pub(crate) type Cached = ((u64, u64), Arc<Vec<Head>>);
+
 /// A mod's part in one normalized chain.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Part {
@@ -114,13 +119,13 @@ impl App {
     /// decisions do not rebuild them (settled-or-not is read at use).
     pub(crate) fn heads(&mut self) -> Arc<Vec<Head>> {
         let ow = self.session.overwrite();
-        let version = self.session.computed("overwrite");
+        let version = (self.session.computed("overwrite"), self.session.member_keys_rev());
         if let Some((v, h)) = &self.heads
             && *v == version
         {
             return h.clone();
         }
-        let h = Arc::new(build(&ow, self.session.table()));
+        let h = Arc::new(build(&ow, &self.session));
         self.heads = Some((version, h.clone()));
         h
     }

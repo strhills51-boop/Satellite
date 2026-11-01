@@ -59,6 +59,12 @@ pub struct Session {
     last_overwrite: Recompute,
     /// User decisions on conflicts (settled chains).
     decisions: ChainDecisions,
+    /// Stable key by folded mod name (the entity id): survives a new table.
+    key_map: FxHashMap<String, String>,
+    /// The same by `ModId` index of the current table; `None` → the name is the key.
+    keys: Vec<Option<String>>,
+    /// Bumped when the keys change: caches of chain signatures read it.
+    keys_rev: u64,
     /// How many times each projection was computed (observability, tests).
     computed: FxHashMap<ProjectionId, u64>,
 }
@@ -121,6 +127,9 @@ impl Session {
             overwrite: None,
             last_overwrite: Recompute::Full,
             decisions: ChainDecisions::default(),
+            key_map: FxHashMap::default(),
+            keys: Vec::new(),
+            keys_rev: 0,
             computed: FxHashMap::default(),
         }
     }
@@ -176,6 +185,50 @@ impl Session {
             truth: Truth::Decisions,
             keys: Keys::All,
         });
+    }
+
+    // @sat:session.member-keys
+    /// Gives every table mod its stable key (the project's entity id, `@sat:entity`): chain signatures — and so
+    /// chain decisions, icons and hues — hash keys, not folder names, so renaming a mod keeps its chains settled.
+    /// A mod without a key (no project yet, the overwrite folder) is keyed by its name.
+    pub fn set_member_keys(&mut self, keys: impl IntoIterator<Item = (String, String)>) {
+        let map: FxHashMap<String, String> = keys.into_iter().map(|(n, k)| (n.to_lowercase(), k)).collect();
+        if map == self.key_map {
+            return;
+        }
+        self.key_map = map;
+        self.rekey_table();
+    }
+
+    fn rekey_table(&mut self) {
+        let keys: Vec<Option<String>> = self
+            .table
+            .mod_names()
+            .iter()
+            .map(|n| self.key_map.get(&n.to_lowercase()).cloned())
+            .collect();
+        if keys == self.keys {
+            return;
+        }
+        self.keys = keys;
+        self.keys_rev += 1;
+        self.graph.apply(&Change {
+            truth: Truth::Decisions,
+            keys: Keys::All,
+        });
+    }
+
+    /// The stable key of table mod `m`: its entity id, else its name.
+    pub fn member_key(&self, m: ModId) -> &str {
+        match self.keys.get(m.idx()) {
+            Some(Some(k)) => k,
+            _ => self.table.mod_name(m),
+        }
+    }
+
+    /// Revision of the member keys (cache key for anything hashed from them).
+    pub fn member_keys_rev(&self) -> u64 {
+        self.keys_rev
     }
 
     // @sat:session.decide
@@ -246,6 +299,7 @@ impl Session {
             truth: Truth::Facts,
             keys: Keys::All,
         });
+        self.rekey_table();
     }
 
     /// Current priorities (recomputed only when the canon or facts changed).

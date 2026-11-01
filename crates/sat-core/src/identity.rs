@@ -4,9 +4,10 @@
 //! classic overwrite badges show per chain (docs/semantic/monolith/12-mod-card.md §2).
 //! Not here: the chains themselves (`@sat:overwrite.projection`), chain titles from paths (`@sat:app.mod-detail`).
 //!
-//! The signature hashes the **folded names of the members, sorted**: moving mods or re-running the scan (which
-//! renumbers mod ids) keeps the same icon and colour, so the user recognises a chain and its decisions stick to
-//! it. (The old Satellite hashed members in load order, so a reorder changed every signature — a defect.)
+//! The signature hashes the **folded member keys, sorted**: moving mods or re-running the scan (which renumbers
+//! mod ids) keeps the same icon and colour, so the user recognises a chain and its decisions stick to it. A key is
+//! the mod's entity id when the project knows it (`@sat:session.member-keys`) — a rename keeps the chain — and
+//! the folder name otherwise. (The old Satellite hashed members in load order, so a reorder changed every signature — a defect.)
 
 use serde::{Deserialize, Serialize};
 

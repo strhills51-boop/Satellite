@@ -8,7 +8,8 @@
 //! On disk the set is a sorted list of 16-digit hex signatures: stable diffs, and no precision loss in readers whose
 //! numbers are doubles (JavaScript).
 //!
-//! A decision survives reorders and re-scans because the signature depends only on the chain's members. When a
+//! A decision survives reorders, re-scans and renames because the signature depends only on the chain's members,
+//! and a member is its entity id (`@sat:session.member-keys`), not its folder name. When a
 //! chain changes members (a mod added or removed from the stack), it is a new chain with no decision — the user
 //! looks at it again. That is the monolith's reconcile rule (matched / new / removed) without its defect: the old
 //! Satellite's signature depended on load order and lost every decision after a reorder.

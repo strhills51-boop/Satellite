@@ -544,7 +544,7 @@ pub struct App {
     /// Tag collections and colours (`@sat:tags`).
     tags: sat_core::tags::TagCatalog,
     /// Headings of the normalized chains, per overwrite computation.
-    heads: Option<(u64, Arc<Vec<chains::Head>>)>,
+    heads: Option<chains::Cached>,
 }
 
 impl App {
@@ -829,7 +829,7 @@ impl App {
                     marks: r.marks.cloned(),
                     badges: match (badges, index.get(&r.name.to_lowercase())) {
                         (n, Some(&m)) if n > 0 && r.kind == RowKind::Mod => {
-                            mod_badges(&ow, &heads, &names, self.session.decisions(), m, n)
+                            mod_badges(&ow, &heads, &self.session, m, n)
                         }
                         _ => Vec::new(),
                     },
@@ -1054,11 +1054,12 @@ impl App {
 fn mod_badges(
     ow: &sat_core::overwrite::OverwriteProjection,
     heads: &[chains::Head],
-    table: &sat_core::table::ProviderTable,
-    decisions: &sat_core::decisions::ChainDecisions,
+    session: &sat_core::session::Session,
     m: ModId,
     limit: u8,
 ) -> Vec<ContextBadge> {
+    let table = session.table();
+    let decisions = session.decisions();
     let parts = chains::parts(ow, heads, m);
     if parts.is_empty() {
         return Vec::new();
@@ -1071,12 +1072,14 @@ fn mod_badges(
             None => by_ctx.push((ctx, vec![p])),
         }
     }
-    let name = |x: ModId| table.mod_name(x);
     by_ctx
         .into_iter()
         .map(|(ctx, ps)| {
             let hue = ctx.map_or(210, |k| {
-                sat_core::identity::identity(ow.contexts()[k.idx()].mods.iter().map(|&x| name(x))).hue
+                sat_core::identity::identity(
+                    ow.contexts()[k.idx()].mods.iter().map(|&x| session.member_key(x)),
+                )
+                .hue
             });
             let shown: Vec<ChainBadge> = ps
                 .iter()
@@ -1090,7 +1093,7 @@ fn mod_badges(
                         hue: h.hue,
                         files: p.files,
                         place: p.place.min(255) as u8,
-                        stack: h.route.iter().map(|&x| name(x).to_string()).collect(),
+                        stack: h.route.iter().map(|&x| table.mod_name(x).to_string()).collect(),
                     }
                 })
                 .collect();
@@ -1289,7 +1292,11 @@ mod tests {
     use sat_core::table::ProviderTable;
 
     fn app() -> App {
-        let facts: Vec<sat_core::facts::ModFacts> = ["A", "B"]
+        app_of(["A", "B"])
+    }
+
+    fn app_of(mods: [&str; 2]) -> App {
+        let facts: Vec<sat_core::facts::ModFacts> = mods
             .iter()
             .map(|n| {
                 let mut f = sat_core::facts::ModFacts {
@@ -1309,7 +1316,7 @@ mod tests {
             .collect();
         let table = Arc::new(ProviderTable::build(&facts));
         let list = Modlist::new(
-            ["S_separator", "A", "B"]
+            ["S_separator", mods[0], mods[1]]
                 .iter()
                 .map(|n| Entry {
                     name: n.to_string(),
@@ -1326,6 +1333,35 @@ mod tests {
             Session::new(OrderBook::from_modlist(&list), table),
             Registry::with_builtins(),
         )
+    }
+
+    #[test]
+    fn a_settled_chain_stays_settled_when_its_mod_is_renamed() {
+        let keyed = |mods: [&str; 2], ids: [&str; 2]| {
+            let mut a = app_of(mods);
+            a.session
+                .set_member_keys(mods.iter().zip(ids).map(|(n, k)| (n.to_string(), k.to_string())));
+            a
+        };
+        let mut before = keyed(["A", "B"], ["e1", "e2"]);
+        let head = before.heads()[0].clone();
+        before
+            .command(Command::SetChainDone {
+                signature: head.hex(),
+                done: true,
+            })
+            .unwrap();
+        let settled = before.session.decisions().clone();
+        // the project reopened after `A` was renamed: same entity, new folder name
+        let mut after = keyed(["A v2", "B"], ["e1", "e2"]);
+        after.session.set_decisions(settled.clone());
+        let h = after.heads()[0].clone();
+        assert_eq!((h.signature, h.emoji), (head.signature, head.emoji));
+        assert!(h.done(after.session.decisions()));
+        // without entity ids the folder name is the key: the renamed chain is a new one
+        let mut unkeyed = app_of(["A v2", "B"]);
+        unkeyed.session.set_decisions(settled);
+        assert!(!unkeyed.heads()[0].done(unkeyed.session.decisions()));
     }
 
     #[test]
