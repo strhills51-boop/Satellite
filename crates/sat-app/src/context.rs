@@ -534,8 +534,9 @@ mod tests {
         .unwrap();
         assert_eq!(a.session().decisions().len(), 2, "both exact chains settled");
         assert!(detail(&mut a).chains[0].done);
+        let signature = detail(&mut a).chains[0].signature.clone();
         a.command(crate::Command::SetChainDone {
-            signature: detail(&mut a).chains[0].signature.clone(),
+            signature,
             done: false,
         })
         .unwrap();
