@@ -37,7 +37,9 @@ impl FlowParams {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Block {
-    /// Header (separator) key and its row; `None` for the entries before the first separator.
+    /// The block's separator (`None` for the entries before the first separator).
+    sep: Option<Key>,
+    /// Header (the separator row) when it is visible in the view.
     header: Option<Key>,
     /// First row after the header.
     first_row: u32,
@@ -80,6 +82,13 @@ pub struct Line {
 impl OrderBook {
     /// Builds the block index of view `v`.
     pub fn flow_index(&self, v: ViewId, params: FlowParams) -> FlowIndex {
+        self.flow_index_in(v, params, None)
+    }
+
+    // @sat:order.flow.scope
+    /// Builds the block index of view `v` limited to the blocks of the given separators (the monolith's classic
+    /// view shows the current separator, or the selected ones stacked). Rows keep their view numbers.
+    pub fn flow_index_in(&self, v: ViewId, params: FlowParams, scope: Option<&[Key]>) -> FlowIndex {
         let rows_total = self.row_count(v) as u32;
         let seps = self.seq.separator_count();
         let mut blocks = Vec::with_capacity(seps + 1);
@@ -97,6 +106,7 @@ impl OrderBook {
         };
         if first_sep_row > 0 {
             blocks.push(Block {
+                sep: None,
                 header: None,
                 first_row: 0,
                 rows: first_sep_row,
@@ -115,6 +125,7 @@ impl OrderBook {
             };
             let visible = self.seq.is_visible(sep, v);
             blocks.push(Block {
+                sep: Some(sep),
                 header: visible.then_some(sep),
                 first_row: row + u32::from(visible),
                 rows: end.saturating_sub(row + u32::from(visible)),
@@ -122,6 +133,9 @@ impl OrderBook {
                 height: 0,
                 styled: styled_seps.contains(&Some(sep)),
             });
+        }
+        if let Some(scope) = scope {
+            blocks.retain(|b| b.sep.is_some_and(|s| scope.contains(&s)));
         }
         let mut y = 0;
         for b in &mut blocks {
@@ -171,6 +185,9 @@ impl OrderBook {
         let p = &idx.params;
         if b.header.is_some() && row + 1 == b.first_row {
             return Some((b.y, p.header_height));
+        }
+        if row < b.first_row {
+            return None; // outside the scope
         }
         if b.styled {
             return self
@@ -463,5 +480,28 @@ mod tests {
         // generous bounds for debug builds on CI; release is far below
         assert!(built.as_millis() < 2000, "index {built:?}");
         assert!(window.as_millis() < 50, "window {window:?}");
+    }
+
+    #[test]
+    fn a_scope_keeps_only_its_blocks() {
+        let b = book(&[3, 7, 2]);
+        let s1 = b.key_of("S1_separator").unwrap();
+        let s2 = b.key_of("S2_separator").unwrap();
+        let idx = b.flow_index_in(MAIN, P, Some(&[s1]));
+        assert_eq!(idx.total_height, 30 + 44 * 2);
+        let lines = b.flow_lines(MAIN, &idx, 0, idx.total_height);
+        assert_eq!(lines[0].cards[0].key, s1);
+        assert_eq!(
+            lines.iter().map(|l| l.cards.len()).sum::<usize>(),
+            8,
+            "header + 7 mods"
+        );
+        // rows outside the scope have no place
+        assert_eq!(b.flow_row_y(MAIN, &idx, 0), None);
+        assert_eq!(b.flow_row_y(MAIN, &idx, 4), Some((0, 30)), "the separator row");
+        assert_eq!(b.flow_row_y(MAIN, &idx, 13), None);
+        // two separators stack
+        let idx = b.flow_index_in(MAIN, P, Some(&[s2, s1]));
+        assert_eq!(idx.total_height, 30 + 88 + 30 + 44);
     }
 }
