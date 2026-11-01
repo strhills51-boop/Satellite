@@ -27,6 +27,7 @@ pub mod identity;
 pub mod ids;
 pub mod ignore;
 pub mod interner;
+pub mod jobs;
 pub mod metrics;
 pub mod order;
 pub mod overwrite;

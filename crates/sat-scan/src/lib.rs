@@ -108,6 +108,19 @@ pub struct ScanProgress {
     pub plugin_reads: AtomicU64,
     pub plugin_ns: AtomicU64,
     pub walk_ns: AtomicU64,
+    /// Set from another thread to stop the scan: the batch in flight finishes (its outcomes still reach the sink,
+    /// in order), no further batch starts. See [`Completion`].
+    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// How a batched scan ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Completion {
+    Done,
+    /// Stopped by [`ScanProgress::cancel`]; this many jobs reached the sink.
+    Cancelled {
+        delivered: usize,
+    },
 }
 
 pub(crate) fn add_ns(counter: &AtomicU64, since: std::time::Instant) {
@@ -162,8 +175,8 @@ pub fn scan_batched(
     progress: &ScanProgress,
     batch: usize,
     sink: impl FnMut(usize, ScanOutcome),
-) {
-    scan_batched_with(&Registry::builtin(opts), jobs, opts, progress, batch, sink);
+) -> Completion {
+    scan_batched_with(&Registry::builtin(opts), jobs, opts, progress, batch, sink)
 }
 
 /// [`scan_batched`] with an explicit analyzer registry (extensions, tests).
@@ -174,20 +187,27 @@ pub fn scan_batched_with(
     progress: &ScanProgress,
     batch: usize,
     mut sink: impl FnMut(usize, ScanOutcome),
-) {
+) -> Completion {
     progress.total.store(jobs.len(), Ordering::Relaxed);
+    let mut delivered = 0;
     let ctx = walk::Ctx { reg, opts, progress };
     let run = |chunk: &[ScanJob]| scan_on_current_pool(chunk, &ctx);
     let pool = pool(opts);
     for (ci, chunk) in jobs.chunks(batch.max(1)).enumerate() {
+        // @sat:scan.cancel
+        if progress.cancel.load(Ordering::Relaxed) {
+            return Completion::Cancelled { delivered };
+        }
         let outcomes = match &pool {
             Some(p) => p.install(|| run(chunk)),
             None => run(chunk),
         };
         for (i, o) in outcomes.into_iter().enumerate() {
             sink(ci * batch.max(1) + i, o);
+            delivered += 1;
         }
     }
+    Completion::Done
 }
 
 fn scan_on_current_pool(jobs: &[ScanJob], ctx: &walk::Ctx<'_>) -> Vec<ScanOutcome> {
@@ -472,5 +492,38 @@ mod tests {
             fn clear(&self, _: &mut ModFacts) {}
         }
         assert!(r.register(Box::new(Dup)).is_err());
+    }
+
+    #[test]
+    fn a_cancelled_scan_stops_between_batches_and_keeps_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let jobs: Vec<ScanJob> = (0..6)
+            .map(|i| {
+                let p = tmp.path().join(format!("M{i}"));
+                std::fs::create_dir_all(&p).unwrap();
+                std::fs::write(p.join("a.txt"), b"x").unwrap();
+                ScanJob {
+                    name: format!("M{i}"),
+                    path: p,
+                }
+            })
+            .collect();
+        let opts = ScanOptions::default();
+        let progress = ScanProgress::default();
+        let mut seen = Vec::new();
+        let end = scan_batched(&jobs, &opts, &progress, 2, |i, _| {
+            seen.push(i);
+            if i == 1 {
+                // the user cancels while the first batch is being delivered
+                progress.cancel.store(true, Ordering::Relaxed);
+            }
+        });
+        assert_eq!(end, Completion::Cancelled { delivered: 2 });
+        assert_eq!(seen, [0, 1]);
+        progress.cancel.store(false, Ordering::Relaxed);
+        assert_eq!(
+            scan_batched(&jobs, &opts, &progress, 4, |_, _| {}),
+            Completion::Done
+        );
     }
 }

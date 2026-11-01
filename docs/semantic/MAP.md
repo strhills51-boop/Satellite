@@ -33,6 +33,7 @@
 | Раскладка потоком (ADR 0012 §2): блоки разделителей, ряды карточек, окно рядов по высоте, ряд фокуса | `@sat:order.flow` (`FlowParams`, `flow_lines`), `@sat:order.flow.index` (`flow_index`), `@sat:order.flow.row-y` (`flow_row_y`), охват блоков (`@sat:order.flow.scope`, `flow_index_in`: классический вид монолита — текущий разделитель или выбранные стопкой), запрос страницы `@sat:app.lines` (`Query::Lines`) | стиль как данные — `@sat:order.decor.style` |
 | Внешний вид цепочки и контекста: эмодзи и оттенок из состава (не из порядка) | `@sat:identity` (`@sat:identity.of`) | сами цепочки — `@sat:overwrite.projection` |
 | Игнор-лист конфликтов (монолит `conflictIgnorePaths`): `meta.ini` — файл где угодно, `docs/` — папка где угодно, `a/b.dds` — один путь | `@sat:ignore`, `@sat:ignore.matches`; применение — `ConflictIndex::build_with` (`@sat:overwrite.conflicts`); в сессии — `@sat:session.ignore` (истина Settings); в проекте — `conflict_ignore`; команда окна `SetConflictIgnore`; строка — `@sat:cli.ignore` | проверяются только оспариваемые пути |
+| Задачи (долгая работа): отмена, поколения, вытеснение новой задачей того же рода, единые ворота публикации результата | `@sat:jobs`, `@sat:jobs.supervisor` (`Jobs::start`, `cancel`), `@sat:jobs.publish`; отмена скана между пачками — `@sat:scan.cancel` (`ScanProgress::cancel`, `Completion`) | сама работа — скан, правила; применение результата — сессия |
 | Нормализованные цепочки (слой монолита v499–v501): точные цепочки одного победителя → одна, супер-маршрут, без циклов, капы 256 / 128 | `@sat:routes` (`RouteGroups`, `OverwriteProjection::routes`), `@sat:routes.groups`, `@sat:routes.of-mod`; заголовки и «решено» — `@sat:app.chains`, `@sat:app.chains.heads`; бейджи — `@sat:app.badges.normalized` | точные стеки — `@sat:overwrite.projection`; решения — на точных (`@sat:decisions`) |
 | Бейджи перезаписи на карточке (модель «коллекция цепочек» монолита): по контексту, значки крупнейших цепочек, `+N` | `@sat:app.badges` (`Query::Rows { badges }`) | модель `OW N` — та же выдача, другой показ на странице |
 | Таблица конфликтов контекста (монолит, флажок «цветные типы»): моды × файлы окнами по обеим осям, группы по разделителям, порядок «цепочка / сила» | `@sat:app.context-table` (`Query::Contexts`), `@sat:app.context-table.window` (`Query::ContextTable`) | цепочки и стеки — `@sat:overwrite.projection`; цвет типа файла — страница |
@@ -113,6 +114,7 @@
 - `crates/sat-core/src/ids.rs` — `@sat:ids`: типизированные `u32`-идентификаторы.
 - `crates/sat-core/src/metrics.rs` — `@sat:metrics`: каталог метрик мода и их значения.
 - `crates/sat-core/src/interner.rs` — `@sat:interner`: арена строк, свёртка регистра, каталоги, `file_key`.
+- `crates/sat-core/src/jobs.rs` — `@sat:jobs`: задачи с отменой и поколениями, ворота публикации.
 - `crates/sat-core/src/expr.rs` — `@sat:expr`: язык выражений фильтров, правил и счётчиков.
 - `crates/sat-core/src/facts.rs` — `@sat:facts`: факты сканера.
 - `crates/sat-core/src/table.rs` — `@sat:table`: колонки провайдеров, CSR по путям и модам.
