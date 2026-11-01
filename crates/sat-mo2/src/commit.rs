@@ -9,7 +9,8 @@
 //! 1. `versions/<stamp>/`: `modlist.txt`, `plugins.txt`, `loadorder.txt` copies, `project.before.json`,
 //!    `commit.intent.json` (the plan) — before anything changes;
 //! 2. disk operations in plan order, the journal rewritten after each step;
-//! 3. `modlist.txt` and the project written through a temp file and a rename;
+//! 3. `modlist.txt` (with `plugins.txt` and `loadorder.txt` when the commit carries plugin changes) and the project,
+//!    each through a temp file and a rename;
 //! 4. on an error in 2–3: every journalled step undone in reverse, the profile files restored from the backup;
 //! 5. `commit.rollback.json` — what happened, always written.
 //!
@@ -106,6 +107,9 @@ pub struct Payload<'a> {
     /// The project as it was, and as it will be (records settled, canon after).
     pub project_before: Vec<u8>,
     pub project_after: Vec<u8>,
+    /// `plugins.txt` and `loadorder.txt` when the commit carries plugin changes (`@sat:plugins.edit.files`,
+    /// `profile::serialize_plugins`); `None` leaves both files as they are.
+    pub plugin_files: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 /// Test hook: fail before step `n` (0-based) of the disk operations / file writes.
@@ -259,22 +263,30 @@ fn run(
         }
         journal(version_dir, steps)?;
     }
-    let profile_modlist = layout.profile_dir.join("modlist.txt");
-    for (path, data, backup) in [
-        (
-            profile_modlist.clone(),
-            &payload.modlist,
-            profile_modlist.exists().then(|| version_dir.join("modlist.txt")),
-        ),
-        (
-            layout.project_file.clone(),
-            &payload.project_after,
-            layout
-                .project_file
-                .exists()
-                .then(|| version_dir.join("project.before.json")),
-        ),
-    ] {
+    let in_profile = |name: &str| {
+        let path = layout.profile_dir.join(name);
+        let backup = path.exists().then(|| version_dir.join(name));
+        (path, backup)
+    };
+    let mut writes: Vec<(PathBuf, &Vec<u8>, Option<PathBuf>)> = Vec::new();
+    let (path, backup) = in_profile("modlist.txt");
+    writes.push((path, &payload.modlist, backup));
+    if let Some((plugins, loadorder)) = &payload.plugin_files {
+        let (path, backup) = in_profile("plugins.txt");
+        writes.push((path, plugins, backup));
+        let (path, backup) = in_profile("loadorder.txt");
+        writes.push((path, loadorder, backup));
+    }
+    let project_backup = layout
+        .project_file
+        .exists()
+        .then(|| version_dir.join("project.before.json"));
+    writes.push((
+        layout.project_file.clone(),
+        &payload.project_after,
+        project_backup,
+    ));
+    for (path, data, backup) in writes {
         gate(&mut n)?;
         write_atomic(&path, data).map_err(|e| e.to_string())?;
         steps.push(Step::Wrote { path, backup });
@@ -416,6 +428,7 @@ mod tests {
             modlist: b"+Lost\n+Old\n+A\n# after\n".to_vec(),
             project_before: b"{\"before\":true}".to_vec(),
             project_after: b"{\"after\":true}".to_vec(),
+            plugin_files: None,
         }
     }
 
@@ -510,5 +523,39 @@ mod tests {
         let s = stamp_now();
         assert_eq!(s.len(), 15);
         assert!(s.starts_with("20") && s.as_bytes()[8] == b'-');
+    }
+
+    #[test]
+    fn plugin_files_are_written_and_restored_with_the_rest() {
+        let b = build();
+        std::fs::write(b.layout.profile_dir.join("plugins.txt"), "*Old.esp\n").unwrap();
+        let p = the_plan();
+        let mut pl = payload(&p);
+        pl.plugin_files = Some((b"*New.esp\n".to_vec(), b"New.esp\n".to_vec()));
+        // fail at the project write (after modlist, plugins, loadorder): all three come back
+        let r = execute(
+            &b.layout,
+            "s",
+            &pl,
+            Faults {
+                fail_before_step: Some(6),
+            },
+        );
+        assert!(matches!(r.outcome, Outcome::RolledBack { .. }), "{:?}", r.outcome);
+        assert_eq!(
+            std::fs::read_to_string(b.layout.profile_dir.join("plugins.txt")).unwrap(),
+            "*Old.esp\n"
+        );
+        assert!(
+            !b.layout.profile_dir.join("loadorder.txt").exists(),
+            "a file that did not exist is removed again"
+        );
+        let b = build();
+        let r = execute(&b.layout, "t", &pl, Faults::default());
+        assert_eq!(r.outcome, Outcome::Committed);
+        assert_eq!(
+            std::fs::read_to_string(b.layout.profile_dir.join("loadorder.txt")).unwrap(),
+            "New.esp\n"
+        );
     }
 }

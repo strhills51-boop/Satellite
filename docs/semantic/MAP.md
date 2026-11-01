@@ -83,7 +83,8 @@
 | Заголовок DDS и VRAM | `@sat:formats.dds` | — |
 | Класс загрузки плагина (NG) | `@sat:formats.plugin.kind` | тип монолита для паритета — `@sat:formats.plugin.monolith-type` |
 | Экземпляр MO2 (папки, профили, ini) | `@sat:mo2.instance` | — |
-| `modlist.txt` / `plugins.txt` / `loadorder.txt` | `@sat:mo2.profile`; два формата `plugins.txt` (со звёздами / список без звёзд = все активны) — `@sat:mo2.plugins-txt` | порядок — `loadorder.txt`; плагины сверх лимита MO2 в списки не вносит — их находит скан |
+| `modlist.txt` / `plugins.txt` / `loadorder.txt` | `@sat:mo2.profile`; два формата `plugins.txt` (со звёздами / список без звёзд = все активны) — `@sat:mo2.plugins-txt`, запись в формате прежнего файла — `@sat:mo2.plugins-write` | порядок — `loadorder.txt`; плагины сверх лимита MO2 в списки не вносит — их находит скан |
+| Правка плагинов: отметка, скрытие (blacklist), каскадное включение по мастерам, что получают `plugins.txt` / `loadorder.txt` | `@sat:plugins.edit` (`set_checked`, `set_blacklisted`), `@sat:plugins.edit.cascade`, `@sat:plugins.edit.files`; скрытые в списке — `Plugin::blacklisted` (`@sat:plugins.list`); в проекте — `plugin_blacklist` | запись при фиксации — `Payload::plugin_files` (`@sat:mo2.commit`) |
 | `meta.ini` мода, цвет QColor | `@sat:mo2.meta`, `@sat:mo2.ini` | — |
 | Атомарная запись файла | `@sat:mo2.write-atomic` | — |
 | Сигнатура папки мода | `@sat:scan.signature.v3` (`signature_v2` / `signature_v1` — только перенос кеша) | сигнатура монолита (`buildAnalysisSignature`) — другая |
@@ -109,6 +110,7 @@
 - `crates/sat-core/src/table.rs` — `@sat:table`: колонки провайдеров, CSR по путям и модам.
 - `crates/sat-core/src/overwrite.rs` — `@sat:overwrite`: проекция перезаписи (параллельно по путям), статистика.
 - `crates/sat-core/src/canon.rs` — `@sat:canon`: снимок канона, блоки, приоритеты.
+- `crates/sat-core/src/plugin_edit.rs` — `@sat:plugins.edit`: правка канона плагинов и файлы менеджера.
 - `crates/sat-core/src/plugins.rs` — `@sat:plugins`: канон плагинов, версии по модам, список плагинов как его видит игра.
 - `crates/sat-core/src/routes.rs` — `@sat:routes`: нормализованные цепочки (группы маршрутов точных цепочек).
 - `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`.

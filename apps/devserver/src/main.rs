@@ -48,6 +48,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let project_file = inst.profile_dir().join("satellite").join("project.v0.json");
     let mut decisions = None;
     let mut records = Vec::new();
+    let mut blacklist = Vec::new();
     let book = match std::fs::read(&project_file)
         .ok()
         .and_then(|b| serde_json::from_slice::<Project>(&b).ok())
@@ -60,6 +61,7 @@ fn load(args: &[String]) -> Result<App, String> {
             );
             decisions = Some(p.decisions.clone());
             records = p.sync.clone();
+            blacklist = p.plugin_blacklist.clone();
             p.book().0
         }
         _ => {
@@ -110,6 +112,7 @@ fn load(args: &[String]) -> Result<App, String> {
             .into_iter()
             .map(|l| (l.name, l.enabled))
             .collect(),
+        blacklist,
     });
     let t = Instant::now();
     let totals = session.overwrite().totals();

@@ -242,6 +242,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 p.sync = old.sync;
                 p.decor = old.decor;
                 p.decisions = old.decisions;
+                p.plugin_blacklist = old.plugin_blacklist;
             }
             eprintln!(
                 "project: re-imported canon from modlist.txt into {}",
@@ -562,6 +563,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
             .into_iter()
             .map(|l| (l.name, l.enabled))
             .collect(),
+        blacklist: project.plugin_blacklist.clone(),
     };
     let plugin_list = PluginList::compute(&plugin_versions, &plugin_canon, proj.priorities());
     timings.insert("plugins", t.elapsed().as_millis());

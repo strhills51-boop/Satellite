@@ -436,6 +436,7 @@ mod tests {
         s.set_plugin_canon(PluginCanon {
             load_order: vec!["Skyrim.esm".into(), "P.esp".into()],
             checked: vec![("P.esp".into(), true)],
+            ..PluginCanon::default()
         });
         let masters = |s: &mut Session| s.plugins().get("P.esp").unwrap().masters.len();
         assert_eq!(masters(&mut s), 2, "B is below A in the list = higher priority");

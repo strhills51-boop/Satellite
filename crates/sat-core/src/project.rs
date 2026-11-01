@@ -41,6 +41,9 @@ pub struct Project {
     /// Conflict decisions: settled chains by content signature. Absent in older files.
     #[serde(default, skip_serializing_if = "ChainDecisions::is_empty")]
     pub decisions: ChainDecisions,
+    /// Plugins hidden by the user (`@sat:plugins.canon`). Absent in older files.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugin_blacklist: Vec<String>,
 }
 
 /// How the manager's list differs from the project canon.
@@ -79,6 +82,7 @@ impl Project {
             sync: Vec::new(),
             decor: Decor::default(),
             decisions: ChainDecisions::default(),
+            plugin_blacklist: Vec::new(),
         }
     }
 

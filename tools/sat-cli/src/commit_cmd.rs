@@ -178,6 +178,7 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         modlist: profile::serialize_modlist(&p.canon_after, &style),
         project_before,
         project_after: serde_json::to_vec_pretty(&after).map_err(|e| e.to_string())?,
+        plugin_files: None,
     };
     let stamp = flag_value(args, "--stamp").map_or_else(stamp_now, str::to_string);
     let report = execute(&layout, &stamp, &payload, Faults::default());

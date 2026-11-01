@@ -27,6 +27,7 @@ pub mod ids;
 pub mod interner;
 pub mod order;
 pub mod overwrite;
+pub mod plugin_edit;
 pub mod plugins;
 pub mod project;
 pub mod resource;

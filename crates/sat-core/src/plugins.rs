@@ -60,6 +60,10 @@ pub struct PluginCanon {
     pub load_order: Vec<String>,
     /// `plugins.txt`: name → checked (`*`).
     pub checked: Vec<(String, bool)>,
+    /// Plugins the user hid (Satellite's own setting, monolith `analysisConfig.pluginBlacklist`): never loaded,
+    /// never written to the manager's lists, and not reported as a missing master of others.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blacklist: Vec<String>,
 }
 
 /// What the manager says about a plugin.
@@ -201,6 +205,8 @@ pub struct Plugin {
     pub active: bool,
     /// `00`…`FD` for full plugins, `FE:000`…`FFF` for light ones.
     pub index: Option<RuntimeIndex>,
+    /// Hidden by the user (`PluginCanon::blacklist`).
+    pub blacklisted: bool,
     pub missing_masters: Vec<String>,
     pub colour: Colour,
 }
@@ -244,6 +250,8 @@ pub struct PluginStats {
     /// Present in a mod but every owner is disabled.
     pub owner_disabled: usize,
     pub missing: usize,
+    #[serde(default)]
+    pub blacklisted: usize,
 }
 
 // @sat:plugins.list
@@ -266,6 +274,7 @@ impl PluginList {
             order.entry(plugin_key(n)).or_insert(i);
         }
         let base: FxHashMap<String, &[&str]> = SKYRIM_BASE.iter().map(|(n, m)| (plugin_key(n), *m)).collect();
+        let hidden: rustc_hash::FxHashSet<String> = canon.blacklist.iter().map(|n| plugin_key(n)).collect();
 
         // every name anybody mentions: base, the manager's lists, mods
         let mut names: Vec<String> = Vec::new();
@@ -322,8 +331,11 @@ impl PluginList {
                     (None, _) => (kind_from_name(&name), Vec::new()),
                 };
                 let present = matches!(origin, Origin::Base | Origin::CreationClub) || enabled_owner;
-                // base masters always load; otherwise not unchecked, present, and known to the list or found
-                let active = origin == Origin::Base || (present && listed != Listed::Disabled);
+                // a base master cannot be hidden: the game loads it whatever the lists say
+                let blacklisted = origin != Origin::Base && hidden.contains(&key);
+                // base masters always load; otherwise not hidden, not unchecked, present, and known or found
+                let active =
+                    origin == Origin::Base || (!blacklisted && present && listed != Listed::Disabled);
                 Plugin {
                     load_order: order.get(&key).copied(),
                     name,
@@ -336,6 +348,7 @@ impl PluginList {
                     present,
                     active,
                     index: None,
+                    blacklisted,
                     missing_masters: Vec::new(),
                     colour: Colour::Green,
                 }
@@ -391,7 +404,9 @@ impl PluginList {
             p.missing_masters = p
                 .masters
                 .iter()
-                .filter(|m| !usable.get(&plugin_key(m)).copied().unwrap_or(false))
+                .filter(|m| {
+                    !hidden.contains(&plugin_key(m)) && !usable.get(&plugin_key(m)).copied().unwrap_or(false)
+                })
                 .cloned()
                 .collect();
             let overflow = p.index.is_some_and(RuntimeIndex::overflow);
@@ -423,6 +438,7 @@ impl PluginList {
             st.with_missing_masters += usize::from(p.present && !p.missing_masters.is_empty());
             st.owner_disabled += usize::from(p.origin == Origin::Mod && !p.present);
             st.missing += usize::from(p.origin == Origin::Missing);
+            st.blacklisted += usize::from(p.blacklisted);
         }
         PluginList { plugins, stats: st }
     }
@@ -463,6 +479,7 @@ mod tests {
         PluginCanon {
             load_order: order.iter().map(|s| s.to_string()).collect(),
             checked: checked.iter().map(|(n, c)| (n.to_string(), *c)).collect(),
+            blacklist: Vec::new(),
         }
     }
 
@@ -536,6 +553,7 @@ mod tests {
         let c = PluginCanon {
             load_order: order,
             checked,
+            ..PluginCanon::default()
         };
         let l = PluginList::compute(&v, &c, &Priorities(vec![0]));
 
