@@ -18,7 +18,7 @@ use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::ids::ModId;
 use sat_core::overwrite::{ConflictIndex, OverwriteProjection, Priorities};
 use sat_core::plugins::{PluginCanon, PluginList, PluginVersions};
-use sat_core::project::{ManagerDiff, PROJECT_SCHEMA, Project};
+use sat_core::project::{ManagerDiff, Project};
 use sat_core::sync::donor;
 use sat_core::table::{ProviderTable, TableBuilder};
 use sat_mo2::{Instance, profile};
@@ -27,7 +27,7 @@ use serde::Serialize;
 
 use sat_core::session::OVERWRITE;
 /// Provisional project file until the container format is decided (ADR 0007).
-const PROJECT_FILE: &str = "project.v0.json";
+const PROJECT_FILE: &str = sat_stll::FILE_NAME;
 /// Mods scanned per batch before their facts are folded into the table and dropped.
 const SCAN_BATCH: usize = 256;
 
@@ -53,6 +53,7 @@ struct Seen {
 mod bench_order;
 mod commit_cmd;
 mod ignore_cmd;
+mod project_io;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -254,41 +255,38 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let project_path = flag_value(args, "--project")
         .map(PathBuf::from)
         .unwrap_or_else(|| inst.profile_dir().join("satellite").join(PROJECT_FILE));
-    let mut project = match std::fs::read(&project_path) {
-        Ok(bytes) if !has(args, "--reimport") => {
-            let p = Project::from_json(&bytes).map_err(|e| {
-                format!(
-                    "{}: {e} (this build reads schema {PROJECT_SCHEMA})",
-                    project_path.display()
-                )
-            })?;
+    let (mut stll, stored) = match project_io::open(&project_path)? {
+        Some((f, p)) => (f, Some(p)),
+        None => (sat_stll::Stll::new(&project_path), None),
+    };
+    let mut project = match stored {
+        Some(p) if !has(args, "--reimport") => {
             eprintln!("project: {}", project_path.display());
             p
         }
-        Ok(bytes) => {
+        Some(old) => {
             // Re-import keeps what the project learned and what the user decided (signatures, sync decisions,
             // decoration, settled chains), replaces only the canon. Decoration of names no longer in the canon is
             // reported when the book applies it.
-            let old: Option<Project> = Project::from_json(&bytes).ok();
             let mut p = Project::import(manager.clone());
-            if let Some(old) = old {
-                // entities keep their ids by name, so everything keyed by id still finds them
-                p.entities = old.entities;
-                p.entities.follow(&p.canon);
-                p.signatures = old.signatures;
-                p.sync = old.sync;
-                p.decor = old.decor;
-                p.decisions = old.decisions;
-                p.plugins = old.plugins;
-                p.conflict_ignore = old.conflict_ignore;
-            }
+            // entities keep their ids by name, so everything keyed by id still finds them
+            p.entities = old.entities;
+            p.entities.follow(&p.canon);
+            p.signatures = old.signatures;
+            p.sync = old.sync;
+            p.decor = old.decor;
+            p.decisions = old.decisions;
+            p.plugins = old.plugins;
+            p.conflict_ignore = old.conflict_ignore;
+            p.tags = old.tags;
+            p.extra = old.extra;
             eprintln!(
                 "project: re-imported canon from modlist.txt into {}",
                 project_path.display()
             );
             p
         }
-        Err(_) => {
+        None => {
             eprintln!(
                 "project: imported from modlist.txt (first run) → {}",
                 project_path.display()
@@ -380,11 +378,6 @@ fn analyze(args: &[String]) -> Result<(), String> {
     // facts of the project (ADR 0007 step 2): written after a scan, read instead of one with --offline
     let offline = has(args, "--offline");
     let save_facts = !has(args, "--no-save") && !offline;
-    let facts_store = sat_stll::facts::FactsStore::new(
-        project_path
-            .parent()
-            .map_or_else(|| PathBuf::from("facts"), |d| d.join("facts")),
-    );
     let fact_ids: std::collections::HashMap<String, sat_core::entity::EntityId> = project
         .entities
         .iter()
@@ -395,14 +388,25 @@ fn analyze(args: &[String]) -> Result<(), String> {
         )))
         .collect();
     let fact_id = |name: &str| fact_ids.get(&name.to_lowercase()).cloned();
-    let mut facts_written = 0usize;
     if offline {
         eprintln!(
-            "offline: facts from {} instead of a scan",
-            facts_store.dir().display()
+            "offline: facts of {} mods from {} instead of a scan",
+            stll.facts_count(),
+            project_path.display()
         );
     }
-
+    // the project file being written while the scan runs: facts go in as they come, unchanged ones are copied
+    let mut writer = if save_facts {
+        Some(stll.begin().map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+    // offline, the facts are read from the same file through a handle of its own
+    let mut source = if offline && project_path.exists() {
+        Some(sat_stll::Stll::open(&project_path).map_err(|e| e.to_string())?.0)
+    } else {
+        None
+    };
     let mut run = RunState::default();
     let mut jobs: Vec<ScanJob> = list
         .entries
@@ -463,19 +467,13 @@ fn analyze(args: &[String]) -> Result<(), String> {
         let mut sink = |o: sat_scan::ScanOutcome| {
             // @sat:cli.facts
             // the project keeps what the scan saw, by entity id, so it works without the build
-            if save_facts
-                && !o.facts.missing
+            if !o.facts.missing
                 && let Some(eid) = fact_id(&o.facts.name)
+                && let Some(w) = writer.as_mut()
+                && let Err(e) = w.put_facts(&eid.0, o.signature, &o.facts)
+                && issues.len() < 200
             {
-                match facts_store.put(&eid, o.signature, &o.facts) {
-                    Ok(sat_stll::facts::Put::Written) => facts_written += 1,
-                    Ok(sat_stll::facts::Put::Unchanged) => {}
-                    Err(e) => {
-                        if issues.len() < 200 {
-                            issues.push(format!("{}: project facts not saved: {e}", o.facts.name));
-                        }
-                    }
-                }
+                issues.push(format!("{}: project facts not saved: {e}", o.facts.name));
             }
             let id = builder.add(&o.facts);
             plugin_versions.add(id, &o.facts);
@@ -508,7 +506,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         if offline {
             // the build is not here: the project's facts stand in for the scan
             for job in &jobs {
-                let stored = fact_id(&job.name).and_then(|eid| facts_store.get(&eid));
+                let stored = fact_id(&job.name).and_then(|eid| source.as_mut()?.facts(&eid.0));
                 let (signature, facts) = stored.unwrap_or_else(|| (0, ModFacts::missing(job.name.clone())));
                 progress.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 sink(sat_scan::ScanOutcome {
@@ -873,21 +871,21 @@ fn analyze(args: &[String]) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
-    if publish {
-        let bytes = project.to_json()?;
-        sat_mo2::write_atomic(&project_path, &bytes).map_err(|e| e.to_string())?;
-        // facts of entities that left the project go with them
-        let keep: std::collections::HashSet<&str> = fact_ids.values().map(|i| i.0.as_str()).collect();
-        let dropped = facts_store.retain(&keep).map_err(|e| e.to_string())?;
-        eprintln!(
-            "project facts: {facts_written} mod(s) written, {} unchanged, {dropped} dropped → {}",
-            outcomes
-                .iter()
-                .filter(|o| !o.missing)
-                .count()
-                .saturating_sub(facts_written),
-            facts_store.dir().display()
-        );
+    match writer {
+        Some(w) if publish => {
+            let saved = w
+                .finish(&project, sat_stll::file::keep_entities(&project))
+                .map_err(|e| e.to_string())?;
+            eprintln!(
+                "project saved → {}: facts {} written, {} unchanged, {} dropped",
+                project_path.display(),
+                saved.facts_written,
+                saved.facts_copied,
+                saved.facts_dropped
+            );
+        }
+        // not published: the half-written file goes away, the project on disk stays as it was
+        _ => {}
     }
     Ok(())
 }

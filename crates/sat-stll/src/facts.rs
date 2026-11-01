@@ -44,6 +44,25 @@ fn config() -> impl bincode::config::Config {
     bincode::config::standard()
 }
 
+/// One mod's facts as stored (a facts file, or a `facts/<id>.facts` entry of the `.stll` file).
+pub(crate) fn encode(signature: u64, facts: &ModFacts) -> std::io::Result<Vec<u8>> {
+    bincode::serde::encode_to_vec(
+        StoredRef {
+            format: FACTS_FORMAT,
+            signature,
+            facts,
+        },
+        config(),
+    )
+    .map_err(std::io::Error::other)
+}
+
+/// Reads [`encode`]'s bytes; `None` if of another format or damaged.
+pub(crate) fn decode(data: &[u8]) -> Option<(u64, ModFacts)> {
+    let (s, _): (Stored, usize) = bincode::serde::decode_from_slice(data, config()).ok()?;
+    (s.format == FACTS_FORMAT).then_some((s.signature, s.facts))
+}
+
 /// The facts of a project (a folder of per-mod files).
 #[derive(Debug, Clone)]
 pub struct FactsStore {
@@ -86,15 +105,7 @@ impl FactsStore {
             return Ok(Put::Unchanged);
         }
         std::fs::create_dir_all(&self.dir)?;
-        let bytes = bincode::serde::encode_to_vec(
-            StoredRef {
-                format: FACTS_FORMAT,
-                signature,
-                facts,
-            },
-            config(),
-        )
-        .map_err(std::io::Error::other)?;
+        let bytes = encode(signature, facts)?;
         let path = self.path(id);
         let tmp = path.with_extension("facts-tmp");
         std::fs::write(&tmp, bytes)?;
@@ -106,9 +117,7 @@ impl FactsStore {
     /// The stored facts of an entity and their content signature; `None` if absent, of another format or damaged
     /// (facts are rebuildable: a bad file is a cache miss, not an error).
     pub fn get(&self, id: &EntityId) -> Option<(u64, ModFacts)> {
-        let data = std::fs::read(self.path(id)).ok()?;
-        let (s, _): (Stored, usize) = bincode::serde::decode_from_slice(&data, config()).ok()?;
-        (s.format == FACTS_FORMAT).then_some((s.signature, s.facts))
+        decode(&std::fs::read(self.path(id)).ok()?)
     }
 
     /// Removes facts of entities not in `keep`. Returns how many were removed.

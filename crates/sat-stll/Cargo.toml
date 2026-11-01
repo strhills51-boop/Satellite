@@ -10,6 +10,9 @@ sat-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 bincode.workspace = true
+zip.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

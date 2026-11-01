@@ -4,18 +4,15 @@
 //! Not here: the rules and their forms (`@sat:ignore`), applying them (`analyze`, `@sat:overwrite.conflicts`).
 
 use sat_core::ignore::IgnoreRules;
-use sat_core::project::Project;
 use sat_mo2::commit::Layout;
 
-use crate::{flag_values, open_instance};
+use crate::{flag_values, open_instance, project_io};
 
 /// `sat-cli ignore <instance> [--add RULE]... [--remove RULE]...`; the next `analyze` applies the list.
 pub fn ignore(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
-    let bytes =
-        std::fs::read(&path).map_err(|e| format!("{}: {e} — run `sat-cli analyze` first", path.display()))?;
-    let mut project = Project::from_json(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    let (mut stll, mut project) = project_io::require(&path)?;
     let (add, remove) = (flag_values(args, "--add"), flag_values(args, "--remove"));
     if !add.is_empty() || !remove.is_empty() {
         let gone = IgnoreRules::new(remove);
@@ -28,8 +25,7 @@ pub fn ignore(args: &[String]) -> Result<(), String> {
             .chain(add)
             .collect::<Vec<_>>();
         project.conflict_ignore = IgnoreRules::new(rules);
-        let out = project.to_json()?;
-        sat_mo2::write_atomic(&path, &out).map_err(|e| e.to_string())?;
+        project_io::save(&mut stll, &project)?;
         eprintln!("saved to {} — run `sat-cli analyze` to apply", path.display());
     }
     if project.conflict_ignore.is_empty() {

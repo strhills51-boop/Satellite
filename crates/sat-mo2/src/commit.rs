@@ -6,11 +6,13 @@
 //! Not here: what the plan contains and why it may not run (`@sat:sync.plan`), deciding records (`@sat:sync.records`).
 //!
 //! Order (NG-D003 §7, `11-sync.md` §6 item 5 — the monolith left the build half-changed on any error):
-//! 1. `versions/<stamp>/`: `modlist.txt`, `plugins.txt`, `loadorder.txt` copies, `project.before.json`,
-//!    `commit.intent.json` (the plan) — before anything changes;
+//! 1. `versions/<stamp>/`: `modlist.txt`, `plugins.txt`, `loadorder.txt` copies, `commit.intent.json` (the
+//!    plan) — before anything changes;
 //! 2. disk operations in plan order, the journal rewritten after each step;
-//! 3. `modlist.txt` (with `plugins.txt` and `loadorder.txt` when the commit carries plugin changes) and the project,
-//!    each through a temp file and a rename;
+//! 3. `modlist.txt` (with `plugins.txt` and `loadorder.txt` when the commit carries plugin changes) through a
+//!    temp file and a rename; then the project: the old file moves into the version folder
+//!    (`project.before.stll`) and the new one, prepared beside it before the commit, takes its place — two
+//!    renames, whatever the size of the project;
 //! 4. on an error in 2–3: every journalled step undone in reverse, the profile files restored from the backup;
 //! 5. `commit.rollback.json` — what happened, always written.
 //!
@@ -47,7 +49,7 @@ impl Layout {
             profile_dir: inst.profile_dir(),
             versions_dir: sat.join("versions"),
             deleted_dir: inst.base_dir.join("satellite").join("deleted"),
-            project_file: sat.join("project.v0.json"),
+            project_file: sat.join("project.stll"),
         }
     }
 }
@@ -104,9 +106,9 @@ pub struct Payload<'a> {
     pub plan: &'a Plan,
     /// `modlist.txt` of the new canon (`profile::serialize_modlist` of `plan.canon_after`).
     pub modlist: Vec<u8>,
-    /// The project as it was, and as it will be (records settled, canon after).
-    pub project_before: Vec<u8>,
-    pub project_after: Vec<u8>,
+    /// The project as it will be (records settled, canon after): a file prepared in the folder of
+    /// `Layout::project_file` (so the swap is a rename). After a rollback it is back at this path.
+    pub project_after: PathBuf,
     /// `plugins.txt` and `loadorder.txt` when the commit carries plugin changes (`@sat:plugins.edit.files`,
     /// `profile::serialize_plugins`); `None` leaves both files as they are.
     pub plugin_files: Option<(Vec<u8>, Vec<u8>)>,
@@ -207,7 +209,12 @@ fn prepare(layout: &Layout, version_dir: &Path, payload: &Payload<'_>) -> Result
     let w = |name: &str, data: &[u8]| {
         std::fs::write(version_dir.join(name), data).map_err(|e| io(&version_dir.join(name), e))
     };
-    w("project.before.json", &payload.project_before)?;
+    if !payload.project_after.is_file() {
+        return Err(format!(
+            "{}: the prepared project is not there",
+            payload.project_after.display()
+        ));
+    }
     let intent = serde_json::to_vec_pretty(payload.plan).map_err(|e| e.to_string())?;
     w("commit.intent.json", &intent)?;
     Ok(())
@@ -277,23 +284,36 @@ fn run(
         let (path, backup) = in_profile("loadorder.txt");
         writes.push((path, loadorder, backup));
     }
-    let project_backup = layout
-        .project_file
-        .exists()
-        .then(|| version_dir.join("project.before.json"));
-    writes.push((
-        layout.project_file.clone(),
-        &payload.project_after,
-        project_backup,
-    ));
     for (path, data, backup) in writes {
         gate(&mut n)?;
         write_atomic(&path, data).map_err(|e| e.to_string())?;
         steps.push(Step::Wrote { path, backup });
         journal(version_dir, steps)?;
     }
+    // @sat:mo2.commit.project
+    // the project: the old file into the version folder, the prepared one in its place
+    gate(&mut n)?;
+    let target = layout.project_file.clone();
+    if target.exists() {
+        let aside = version_dir.join(PROJECT_BEFORE);
+        std::fs::rename(&target, &aside).map_err(|e| io(&target, e))?;
+        steps.push(Step::Moved {
+            from: target.clone(),
+            to: aside,
+        });
+        journal(version_dir, steps)?;
+    }
+    std::fs::rename(&payload.project_after, &target).map_err(|e| io(&payload.project_after, e))?;
+    steps.push(Step::Moved {
+        from: payload.project_after.clone(),
+        to: target,
+    });
+    journal(version_dir, steps)?;
     Ok(())
 }
+
+/// The project as it was before the commit, in the version folder.
+pub const PROJECT_BEFORE: &str = "project.before.stll";
 
 fn same_folder_other_case(a: &Path, b: &Path) -> bool {
     a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
@@ -356,14 +376,15 @@ mod tests {
         std::fs::write(profile.join("modlist.txt"), "+Lost\n+Old\n+A\n").unwrap();
         let sat = profile.join("satellite");
         std::fs::create_dir_all(&sat).unwrap();
-        std::fs::write(sat.join("project.v0.json"), "{\"before\":true}").unwrap();
+        std::fs::write(sat.join("project.stll"), "before").unwrap();
+        std::fs::write(sat.join("project.next"), "after").unwrap();
         Build {
             layout: Layout {
                 mods_dir: mods,
                 profile_dir: profile,
                 versions_dir: sat.join("versions"),
                 deleted_dir: base.join("satellite").join("deleted"),
-                project_file: sat.join("project.v0.json"),
+                project_file: sat.join("project.stll"),
             },
             _dir: dir,
         }
@@ -422,12 +443,11 @@ mod tests {
         v
     }
 
-    fn payload(p: &Plan) -> Payload<'_> {
+    fn payload<'a>(p: &'a Plan, b: &Build) -> Payload<'a> {
         Payload {
             plan: p,
             modlist: b"+Lost\n+Old\n+A\n# after\n".to_vec(),
-            project_before: b"{\"before\":true}".to_vec(),
-            project_after: b"{\"after\":true}".to_vec(),
+            project_after: b.layout.project_file.with_file_name("project.next"),
             plugin_files: None,
         }
     }
@@ -436,7 +456,7 @@ mod tests {
     fn a_commit_moves_renames_creates_and_writes_with_a_backup() {
         let b = build();
         let p = the_plan();
-        let r = execute(&b.layout, "20261101-120000", &payload(&p), Faults::default());
+        let r = execute(&b.layout, "20261101-120000", &payload(&p, &b), Faults::default());
         assert_eq!(r.outcome, Outcome::Committed);
         assert_eq!(folders(&b.layout.mods_dir), ["A", "Lost", "Old"]);
         // the moved folder is whole in deleted/<stamp>, never removed
@@ -452,17 +472,14 @@ mod tests {
                 .unwrap()
                 .ends_with("# after\n")
         );
-        assert_eq!(
-            std::fs::read_to_string(&b.layout.project_file).unwrap(),
-            "{\"after\":true}"
-        );
+        assert_eq!(std::fs::read_to_string(&b.layout.project_file).unwrap(), "after");
         let v = &r.version_dir;
         assert_eq!(
             std::fs::read_to_string(v.join("modlist.txt")).unwrap(),
             "+Lost\n+Old\n+A\n"
         );
         for f in [
-            "project.before.json",
+            PROJECT_BEFORE,
             "commit.intent.json",
             "commit.journal.json",
             "commit.rollback.json",
@@ -480,7 +497,7 @@ mod tests {
             let r = execute(
                 &b.layout,
                 "s",
-                &payload(&p),
+                &payload(&p, &b),
                 Faults {
                     fail_before_step: Some(at),
                 },
@@ -498,8 +515,13 @@ mod tests {
             );
             assert_eq!(
                 std::fs::read_to_string(&b.layout.project_file).unwrap(),
-                "{\"before\":true}",
+                "before",
                 "at {at}"
+            );
+            assert_eq!(
+                std::fs::read_to_string(b.layout.project_file.with_file_name("project.next")).unwrap(),
+                "after",
+                "at {at}: the prepared project is back where it was"
             );
             assert!(r.version_dir.join("commit.rollback.json").exists());
         }
@@ -512,7 +534,7 @@ mod tests {
         p.blockers.push(sat_core::sync::plan::Blocker::Pending {
             fingerprint: "x".into(),
         });
-        let r = execute(&b.layout, "s", &payload(&p), Faults::default());
+        let r = execute(&b.layout, "s", &payload(&p, &b), Faults::default());
         assert!(matches!(r.outcome, Outcome::Refused { .. }));
         assert!(!r.version_dir.exists());
         assert_eq!(folders(&b.layout.mods_dir), ["A", "Junk", "Renamed"]);
@@ -530,7 +552,7 @@ mod tests {
         let b = build();
         std::fs::write(b.layout.profile_dir.join("plugins.txt"), "*Old.esp\n").unwrap();
         let p = the_plan();
-        let mut pl = payload(&p);
+        let mut pl = payload(&p, &b);
         pl.plugin_files = Some((b"*New.esp\n".to_vec(), b"New.esp\n".to_vec()));
         // fail at the project write (after modlist, plugins, loadorder): all three come back
         let r = execute(
@@ -551,6 +573,10 @@ mod tests {
             "a file that did not exist is removed again"
         );
         let b = build();
+        let pl = Payload {
+            project_after: b.layout.project_file.with_file_name("project.next"),
+            ..pl
+        };
         let r = execute(&b.layout, "t", &pl, Faults::default());
         assert_eq!(r.outcome, Outcome::Committed);
         assert_eq!(

@@ -101,7 +101,8 @@
 | Перезапуск анализаторов по кешированному индексу | `@sat:scan.walk.reanalyze` | — |
 | Донор: соответствие, категории, оценка | `@sat:sync.donor` | — |
 | Устойчивые id сущностей (ADR 0007): имя — атрибут; переименование не теряет декорацию, метки, подпись | `@sat:entity` (`EntityId`, `@sat:entity.mint`), `@sat:entity.registry` (`Entities`: id ↔ имя, `follow`), `@sat:entity.rename`; проект — схема 2, разделы по id: `@sat:project.load` (миграция 1 → 2), `@sat:project.apply-plan`; перекладка ключей декорации — `@sat:order.decor.rekey` | книга порядка внутри сессии — по именам и `Key`; перевод на границе проекта |
-| Факты модов в проекте (холодный ярус, ADR 0007 шаг 2): проект работает без сборки | `@sat:stll`, `@sat:stll.facts` (`FactsStore`: по id сущности, подпись содержимого, запись только изменившихся), `@sat:stll.facts.format`, `@sat:stll.facts.put`, `@sat:stll.facts.get`; запись после скана и `--offline` — `@sat:cli.facts`; окно без сборки — `@sat:devserver.offline` (`--project`) | кеш скана машины — `@sat:scan.cache` |
+| Факты модов в проекте (холодный ярус, ADR 0007 шаг 2): проект работает без сборки | `@sat:stll`, формат факта мода — `@sat:stll.facts.format` (`encode`/`decode`); в файле — `@sat:stll.file.facts` (чтение по id лениво), `@sat:stll.file.put` (неизменившиеся копируются как есть); ранняя раскладка-папка (`FactsStore`, `@sat:stll.facts`, `@sat:stll.facts.put`, `@sat:stll.facts.get`) — только для перевода; запись после скана и `--offline` — `@sat:cli.facts`; окно без сборки — `@sat:devserver.offline` (`--project`) | кеш скана машины — `@sat:scan.cache` |
+| Файл проекта `.stll` (ADR 0007 шаг 3): один zip — манифест, разделы NDJSON, факты; атомарное сохранение, чужое сохраняется | `@sat:stll.file` (`Stll`), `@sat:stll.file.version`, `@sat:stll.file.open`, `@sat:stll.file.save` (`Writer`: `put_facts`, `finish`, `finish_to`); разрезание дерева проекта — `@sat:stll.sections`, `@sat:stll.sections.split`, `@sat:stll.sections.join`; неизвестные поля проекта — `Project::extra` (`@sat:project`); перевод ранней раскладки — `@sat:stll.migrate`; команды — `@sat:cli.project` | замена проекта в фиксации — `@sat:mo2.commit.project` |
 | Записи SYNC и сверка диска с проектом | `@sat:sync.records.reconcile` | ключ сопоставления — `normalize_name`, ключ отпечатка — точное имя в нижнем регистре |
 | Фиксация (техпроцесс «скан/синхронизация → обработка → фиксация», NG-D003 §7): решения по записям, план, бэкап, журнал, откат | ответы — `@sat:sync.records.resolution`; план — `@sat:sync.plan`, `@sat:sync.plan.build`, `@sat:sync.plan.canon`, `@sat:sync.plan.order`; исполнение — `@sat:mo2.commit`, `@sat:mo2.commit.execute`, `@sat:mo2.commit.undo`; API приложения — `@sat:app.sync`, `@sat:app.sync.decide` (`Command::Decide`, `Query::Sync`: записи, ответы, план; исполнения нет); командная строка — `@sat:cli.commit`, `@sat:cli.commit.sync`, `@sat:cli.commit.run` | сверка — `@sat:sync.records.reconcile`; запись файлов — `@sat:mo2.write-atomic` |
 
@@ -175,8 +176,10 @@
 - `crates/sat-mo2/src/meta.rs` — `@sat:mo2.meta`: `meta.ini`.
 
 ### `crates/sat-stll` — проект на диске (ADR 0007)
-- `crates/sat-stll/src/lib.rs` — `@sat:stll`: проект на диске (раскладка; позже — один файл `.stll`).
-- `crates/sat-stll/src/facts.rs` — `@sat:stll.facts`: факты модов в проекте по id сущности.
+- `crates/sat-stll/src/lib.rs` — `@sat:stll`: проект на диске; открытие папки и перевод ранней раскладки.
+- `crates/sat-stll/src/file.rs` — `@sat:stll.file`: файл `.stll` — манифест, разделы, факты, атомарное сохранение.
+- `crates/sat-stll/src/sections.rs` — `@sat:stll.sections`: дерево проекта ↔ разделы NDJSON.
+- `crates/sat-stll/src/facts.rs` — `@sat:stll.facts`: формат факта мода; ранняя раскладка-папка.
 
 ### `crates/sat-scan` — обход папок модов (холодный ярус)
 - `crates/sat-scan/src/lib.rs` — `@sat:scan`: `ScanJob`, `ScanOptions`, `ScanProgress`, `scan` / `scan_batched`, выбор маршрута.
@@ -190,6 +193,7 @@
 - `tools/sat-cli/src/main.rs` — `@sat:cli`: `analyze`, `donor`, `sync`, `commit`, `ignore`, `inspect`, `bench-synth`.
 - `tools/sat-cli/src/commit_cmd.rs` — `@sat:cli.commit`: `sync` (записи и решения) и `commit` (план, `--apply`).
 - `tools/sat-cli/src/ignore_cmd.rs` — `@sat:cli.ignore`: игнор-лист конфликтов в проекте.
+- `tools/sat-cli/src/project_io.rs` — `@sat:cli.project`: файл проекта сборки для команд — открыть, перевести раз, сохранить.
 - `tools/sat-cli/src/bench_order.rs` — `@sat:cli.bench-order`: бенчмарк движка порядка.
 
 ## Документы

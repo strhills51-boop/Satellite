@@ -34,13 +34,22 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 /// Opens the build: the project's canon and decorations if `sat-cli` saved one, else `modlist.txt`; scans (cached)
 /// every listed mod and Overwrite; reads the plugin lists.
 // @sat:devserver.offline
-/// Opens a project folder (`<profile>/satellite`: `project.v0.json` + `facts/`) with no build at all: the order,
-/// decoration, conflicts, plugins and metrics come from the project (ADR 0007 — the project is self-sufficient).
-fn load_offline(dir: &std::path::Path) -> Result<App, String> {
-    let file = dir.join("project.v0.json");
-    let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    let p = Project::from_json(&bytes).map_err(|e| format!("{}: {e}", file.display()))?;
-    let store = sat_stll::facts::FactsStore::new(dir.join("facts"));
+/// Opens a project file (`project.stll`, or the folder holding it) with no build at all: the order, decoration,
+/// conflicts, plugins and metrics come from the project (ADR 0007 — the project is self-sufficient).
+fn load_offline(at: &std::path::Path) -> Result<App, String> {
+    let file = if at.is_dir() {
+        at.join(sat_stll::FILE_NAME)
+    } else {
+        at.to_path_buf()
+    };
+    if !file.exists() && file.with_file_name("project.v0.json").exists() {
+        return Err(format!(
+            "{}: an early project layout — run `sat-cli analyze` once to convert it (the sandbox writes nothing)",
+            file.with_file_name("project.v0.json").display()
+        ));
+    }
+    let (mut store, p) = sat_stll::Stll::open(&file).map_err(|e| e.to_string())?;
+    let dir = file.as_path(); // for the log line
     let t = Instant::now();
     let mut builder = TableBuilder::new();
     let mut versions = PluginVersions::default();
@@ -56,7 +65,7 @@ fn load_offline(dir: &std::path::Path) -> Result<App, String> {
             Some(sat_core::entity::EntityId("overwrite".into())),
         )));
     for (name, id) in names {
-        let facts = match id.and_then(|id| store.get(&id)) {
+        let facts = match id.and_then(|id| store.facts(&id.0)) {
             Some((_, f)) => {
                 found += 1;
                 f
@@ -94,7 +103,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let path = args
         .first()
         .filter(|a| !a.starts_with("--"))
-        .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--port N]\n       sat-devserver --project <project folder> [--port N]   (no build needed)")?;
+        .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--port N]\n       sat-devserver --project <project.stll or its folder> [--port N]   (no build needed)")?;
     let mut inst = Instance::load(path).map_err(|e| e.to_string())?;
     if let Some(p) = flag(args, "--profile") {
         inst.profile = p.to_string();
@@ -102,17 +111,26 @@ fn load(args: &[String]) -> Result<App, String> {
     let read = |f: &str| std::fs::read(inst.profile_dir().join(f));
     let modlist = read("modlist.txt").map_err(|e| format!("modlist.txt: {e}"))?;
     let manager: Modlist = profile::parse_modlist(&modlist).0;
-    let project_file = inst.profile_dir().join("satellite").join("project.v0.json");
+    let sat_dir = inst.profile_dir().join("satellite");
+    let project_file = sat_dir.join(sat_stll::FILE_NAME);
     let mut decisions = None;
     let mut member_keys = Vec::new();
     let mut records = Vec::new();
     let mut blacklist = Vec::new();
     let mut ignore = Default::default();
     let mut tags = sat_core::tags::TagCatalog::default();
-    let book = match std::fs::read(&project_file)
-        .ok()
-        .and_then(|b| Project::from_json(&b).ok())
-    {
+    // the project file; the early layout is read as it is (the sandbox converts nothing)
+    let opened = if project_file.exists() {
+        sat_stll::Stll::open(&project_file)
+            .map(|(_, p)| p)
+            .map_err(|e| eprintln!("{e}"))
+            .ok()
+    } else {
+        std::fs::read(sat_dir.join("project.v0.json"))
+            .ok()
+            .and_then(|b| Project::from_json(&b).ok())
+    };
+    let book = match opened {
         Some(p) if p.schema == PROJECT_SCHEMA => {
             eprintln!(
                 "canon: project {} ({} settled chains)",

@@ -59,6 +59,10 @@ pub struct Project {
     /// Tag collections with colours (`@sat:tags`); the built-in ones when absent.
     #[serde(default, skip_serializing_if = "is_default_catalog")]
     pub tags: crate::tags::TagCatalog,
+    /// Fields this build does not know (written by a newer one or an extension): kept as they are and written
+    /// back, so opening a project never loses another program's data (ADR 0007 §Модель).
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 fn is_default_catalog(c: &crate::tags::TagCatalog) -> bool {
@@ -108,6 +112,7 @@ impl Project {
             plugin_blacklist: Vec::new(),
             conflict_ignore: Default::default(),
             tags: Default::default(),
+            extra: BTreeMap::new(),
         }
     }
 
@@ -115,7 +120,12 @@ impl Project {
     /// Reads a project file of any known schema; older ones are migrated (1 → 2: entities get ids, name-keyed
     /// sections are re-keyed by id).
     pub fn from_json(bytes: &[u8]) -> Result<Self, String> {
-        let mut p: Project = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        Self::from_value(serde_json::from_slice(bytes).map_err(|e| e.to_string())?)
+    }
+
+    /// [`Project::from_json`] from a parsed tree (the `.stll` file joins its sections into one, `@sat:stll.file`).
+    pub fn from_value(v: serde_json::Value) -> Result<Self, String> {
+        let mut p: Project = serde_json::from_value(v).map_err(|e| e.to_string())?;
         for name in std::mem::take(&mut p.plugin_blacklist) {
             p.plugins.set_blacklisted(&name, true);
         }
@@ -144,6 +154,10 @@ impl Project {
 
     pub fn to_json(&self) -> Result<Vec<u8>, String> {
         serde_json::to_vec_pretty(self).map_err(|e| e.to_string())
+    }
+
+    pub fn to_value(&self) -> Result<serde_json::Value, String> {
+        serde_json::to_value(self).map_err(|e| e.to_string())
     }
 
     // @sat:project.book
@@ -343,6 +357,16 @@ mod tests {
         // canon untouched, record stored with its decision slot
         assert!(p.canon.index_of("Old Name").is_some());
         assert_eq!(p.sync[0].status, Status::Pending);
+    }
+
+    #[test]
+    fn fields_of_a_newer_build_survive_a_round_trip() {
+        let mut v = serde_json::to_value(Project::import(Modlist::new(Vec::new()))).unwrap();
+        v["journal_hint"] = serde_json::json!({"last": 3});
+        let p = Project::from_value(v).unwrap();
+        assert_eq!(p.extra.get("journal_hint"), Some(&serde_json::json!({"last": 3})));
+        let back: serde_json::Value = serde_json::from_slice(&p.to_json().unwrap()).unwrap();
+        assert_eq!(back["journal_hint"]["last"], 3);
     }
 
     #[test]

@@ -9,30 +9,19 @@
 
 use std::path::PathBuf;
 
-use sat_core::project::{PROJECT_SCHEMA, Project};
+use sat_core::project::Project;
 use sat_core::sync::plan::{Blocker, DiskOp, ProjectOp, plan};
 use sat_core::sync::records::{Mismatch, Resolution, Status, SyncRecord};
-use sat_mo2::commit::{Faults, Layout, Outcome, Payload, execute, stamp_now};
+use sat_mo2::commit::{Faults, Layout, Outcome, PROJECT_BEFORE, Payload, execute, stamp_now};
 use sat_mo2::profile;
 
-use crate::{flag_value, has, open_instance, subfolders};
+use crate::{flag_value, has, open_instance, project_io, subfolders};
 
-fn load(args: &[String]) -> Result<(sat_mo2::Instance, Layout, Project, Vec<u8>), String> {
+fn load(args: &[String]) -> Result<(sat_mo2::Instance, Layout, sat_stll::Stll, Project), String> {
     let inst = open_instance(args)?;
     let layout = Layout::of(&inst);
-    let bytes = std::fs::read(&layout.project_file).map_err(|e| {
-        format!(
-            "{}: {e} — run `sat-cli analyze` first",
-            layout.project_file.display()
-        )
-    })?;
-    let project = Project::from_json(&bytes).map_err(|e| {
-        format!(
-            "{}: {e} (this build reads schema {PROJECT_SCHEMA})",
-            layout.project_file.display()
-        )
-    })?;
-    Ok((inst, layout, project, bytes))
+    let (stll, project) = project_io::require(&layout.project_file)?;
+    Ok((inst, layout, stll, project))
 }
 
 fn describe(r: &SyncRecord) -> String {
@@ -69,7 +58,7 @@ fn answers(m: &Mismatch) -> &'static str {
 /// `sat-cli sync <instance> [--decide N ANSWER]...`: lists the records; `--decide` records a decision in the project.
 /// ANSWER is a resolution (`adopt_to_project`, …), `ignore` or `pending`.
 pub fn sync(args: &[String]) -> Result<(), String> {
-    let (_, layout, mut project, _) = load(args)?;
+    let (_, layout, mut stll, mut project) = load(args)?;
     let decisions: Vec<(&str, &str)> = args
         .windows(3)
         .filter(|w| w[0] == "--decide")
@@ -111,8 +100,7 @@ pub fn sync(args: &[String]) -> Result<(), String> {
         }
     }
     if !decisions.is_empty() {
-        let bytes = project.to_json()?;
-        sat_mo2::write_atomic(&layout.project_file, &bytes).map_err(|e| e.to_string())?;
+        project_io::save(&mut stll, &project)?;
         eprintln!("decisions saved to {}", layout.project_file.display());
     }
     if project.sync.is_empty() {
@@ -130,7 +118,7 @@ pub fn sync(args: &[String]) -> Result<(), String> {
 // @sat:cli.commit.run
 /// `sat-cli commit <instance> [--apply]`: prints the plan; with `--apply` runs it (backup, journal, rollback).
 pub fn commit(args: &[String]) -> Result<(), String> {
-    let (inst, layout, project, project_before) = load(args)?;
+    let (inst, layout, mut stll, project) = load(args)?;
     let disk = subfolders(&inst.mods_dir);
     let p = plan(&project.canon, &project.sync, &disk);
     println!("commit plan for {}:", inst.profile_dir().display());
@@ -170,18 +158,33 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         .unwrap_or_default();
     let mut after = project.clone();
     after.apply_plan(&p);
+    // the new project file is prepared beside the old one; the commit swaps them inside its transaction
+    let prepared = layout.project_file.with_extension("stll-next");
+    stll.begin()
+        .and_then(|w| w.finish_to(&after, sat_stll::file::keep_entities(&after), &prepared))
+        .map_err(|e| e.to_string())?;
+    drop(stll);
     let payload = Payload {
         plan: &p,
         modlist: profile::serialize_modlist(&p.canon_after, &style),
-        project_before,
-        project_after: after.to_json()?,
+        project_after: prepared.clone(),
         plugin_files: None,
     };
     let stamp = flag_value(args, "--stamp").map_or_else(stamp_now, str::to_string);
     let report = execute(&layout, &stamp, &payload, Faults::default());
     println!("version: {}", report.version_dir.display());
+    if prepared.exists() {
+        let _ = std::fs::remove_file(&prepared);
+    }
     match report.outcome {
         Outcome::Committed => {
+            // the version keeps the user's truth; the facts are rebuildable and stay in the live project only
+            let before = report.version_dir.join(PROJECT_BEFORE);
+            if before.exists()
+                && let Err(e) = sat_stll::strip_facts(&before)
+            {
+                eprintln!("{}: facts not stripped: {e}", before.display());
+            }
             println!("committed: {} step(s)", report.steps.len());
             Ok(())
         }
