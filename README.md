@@ -14,7 +14,7 @@ Mod management from orbit: observe, understand, declare, apply. Satellite never 
 | `crates/sat-core` | domain core: ids, path interner, provider table, overwrite projection, canon — no I/O |
 | `crates/sat-mo2` | Mod Organizer 2 adapter: instance, modlist/plugins/loadorder, meta.ini |
 | `crates/sat-scan` | parallel scanner with a signature-keyed scan cache |
-| `tools/sat-cli` | developer CLI: `analyze <instance>`, `bench-synth` |
+| `tools/sat-cli` | developer CLI: `analyze`, `donor`, `inspect`, `bench-synth`, `bench-order` — see [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) |
 | `prototypes/go-spike` | frozen v0.1 prototype, used as a reference for result parity |
 
 ## Develop
