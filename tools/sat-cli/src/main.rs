@@ -223,7 +223,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .map(|src| {
             sat_core::expr::Expr::compile_with(src, &sat_core::metrics::resolve).map_err(|e| {
                 format!(
-                    "--find: {e}\n  {src}\n  {}^\n  metrics: {}, ext.<extension>, dir.<top folder> (also Russian names: вес, плагины, разделитель…)",
+                    "--find: {e}\n  {src}\n  {}^\n  metrics: {}, ext.<extension>, dir.<top folder>",
                     " ".repeat(src[..e.at].chars().count()),
                     sat_core::metrics::MOD_METRICS
                         .iter()

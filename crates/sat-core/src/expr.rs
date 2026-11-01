@@ -117,13 +117,9 @@ const UNITS: &[(&str, f64)] = &[
     ("gb", 1_073_741_824.0),
     ("mb", 1_048_576.0),
     ("kb", 1024.0),
-    ("тб", 1_099_511_627_776.0),
-    ("гб", 1_073_741_824.0),
-    ("мб", 1_048_576.0),
-    ("кб", 1024.0),
 ];
 
-/// Letters of an identifier or a unit: any alphabet (metric names may be Russian), digits after the first.
+/// Characters of an identifier after the first: letters, digits, `_`, `.` (`ext.dds`).
 fn word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '.'
 }
@@ -398,8 +394,8 @@ impl Expr {
         Self::compile_with(source, &|id| known(id).then(|| id.to_string()))
     }
 
-    /// Parses and checks; `resolve` maps an identifier (lower case) to a metric id — synonyms and other languages
-    /// resolve to the one id, so the tree and [`Expr::metrics`] always speak in canonical ids.
+    /// Parses and checks; `resolve` maps an identifier (lower case) to a metric id — synonyms resolve to the one
+    /// id, so the tree and [`Expr::metrics`] always speak in canonical ids.
     pub fn compile_with(source: &str, resolve: &dyn Fn(&str) -> Option<String>) -> Result<Self, ExprError> {
         let mut p = Parser {
             toks: lex(source)?,
