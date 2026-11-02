@@ -819,17 +819,26 @@ impl OrderBook {
     // @sat:order.book.group-units
     /// Members of every valid (contiguous) logical group, in canon order: what the analysis computes as one
     /// resulting mod (`@sat:overwrite.units`).
-    pub fn group_members(&self) -> Vec<(String, Vec<Key>)> {
+    /// (name, stable id, members in canon order) of every valid group.
+    pub fn group_members(&self) -> Vec<(String, String, Vec<Key>)> {
         self.groups
             .iter()
-            .flatten()
-            .filter(|g| g.valid)
-            .map(|g| {
+            .enumerate()
+            .filter_map(|(i, g)| g.as_ref().filter(|g| g.valid).map(|g| (i, g)))
+            .map(|(i, g)| {
                 let mut m = g.members.clone();
                 m.sort_by_key(|&k| self.seq.pos(k));
-                (g.name.clone(), m)
+                (g.name.clone(), self.group_ids[i].clone(), m)
             })
             .collect()
+    }
+
+    /// The logical group of an entry: its name and members in canon order.
+    pub fn group_of(&self, k: Key) -> Option<(String, Vec<Key>)> {
+        let (_, g) = self.group(k)?;
+        let mut m = g.members.clone();
+        m.sort_by_key(|&x| self.seq.pos(x));
+        Some((g.name.clone(), m))
     }
 
     /// Ids of the live logical groups, in the order `decor().groups` lists them.

@@ -62,8 +62,8 @@ pub struct Session {
     decisions: ChainDecisions,
     /// Logical groups computed as one (`@sat:overwrite.units`), from the book.
     units: crate::overwrite::Units,
-    /// The group name of each group's representative.
-    unit_names: FxHashMap<ModId, String>,
+    /// The group (name, stable key) of each group's representative.
+    unit_names: FxHashMap<ModId, (String, String)>,
     /// Stable key by folded mod name (the entity id): survives a new table.
     key_map: FxHashMap<String, String>,
     /// The same by `ModId` index of the current table; `None` → the name is the key.
@@ -242,8 +242,12 @@ impl Session {
         });
     }
 
-    /// The stable key of table mod `m`: its entity id, else its name.
+    /// The stable key of table mod `m`: its group's id when it stands for a group (chain signatures follow the
+    /// group, not whichever member represents it), else its entity id, else its name.
     pub fn member_key(&self, m: ModId) -> &str {
+        if let Some((_, k)) = self.unit_names.get(&m) {
+            return k;
+        }
         match self.keys.get(m.idx()) {
             Some(Some(k)) => k,
             _ => self.table.mod_name(m),
@@ -259,7 +263,21 @@ impl Session {
     pub fn unit_label(&self, m: ModId) -> &str {
         self.unit_names
             .get(&m)
-            .map_or_else(|| self.table.mod_name(m), String::as_str)
+            .map_or_else(|| self.table.mod_name(m), |u| u.0.as_str())
+    }
+
+    // @sat:session.group-inside
+    /// The inside of the logical group holding entry `k` (`@sat:overwrite.inside`): its own conflicts among its
+    /// members. `None` when `k` is in no group.
+    pub fn group_inside(&mut self, k: order::Key) -> Option<(String, Vec<ModId>, OverwriteProjection)> {
+        let (name, keys) = self.book.group_of(k)?;
+        let members: Vec<ModId> = keys
+            .iter()
+            .filter_map(|&x| self.index.get(&self.book.name(x).to_lowercase()).copied())
+            .collect();
+        let ow = self.overwrite();
+        let inside = ow.inside(&self.table, &members);
+        Some((name, members, inside))
     }
 
     /// The table id of a mod by name (any case).
@@ -414,13 +432,13 @@ impl Session {
                     .book
                     .group_members()
                     .into_iter()
-                    .map(|(name, g)| {
+                    .map(|(name, id, g)| {
                         let ms: Vec<ModId> = g
                             .into_iter()
                             .filter_map(|k| index.get(&self.book.name(k).to_lowercase()).copied())
                             .collect();
-                        if ms.len() > 1 {
-                            names.insert(ms[0], name);
+                        if let Some(&rep) = ms.iter().min().filter(|_| ms.len() > 1) {
+                            names.insert(rep, (name, format!("lg:{id}")));
                         }
                         ms
                     })
@@ -514,6 +532,19 @@ mod tests {
         let chain = ow.path_chain(mesh).unwrap();
         assert_eq!(ow.chain_mods(chain), [s.mod_id("C").unwrap(), ma]);
         assert!(!ow.stat(mb).fully_overridden, "a member is judged with its group");
+        // the inside: the texture the members share is the group's own conflict
+        let (name, members, inside) = s.group_inside(a).unwrap();
+        assert_eq!((name.as_str(), members.len()), ("AB", 2));
+        assert_eq!(inside.totals().conflict_paths, 1);
+        // a move inside the group changes no outer chain: only the group's result (which file wins inside)
+        let before = s.overwrite().totals().conflict_paths;
+        s.command(|bk| bk.move_keys(&[b], Some(a))).unwrap();
+        assert_eq!(s.overwrite().totals().conflict_paths, before);
+        assert_eq!(
+            s.overwrite().units().rep(mb),
+            ma,
+            "a move inside does not change who stands for the group"
+        );
         // dissolving the group brings the inner conflict back (incrementally)
         let g = s.book().group_ids()[0];
         s.command(|bk| bk.dissolve_group(g)).unwrap();

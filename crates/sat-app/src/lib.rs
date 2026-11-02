@@ -178,6 +178,10 @@ pub enum Query {
     ModDetail {
         key: Key,
     },
+    /// The inside of the logical group holding `key` (`@sat:session.group-inside`): its own conflicts.
+    GroupInside {
+        key: Key,
+    },
     /// Mods an expression holds for (`@sat:app.find`): `size > 1 GB && plugins > 0`.
     Find {
         expr: String,
@@ -484,6 +488,9 @@ pub enum Reply {
     },
     Found {
         found: find::Found,
+    },
+    GroupInside {
+        inside: Option<GroupInside>,
     },
     Separators {
         tiles: Vec<SeparatorTile>,
@@ -945,6 +952,32 @@ impl App {
             Query::ModDetail { key } => Reply::ModDetail {
                 detail: Box::new(self.mod_detail(key)),
             },
+            // @sat:app.group-inside
+            Query::GroupInside { key } => Reply::GroupInside {
+                inside: self.session.group_inside(key).map(|(name, members, ow)| {
+                    let table = self.session.table();
+                    let mut chains: Vec<InsideChain> = ow
+                        .chain_ids()
+                        .into_iter()
+                        .map(|c| InsideChain {
+                            stack: ow
+                                .chain_mods(c)
+                                .iter()
+                                .map(|&m| table.mod_name(m).to_string())
+                                .collect(),
+                            files: ow.chain(c).files,
+                        })
+                        .collect();
+                    chains.sort_by_key(|c| std::cmp::Reverse(c.files));
+                    chains.truncate(CHAIN_LIMIT * 4);
+                    GroupInside {
+                        name,
+                        members: members.iter().map(|&m| table.mod_name(m).to_string()).collect(),
+                        conflict_paths: ow.totals().conflict_paths as u32,
+                        chains,
+                    }
+                }),
+            },
             Query::Find { expr, limit } => Reply::Found {
                 found: self.find(&expr, limit)?,
             },
@@ -1352,6 +1385,23 @@ impl App {
             marks: self.session.book().marks(key).cloned(),
         }
     }
+}
+
+/// The inside of a logical group: what the outside does not see (PHILOSOPHY «Лог-группа»).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupInside {
+    pub name: String,
+    pub members: Vec<String>,
+    /// Paths the members fight over among themselves.
+    pub conflict_paths: u32,
+    /// The largest inner chains, winner first.
+    pub chains: Vec<InsideChain>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InsideChain {
+    pub stack: Vec<String>,
+    pub files: u32,
 }
 
 /// The main view (always open).

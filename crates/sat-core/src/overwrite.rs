@@ -48,20 +48,21 @@ impl Priorities {
 
 // @sat:overwrite.units
 /// Mods computed as one (logical groups, ADR 0008 / 0016): every member of a group maps to the group's
-/// representative — its first member — so a path the members share is no conflict between them, and against
-/// other mods the group stands as one resulting mod. Empty = every mod is its own unit.
+/// representative — the member with the lowest table id, which a move inside the group does not change (the outside
+/// must not notice the inside) — so a path the members share is no conflict between them, and against other mods
+/// the group stands as one resulting mod. Empty = every mod is its own unit.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Units(Vec<u32>);
 
 impl Units {
-    /// Groups of mods (each list: the representative first).
+    /// Groups of mods; each group's representative is its lowest id.
     pub fn of_groups(mods: usize, groups: &[Vec<ModId>]) -> Self {
         if groups.iter().all(|g| g.len() < 2) {
             return Self::default();
         }
         let mut map: Vec<u32> = (0..mods as u32).collect();
         for g in groups {
-            if let Some(&rep) = g.first() {
+            if let Some(&rep) = g.iter().min() {
                 for &m in g {
                     map[m.idx()] = rep.0;
                 }
@@ -513,6 +514,20 @@ impl OverwriteProjection {
     ) {
         let mut touched = touched.to_vec();
         if units != self.units {
+            // members' own paths move to their new group's result
+            for i in 0..table.mod_count() {
+                let m = ModId::from_idx(i);
+                let (old, new) = (self.units.rep(m), units.rep(m));
+                if old != new && self.priorities.is_active(m) {
+                    let sl = self.index.solo[m.idx()];
+                    for (r, sign) in [(old, -1i64), (new, 1)] {
+                        let st = &mut self.stats[r.idx()];
+                        st.unique = (i64::from(st.unique) + sign * i64::from(sl.paths)) as u32;
+                        st.bytes_win = (st.bytes_win as i64 + sign * sl.bytes as i64) as u64;
+                        st.vram_win_kib = (st.vram_win_kib as i64 + sign * sl.vram_kib as i64) as u64;
+                    }
+                }
+            }
             touched.extend(self.units.changed(&units, table.mod_count()));
             touched.sort_unstable();
             touched.dedup();
@@ -523,6 +538,17 @@ impl OverwriteProjection {
 
     pub fn units(&self) -> &Units {
         &self.units
+    }
+
+    // @sat:overwrite.inside
+    /// The inside of a group: the overwrite among its `members` alone (each its own unit), as if nothing else were
+    /// in the build — the group's own conflicts and chains, hidden from the outside.
+    pub fn inside(&self, table: &ProviderTable, members: &[ModId]) -> Self {
+        let mut prio = Priorities::all_inactive(table.mod_count());
+        for &m in members {
+            prio.0[m.idx()] = self.priorities.get(m);
+        }
+        Self::compute_with(self.index.clone(), table, prio)
     }
 
     /// [`OverwriteProjection::update_in_place`] on a copy.
@@ -540,7 +566,8 @@ impl OverwriteProjection {
             let (was, now) = (self.priorities.is_active(m), priorities.is_active(m));
             if was != now {
                 let sl = self.index.solo[m.idx()];
-                let st = &mut self.stats[m.idx()];
+                // a member's own paths are its group's result (`@sat:overwrite.units`)
+                let st = &mut self.stats[self.units.rep(m).idx()];
                 if now {
                     st.unique += sl.paths;
                     st.bytes_win += sl.bytes;
@@ -560,8 +587,21 @@ impl OverwriteProjection {
             let old_range =
                 self.slot_start[slot] as usize..(self.slot_start[slot] + self.slot_len[slot]) as usize;
             if self.pool[old_range.clone()] == *new {
-                // same stack; winner bytes can still differ only if the winning provider changed (it cannot:
-                // same winner mod, same providers) — nothing to do
+                // same stack of units; inside a group the winning file can still change (a move inside the
+                // group): only the winner's bytes follow — the change that leaves the group is its result
+                let (ob, ov) = (self.slot_bytes[slot], self.slot_vram[slot]);
+                if (ob, ov) != (f.bytes, f.vram) && !new.is_empty() {
+                    let st = &mut self.stats[new[0].idx()];
+                    st.bytes_win = st.bytes_win - ob + f.bytes;
+                    st.vram_win_kib = st.vram_win_kib - u64::from(ov) + u64::from(f.vram);
+                    let c = self.slot_chain[slot];
+                    if c != NONE {
+                        let rec = &mut self.chains[c as usize];
+                        rec.chain.bytes = rec.chain.bytes - ob + f.bytes;
+                    }
+                    self.slot_bytes[slot] = f.bytes;
+                    self.slot_vram[slot] = f.vram;
+                }
                 continue;
             }
             self.remove_slot(slot, &mut dirty);

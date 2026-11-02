@@ -699,7 +699,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         let gs: Vec<Vec<ModId>> = book
             .group_members()
             .into_iter()
-            .map(|(_, g)| {
+            .map(|(_, _, g)| {
                 g.into_iter()
                     .filter_map(|k| index.get(&book.name(k).to_lowercase()).copied())
                     .collect()
