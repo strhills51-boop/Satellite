@@ -128,8 +128,8 @@ impl App {
             .iter()
             .map(|cx| {
                 let id = sat_core::identity::identity(cx.mods.iter().map(|&m| self.session.member_key(m)));
-                let first = cx.mods.first().map(|&m| table.mod_name(m)).unwrap_or("");
-                let last = cx.mods.last().map(|&m| table.mod_name(m)).unwrap_or("");
+                let first = cx.mods.first().map(|&m| self.session.unit_label(m)).unwrap_or("");
+                let last = cx.mods.last().map(|&m| self.session.unit_label(m)).unwrap_or("");
                 ContextItem {
                     key: cx.mods.first().and_then(|&m| book.key_of(table.mod_name(m))),
                     name: format!("{first} → {last}"),
@@ -252,8 +252,16 @@ impl App {
             })
             .collect();
         let id = sat_core::identity::identity(context.mods.iter().map(|&x| self.session.member_key(x)));
-        let first = context.mods.first().map(|&x| table.mod_name(x)).unwrap_or("");
-        let last = context.mods.last().map(|&x| table.mod_name(x)).unwrap_or("");
+        let first = context
+            .mods
+            .first()
+            .map(|&x| self.session.unit_label(x))
+            .unwrap_or("");
+        let last = context
+            .mods
+            .last()
+            .map(|&x| self.session.unit_label(x))
+            .unwrap_or("");
         Some(ContextTable {
             name: format!("{first} → {last}"),
             hue: id.hue,

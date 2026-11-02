@@ -46,6 +46,57 @@ impl Priorities {
     }
 }
 
+// @sat:overwrite.units
+/// Mods computed as one (logical groups, ADR 0008 / 0016): every member of a group maps to the group's
+/// representative — its first member — so a path the members share is no conflict between them, and against
+/// other mods the group stands as one resulting mod. Empty = every mod is its own unit.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Units(Vec<u32>);
+
+impl Units {
+    /// Groups of mods (each list: the representative first).
+    pub fn of_groups(mods: usize, groups: &[Vec<ModId>]) -> Self {
+        if groups.iter().all(|g| g.len() < 2) {
+            return Self::default();
+        }
+        let mut map: Vec<u32> = (0..mods as u32).collect();
+        for g in groups {
+            if let Some(&rep) = g.first() {
+                for &m in g {
+                    map[m.idx()] = rep.0;
+                }
+            }
+        }
+        Self(map)
+    }
+
+    #[inline]
+    pub fn rep(&self, m: ModId) -> ModId {
+        self.0.get(m.idx()).map_or(m, |&r| ModId(r))
+    }
+
+    /// A member that is not its group's representative: it has no stack positions of its own.
+    #[inline]
+    pub fn absorbed(&self, m: ModId) -> bool {
+        self.rep(m) != m
+    }
+
+    /// Mods whose unit differs between `self` and `other` (and their representatives).
+    pub fn changed(&self, other: &Units, mods: usize) -> Vec<ModId> {
+        let mut out = Vec::new();
+        for i in 0..mods {
+            let m = ModId::from_idx(i);
+            let (a, b) = (self.rep(m), other.rep(m));
+            if a != b {
+                out.extend([m, a, b]);
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
 /// Per-mod overwrite summary.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModStat {
@@ -227,6 +278,7 @@ fn stack_of(
     table: &ProviderTable,
     p: PathId,
     prio: &Priorities,
+    units: &Units,
     cand: &mut Vec<(bool, i32, usize, ModId)>,
     out: &mut Vec<ModId>,
 ) -> (u64, u64, u32) {
@@ -246,6 +298,7 @@ fn stack_of(
     let start = out.len();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &(_, _, _, m) in cand.iter() {
+        let m = units.rep(m);
         if out[start..].contains(&m) {
             continue;
         }
@@ -271,6 +324,7 @@ fn compute_stacks(
     table: &ProviderTable,
     index: &ConflictIndex,
     prio: &Priorities,
+    units: &Units,
     slots: &[u32],
 ) -> (Vec<Fresh>, Vec<ModId>) {
     let parts: Vec<(Vec<Fresh>, Vec<ModId>)> = slots
@@ -281,8 +335,14 @@ fn compute_stacks(
             let mut cand = Vec::new();
             for &slot in chunk {
                 let start = pool.len() as u32;
-                let (hash, bytes, vram) =
-                    stack_of(table, index.contested[slot as usize], prio, &mut cand, &mut pool);
+                let (hash, bytes, vram) = stack_of(
+                    table,
+                    index.contested[slot as usize],
+                    prio,
+                    units,
+                    &mut cand,
+                    &mut pool,
+                );
                 fresh.push(Fresh {
                     slot,
                     hash,
@@ -333,6 +393,7 @@ struct Contexts {
 pub struct OverwriteProjection {
     index: Arc<ConflictIndex>,
     priorities: Priorities,
+    units: Units,
     // per contested slot: stack (start, len) into `pool`, winner bytes / VRAM, chain
     slot_start: Vec<u32>,
     slot_len: Vec<u32>,
@@ -375,6 +436,7 @@ impl OverwriteProjection {
         let slots = index.contested.len();
         let mut me = Self {
             priorities: Priorities::all_inactive(mods),
+            units: Units::default(),
             slot_start: vec![0; slots],
             slot_len: vec![0; slots],
             slot_bytes: vec![0; slots],
@@ -426,6 +488,43 @@ impl OverwriteProjection {
         self.apply(table, priorities, touched, &affected);
     }
 
+    /// Full computation with logical groups computed as one (`@sat:overwrite.units`).
+    pub fn compute_units(
+        index: Arc<ConflictIndex>,
+        table: &ProviderTable,
+        priorities: Priorities,
+        units: Units,
+    ) -> Self {
+        let mut me = Self::compute_with(index, table, Priorities::all_inactive(table.mod_count()));
+        me.units = units;
+        let all: Vec<u32> = (0..me.index.contested.len() as u32).collect();
+        let touched: Vec<ModId> = (0..table.mod_count()).map(ModId::from_idx).collect();
+        me.apply(table, priorities, &touched, &all);
+        me
+    }
+
+    /// [`OverwriteProjection::update_in_place`] with new units: the mods whose unit changed join `touched`.
+    pub fn update_units_in_place(
+        &mut self,
+        table: &ProviderTable,
+        priorities: Priorities,
+        units: Units,
+        touched: &[ModId],
+    ) {
+        let mut touched = touched.to_vec();
+        if units != self.units {
+            touched.extend(self.units.changed(&units, table.mod_count()));
+            touched.sort_unstable();
+            touched.dedup();
+            self.units = units;
+        }
+        self.update_in_place(table, priorities, &touched);
+    }
+
+    pub fn units(&self) -> &Units {
+        &self.units
+    }
+
     /// [`OverwriteProjection::update_in_place`] on a copy.
     pub fn update(&self, table: &ProviderTable, priorities: Priorities, touched: &[ModId]) -> Self {
         let mut next = self.clone();
@@ -434,7 +533,7 @@ impl OverwriteProjection {
     }
 
     fn apply(&mut self, table: &ProviderTable, priorities: Priorities, touched: &[ModId], slots: &[u32]) {
-        let (fresh, fresh_pool) = compute_stacks(table, &self.index, &priorities, slots);
+        let (fresh, fresh_pool) = compute_stacks(table, &self.index, &priorities, &self.units, slots);
         let mut dirty: Vec<ModId> = touched.to_vec();
         // single-mod paths follow the active state of their owner
         for &m in touched {
@@ -481,7 +580,8 @@ impl OverwriteProjection {
         for m in dirty {
             let active = self.priorities.is_active(m);
             let st = &mut self.stats[m.idx()];
-            let x = active && st.providers > 0 && st.win == 0 && st.unique == 0;
+            // a member of a group computed as one is judged with its group (its representative), not alone
+            let x = active && !self.units.absorbed(m) && st.providers > 0 && st.win == 0 && st.unique == 0;
             if x != st.fully_overridden {
                 st.fully_overridden = x;
                 if x {

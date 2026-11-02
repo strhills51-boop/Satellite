@@ -688,7 +688,21 @@ fn analyze(args: &[String]) -> Result<(), String> {
             conflict_index.ignored_count()
         );
     }
-    let proj = OverwriteProjection::compute_with(conflict_index, &table, prio.clone());
+    // logical groups of the project are computed as one mod (`@sat:overwrite.units`), as in the window
+    let units = {
+        let (book, _) = project.book();
+        let gs: Vec<Vec<ModId>> = book
+            .group_members()
+            .into_iter()
+            .map(|(_, g)| {
+                g.into_iter()
+                    .filter_map(|k| index.get(&book.name(k).to_lowercase()).copied())
+                    .collect()
+            })
+            .collect();
+        sat_core::overwrite::Units::of_groups(table.mod_count(), &gs)
+    };
+    let proj = OverwriteProjection::compute_units(conflict_index, &table, prio.clone(), units);
     timings.insert("overwrite_compute", t.elapsed().as_millis());
     let t = Instant::now();
     let _again = OverwriteProjection::compute(&table, prio);

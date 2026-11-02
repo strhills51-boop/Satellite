@@ -816,6 +816,22 @@ impl OrderBook {
         self.apply_recorded(Op::Level(keys.iter().map(|&k| (k, l)).collect()))
     }
 
+    // @sat:order.book.group-units
+    /// Members of every valid (contiguous) logical group, in canon order: what the analysis computes as one
+    /// resulting mod (`@sat:overwrite.units`).
+    pub fn group_members(&self) -> Vec<(String, Vec<Key>)> {
+        self.groups
+            .iter()
+            .flatten()
+            .filter(|g| g.valid)
+            .map(|g| {
+                let mut m = g.members.clone();
+                m.sort_by_key(|&k| self.seq.pos(k));
+                (g.name.clone(), m)
+            })
+            .collect()
+    }
+
     /// The nesting level of an entry (0 unless a nested separator).
     pub fn level(&self, k: Key) -> u8 {
         self.items[k as usize].level
@@ -1180,6 +1196,7 @@ impl OrderBook {
                 }
                 self.recheck_group(id);
                 p.truth(Truth::Decoration, members.iter().copied());
+                p.truth(Truth::Groups, members.iter().copied());
                 // members change depth, the first one becomes the group row
                 self.reweigh(members.clone(), |_| true, p);
                 Some(Op::Dissolve(id))
@@ -1234,6 +1251,7 @@ impl OrderBook {
                 }
                 self.reweigh(g.members.clone(), |_| true, p);
                 p.truth(Truth::Decoration, g.members.iter().copied());
+                p.truth(Truth::Groups, g.members.iter().copied());
                 Some(Op::MakeGroup {
                     id: *id,
                     name: g.name,
@@ -1574,10 +1592,16 @@ impl OrderBook {
         }
         let change = Change {
             revision: self.revision,
-            truth: vec![engine::Change {
-                truth: Truth::Decoration,
-                keys: Keys::All,
-            }],
+            truth: vec![
+                engine::Change {
+                    truth: Truth::Decoration,
+                    keys: Keys::All,
+                },
+                engine::Change {
+                    truth: Truth::Groups,
+                    keys: Keys::All,
+                },
+            ],
             views,
         };
         (change, issues)
@@ -1776,6 +1800,10 @@ impl OrderBook {
 
     pub(super) fn check(&self) {
         self.seq.check();
+    }
+    /// Ids of the live logical groups.
+    pub fn group_ids(&self) -> Vec<GroupId> {
+        self.groups_of_test()
     }
     pub(super) fn groups_of_test(&self) -> Vec<GroupId> {
         (0..self.groups.len() as GroupId)

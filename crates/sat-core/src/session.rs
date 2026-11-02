@@ -45,6 +45,7 @@ pub struct Session {
     graph: Graph,
     p_conflicts: ProjectionId,
     p_priorities: ProjectionId,
+    p_units: ProjectionId,
     p_overwrite: ProjectionId,
     p_plugins: ProjectionId,
     plugin_versions: Arc<PluginVersions>,
@@ -59,6 +60,10 @@ pub struct Session {
     last_overwrite: Recompute,
     /// User decisions on conflicts (settled chains).
     decisions: ChainDecisions,
+    /// Logical groups computed as one (`@sat:overwrite.units`), from the book.
+    units: crate::overwrite::Units,
+    /// The group name of each group's representative.
+    unit_names: FxHashMap<ModId, String>,
     /// Stable key by folded mod name (the entity id): survives a new table.
     key_map: FxHashMap<String, String>,
     /// The same by `ModId` index of the current table; `None` → the name is the key.
@@ -93,10 +98,26 @@ impl Session {
                 &[Input::Truth(Truth::Canon), Input::Truth(Truth::Facts)],
             )
             .expect("fresh graph");
+        // logical groups computed as one (`@sat:overwrite.units`): decoration, and the canon (a move can break a
+        // group's contiguity); keyed, so the overwrite recomputes only what the changed entries touch
+        let p_units = graph
+            .register(
+                "units",
+                &[
+                    Input::Truth(Truth::Canon),
+                    Input::Truth(Truth::Facts),
+                    Input::Truth(Truth::Groups),
+                ],
+            )
+            .expect("fresh graph");
         let p_overwrite = graph
             .register(
                 "overwrite",
-                &[Input::Projection(p_conflicts), Input::Keyed(p_priorities)],
+                &[
+                    Input::Projection(p_conflicts),
+                    Input::Keyed(p_priorities),
+                    Input::Keyed(p_units),
+                ],
             )
             .expect("fresh graph");
         let p_plugins = graph
@@ -116,6 +137,7 @@ impl Session {
             graph,
             p_conflicts,
             p_priorities,
+            p_units,
             p_overwrite,
             p_plugins,
             plugin_versions: Arc::new(PluginVersions::default()),
@@ -127,6 +149,8 @@ impl Session {
             overwrite: None,
             last_overwrite: Recompute::Full,
             decisions: ChainDecisions::default(),
+            units: Default::default(),
+            unit_names: Default::default(),
             key_map: FxHashMap::default(),
             keys: Vec::new(),
             keys_rev: 0,
@@ -229,6 +253,13 @@ impl Session {
     /// The entity id of table mod `m`, if the project knows it.
     pub fn member_id(&self, m: ModId) -> Option<&str> {
         self.keys.get(m.idx())?.as_deref()
+    }
+
+    /// What a stack member is called for people: the group's name for a group computed as one, else the mod's.
+    pub fn unit_label(&self, m: ModId) -> &str {
+        self.unit_names
+            .get(&m)
+            .map_or_else(|| self.table.mod_name(m), String::as_str)
     }
 
     /// The table id of a mod by name (any case).
@@ -376,6 +407,26 @@ impl Session {
                     top,
                 );
                 self.priorities = Some(Arc::new(prio));
+            } else if p == self.p_units {
+                let index = &self.index;
+                let mut names = FxHashMap::default();
+                let groups: Vec<Vec<ModId>> = self
+                    .book
+                    .group_members()
+                    .into_iter()
+                    .map(|(name, g)| {
+                        let ms: Vec<ModId> = g
+                            .into_iter()
+                            .filter_map(|k| index.get(&self.book.name(k).to_lowercase()).copied())
+                            .collect();
+                        if ms.len() > 1 {
+                            names.insert(ms[0], name);
+                        }
+                        ms
+                    })
+                    .collect();
+                self.units = crate::overwrite::Units::of_groups(self.table.mod_count(), &groups);
+                self.unit_names = names;
             } else if p == self.p_overwrite {
                 let prio = self.priorities.as_ref().expect("inputs first").as_ref().clone();
                 let index = self.conflicts.clone().expect("inputs first");
@@ -387,15 +438,21 @@ impl Session {
                             touched: touched.len(),
                         };
                         // in place when no reader holds the previous snapshot, otherwise on a copy
-                        Arc::make_mut(&mut prev).update_in_place(&self.table, prio, &touched);
+                        Arc::make_mut(&mut prev).update_units_in_place(
+                            &self.table,
+                            prio,
+                            self.units.clone(),
+                            &touched,
+                        );
                         self.overwrite = Some(prev);
                     }
                     _ => {
                         self.last_overwrite = Recompute::Full;
-                        self.overwrite = Some(Arc::new(OverwriteProjection::compute_with(
+                        self.overwrite = Some(Arc::new(OverwriteProjection::compute_units(
                             index,
                             &self.table,
                             prio,
+                            self.units.clone(),
                         )));
                     }
                 }
@@ -434,6 +491,34 @@ mod tests {
                 .collect(),
         );
         Session::new(OrderBook::from_modlist(&list), Arc::new(table))
+    }
+
+    #[test]
+    fn a_logical_group_is_computed_as_one_mod() {
+        let mut s = session();
+        let (a, b) = (s.book().key_of("A").unwrap(), s.book().key_of("B").unwrap());
+        let ma = s.mod_id("A").unwrap();
+        let mb = s.mod_id("B").unwrap();
+        assert_eq!(
+            s.overwrite().totals().conflict_paths,
+            2,
+            "A×B on the texture, A×C on the mesh"
+        );
+        s.command(|bk| bk.create_group("AB", &[a, b]).map(|x| x.1))
+            .unwrap();
+        let ow = s.overwrite();
+        // A and B share the texture inside their group: no conflict there; the mesh is the group against C
+        assert_eq!(ow.totals().conflict_paths, 1);
+        assert_eq!(ow.units().rep(mb), ma);
+        let mesh = s.table().find_path("meshes/x.nif").unwrap();
+        let chain = ow.path_chain(mesh).unwrap();
+        assert_eq!(ow.chain_mods(chain), [s.mod_id("C").unwrap(), ma]);
+        assert!(!ow.stat(mb).fully_overridden, "a member is judged with its group");
+        // dissolving the group brings the inner conflict back (incrementally)
+        let g = s.book().group_ids()[0];
+        s.command(|bk| bk.dissolve_group(g)).unwrap();
+        assert_eq!(s.overwrite().totals().conflict_paths, 2);
+        assert!(matches!(s.last_overwrite(), Recompute::Incremental { .. }));
     }
 
     #[test]

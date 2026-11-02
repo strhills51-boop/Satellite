@@ -78,8 +78,8 @@ fn build(ow: &OverwriteProjection, s: &Session) -> Vec<Head> {
                 );
             }
             let title = chain_title(&paths);
-            let low = table.mod_name(g.route[g.route.len() - 1]);
-            let win = table.mod_name(g.route[0]);
+            let low = s.unit_label(g.route[g.route.len() - 1]);
+            let win = s.unit_label(g.route[0]);
             Head {
                 signature: h,
                 sources,

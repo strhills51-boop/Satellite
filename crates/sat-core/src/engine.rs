@@ -29,6 +29,9 @@ pub enum Truth {
     Settings,
     /// The plugin part of the canon: load order and checked flags (its own key space, plugin names).
     PluginCanon,
+    /// Logical groups — which entries are computed as one mod (ADR 0016); emitted with `Decoration` by group
+    /// operations, so the analysis follows groups without recomputing on every colour.
+    Groups,
 }
 
 /// Which keys of a truth (or projection) changed.

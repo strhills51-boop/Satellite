@@ -1121,7 +1121,6 @@ fn mod_badges(
     m: ModId,
     limit: u8,
 ) -> Vec<ContextBadge> {
-    let table = session.table();
     let decisions = session.decisions();
     let parts = chains::parts(ow, heads, m);
     if parts.is_empty() {
@@ -1156,7 +1155,11 @@ fn mod_badges(
                         hue: h.hue,
                         files: p.files,
                         place: p.place.min(255) as u8,
-                        stack: h.route.iter().map(|&x| table.mod_name(x).to_string()).collect(),
+                        stack: h
+                            .route
+                            .iter()
+                            .map(|&x| session.unit_label(x).to_string())
+                            .collect(),
                     }
                 })
                 .collect();
@@ -1220,6 +1223,9 @@ impl App {
                 marks: self.session.book().marks(key).cloned(),
             };
         };
+        // a member of a group computed as one: the group speaks for it in conflicts; its plugins are its own
+        let own = m;
+        let m = ow.units().rep(m);
         // opponents over every exact chain (exact counts); the list and the teeth over normalized chains
         let chains = ow.mod_chains(m);
         let mut opp: std::collections::HashMap<ModId, (u32, u32)> = Default::default();
@@ -1271,7 +1277,11 @@ impl App {
                     name: h.name.clone(),
                     files: h.files,
                     bytes: h.bytes,
-                    stack: h.route.iter().map(|&x| table.mod_name(x).to_string()).collect(),
+                    stack: h
+                        .route
+                        .iter()
+                        .map(|&x| self.session.unit_label(x).to_string())
+                        .collect(),
                     place: p.place,
                     samples,
                 }
@@ -1312,7 +1322,7 @@ impl App {
         let mod_plugins: Vec<PluginView> = plugins
             .plugins
             .iter()
-            .filter(|p| p.versions.iter().any(|v| v.owner == m))
+            .filter(|p| p.versions.iter().any(|v| v.owner == own))
             .map(|p| PluginView {
                 name: p.name.clone(),
                 index: p.index.map(|i| i.to_string()),
