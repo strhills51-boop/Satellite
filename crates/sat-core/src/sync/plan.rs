@@ -54,6 +54,12 @@ pub enum DiskOp {
         name: String,
         kind: EntityKind,
     },
+    /// The patches output mod written from the patched copies of mods' files (`@sat:patch`).
+    Patches {
+        name: String,
+        /// Sources by mod name.
+        patches: Vec<crate::patch::FilePatch>,
+    },
     /// A factory's output mod built from its group's members, in canon order (`@sat:factory`).
     Bake {
         name: String,
@@ -98,6 +104,8 @@ pub enum Blocker {
     /// The mismatch a decided record describes is no longer what the disk and the canon show (the folder came
     /// back, the entry was edited...): the analysis is stale, run it again (the pre-commit freshness check).
     Stale { fingerprint: String },
+    /// A patched file changed since the patch was made (the mod was updated): look at the patch again.
+    PatchBaseChanged { source: String, path: String },
     /// A planned mod's source is not here or not what the intent saw (`@sat:intent`).
     SourceUnavailable { name: String, why: String },
 }
@@ -315,9 +323,10 @@ fn order_disk(ops: Vec<DiskOp>, disk: &[String], blockers: &mut Vec<Blocker>) ->
     for op in &ops {
         let target = match op {
             DiskOp::Rename { to, .. } => Some(to),
-            DiskOp::Create { name, .. } | DiskOp::Install { name, .. } | DiskOp::Bake { name, .. } => {
-                Some(name)
-            }
+            DiskOp::Create { name, .. }
+            | DiskOp::Install { name, .. }
+            | DiskOp::Bake { name, .. }
+            | DiskOp::Patches { name, .. } => Some(name),
             DiskOp::ToDeleted { .. } => None,
         };
         if let Some(t) = target {

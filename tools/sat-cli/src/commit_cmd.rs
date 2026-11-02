@@ -125,6 +125,7 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         crate::intent_cmd::source_ok(&inst, s)
     });
     let built = factories(&project, &disk, &mut p);
+    let patched = patches(&project, &layout, &disk, &mut p);
     println!("commit plan for {}:", inst.profile_dir().display());
     for op in &p.project_ops {
         match op {
@@ -138,6 +139,9 @@ pub fn commit(args: &[String]) -> Result<(), String> {
             DiskOp::ToDeleted { name } => println!("  disk: move {name} → satellite/deleted/<stamp>/"),
             DiskOp::Rename { from, to } => println!("  disk: rename folder {from} → {to}"),
             DiskOp::Create { name, .. } => println!("  disk: create empty folder {name}"),
+            DiskOp::Patches { name, patches } => {
+                println!("  disk: write {name} ({} patched file(s))", patches.len())
+            }
             DiskOp::Bake { name, members, link } => println!(
                 "  disk: build {name} from {} member(s){} — the members are switched off unless kept",
                 members.len(),
@@ -176,6 +180,9 @@ pub fn commit(args: &[String]) -> Result<(), String> {
     after.apply_plan(&p);
     for (i, fp) in built {
         after.factories[i].built = Some(fp);
+    }
+    if let Some(fp) = patched {
+        after.patches_built = fp;
     }
     // the new project file is prepared beside the old one; the commit swaps them inside its transaction
     let prepared = layout.project_file.with_extension("stll-next");
@@ -217,6 +224,84 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         )),
         Outcome::Refused { error } => Err(format!("refused: {error}")),
     }
+}
+
+// @sat:cli.commit.patches
+/// Adds the patches output (`@sat:patch`) to the plan when the patches changed or it is not on disk: bases are
+/// checked (a changed base blocks), the old output goes to `deleted/`, the output is placed last and enabled.
+/// Returns the fingerprint to record (`Some(None)` — the output was taken away), `None` — nothing to do.
+fn patches(
+    project: &Project,
+    layout: &Layout,
+    disk: &[String],
+    p: &mut sat_core::sync::plan::Plan,
+) -> Option<Option<String>> {
+    use sat_core::canon::{Entry, EntryKind};
+    use sat_core::patch::{PATCH_MOD, fingerprint};
+    let on_disk = disk.iter().any(|d| d.eq_ignore_ascii_case(PATCH_MOD));
+    let mut entries: Vec<Entry> = p
+        .canon_after
+        .entries
+        .iter()
+        .filter(|e| !e.name.eq_ignore_ascii_case(PATCH_MOD))
+        .cloned()
+        .collect();
+    if project.patches.is_empty() {
+        if !on_disk && project.patches_built.is_none() {
+            return None;
+        }
+        if on_disk {
+            p.disk_ops.push(DiskOp::ToDeleted {
+                name: PATCH_MOD.into(),
+            });
+        }
+        p.canon_after = sat_core::canon::Modlist::new(entries);
+        return Some(None);
+    }
+    let by_name: Vec<sat_core::patch::FilePatch> = project
+        .patches
+        .iter()
+        .map(|x| sat_core::patch::FilePatch {
+            source: project
+                .entities
+                .name_of(&sat_core::entity::EntityId(x.source.clone()))
+                .unwrap_or(&x.source)
+                .to_string(),
+            ..x.clone()
+        })
+        .collect();
+    let fp = fingerprint(&by_name);
+    if project.patches_built.as_deref() == Some(fp.as_str()) && on_disk {
+        return None;
+    }
+    for x in &by_name {
+        match sat_mo2::patches::base_holds(&layout.mods_dir, x) {
+            Ok(true) => {}
+            Ok(false) => p.blockers.push(Blocker::PatchBaseChanged {
+                source: x.source.clone(),
+                path: x.path.clone(),
+            }),
+            Err(_) => p.blockers.push(Blocker::MissingFolder {
+                name: format!("{}/{}", x.source, x.path),
+            }),
+        }
+    }
+    if on_disk {
+        p.disk_ops.push(DiskOp::ToDeleted {
+            name: PATCH_MOD.into(),
+        });
+    }
+    p.disk_ops.push(DiskOp::Patches {
+        name: PATCH_MOD.into(),
+        patches: by_name,
+    });
+    entries.push(Entry {
+        name: PATCH_MOD.into(),
+        kind: EntryKind::Mod,
+        enabled: true,
+    });
+    p.canon_after = sat_core::canon::Modlist::new(entries);
+    Some(Some(fp))
 }
 
 // @sat:cli.commit.factories
@@ -299,5 +384,8 @@ fn blocker(b: &Blocker, records: &[SyncRecord]) -> String {
         Blocker::CanonMismatch { name } => format!("{name}: the project list does not fit the change"),
         Blocker::SeparatorNotEmpty { name } => format!("separator {name} still has mods in its block"),
         Blocker::SourceUnavailable { name, why } => format!("planned mod {name}: {why}"),
+        Blocker::PatchBaseChanged { source, path } => format!(
+            "{source}/{path} changed since it was patched (updated?): look at the patch again (sat-cli patch … --rebase)"
+        ),
     }
 }

@@ -274,6 +274,11 @@ fn run(
                 std::fs::create_dir(&path).map_err(|e| io(&path, e))?;
                 steps.push(Step::Created { path });
             }
+            DiskOp::Patches { name, patches } => {
+                let path = layout.mods_dir.join(name);
+                crate::patches::build(&layout.mods_dir, patches, &path)?;
+                steps.push(Step::Installed { path });
+            }
             DiskOp::Bake { name, members, link } => {
                 let path = layout.mods_dir.join(name);
                 crate::bake::bake(&layout.mods_dir, members, &path, *link)?;

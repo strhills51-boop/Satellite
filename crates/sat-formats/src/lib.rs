@@ -8,6 +8,7 @@
 pub mod archive;
 pub mod dds;
 pub mod fomod;
+pub mod ini;
 pub mod plugin;
 mod read;
 

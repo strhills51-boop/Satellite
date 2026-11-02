@@ -35,6 +35,7 @@
 | Раскладка потоком (ADR 0012 §2): блоки разделителей, ряды карточек, окно рядов по высоте, ряд фокуса | `@sat:order.flow` (`FlowParams`, `flow_lines`), `@sat:order.flow.index` (`flow_index`), `@sat:order.flow.row-y` (`flow_row_y`), охват блоков (`@sat:order.flow.scope`, `flow_index_in`: классический вид монолита — текущий разделитель или выбранные стопкой), запрос страницы `@sat:app.lines` (`Query::Lines`) | стиль как данные — `@sat:order.decor.style` |
 | Лог-группа — один результирующий мод в анализе (ADR 0016 шаг 2) | `@sat:overwrite.units` (`Units`, `compute_units`, `update_units_in_place`); участники групп — `@sat:order.book.group-units` (`group_members`); проекция `units` сессии на истине `Truth::Groups`; подписи — `Session::unit_label` | группы как декорация — `@sat:order.book` (`create_group`) |
 | Фабрики (ADR 0014 §5): лог-группа → один выходной мод при фиксации; отпечаток входов, «грязная», пересборка | `@sat:factory`, `@sat:factory.def`, `@sat:factory.fingerprint`, `@sat:factory.canon` (`place_output`); запекание — `@sat:mo2.bake`, `@sat:mo2.bake.run`; в плане — `DiskOp::Bake`, `@sat:cli.commit.factories`; команды — `@sat:cli.factory` (`group`, `factory`), `@sat:cli.factory.run` | генераторы-программы (FNIS…) — позже |
+| Патчи файлов (ADR 0014 §3): правка ini мода в проекте → исправленная копия в мод Satellite Patches при фиксации | модель ini — `@sat:formats.ini`, `@sat:formats.ini.model`, `@sat:formats.ini.set`; патч — `@sat:patch`, `@sat:patch.file`, `@sat:patch.signature`; запись — `@sat:mo2.patches`, `@sat:mo2.patches.build`; в плане — `DiskOp::Patches`, `Blocker::PatchBaseChanged`, `@sat:cli.commit.patches`; команда — `@sat:cli.patch` | ini самого MO2 — `@sat:mo2.ini` |
 | Вложенность разделителей (ADR 0016 шаг 2): дерево в самом порядке — уровень разделителя | `@sat:order.book.level` (`set_level`, `level`, `ancestors`, `Op::Level`); поддерево — `block_keys` / `subtree_end`; в декорации — `Decor::levels`; команда — `SetLevel`; тест — `nested_separators_collapse_move_and_keep_their_levels` и модельный тест | лог-группы — `@sat:order.book` (`create_group`), пока отдельно |
 | Список как рабочая среда (ADR 0016 шаг 1): контейнер мода на одной строке, линия индикаторов, запас блоков | контейнер — `@sat:order.card`, `@sat:order.card.min-width`, `@sat:order.card.single-line` (индикатор и бейджи целы, счётчики растут влево, имя урезается); линия индикаторов по большинству — `@sat:order.flow.indicator-line` (`Placed::dy`); запас перед разделителем — `@sat:order.flow.reserve` (`FlowParams::reserve`) | дерево контейнеров — шаг 2; окно — с владельцем |
 | Внешний вид цепочки и контекста: эмодзи и оттенок из состава (не из порядка) | `@sat:identity` (`@sat:identity.of`) | сами цепочки — `@sat:overwrite.projection` |
@@ -153,6 +154,7 @@
 - `crates/sat-core/src/order/decor.rs` — `@sat:order.decor`: декорации для проекта, кодек маркеров групп.
 - `crates/sat-core/src/order/flow.rs` — `@sat:order.flow`: раскладка потоком — блоки, ряды карточек, окно рядов.
 - `crates/sat-core/src/order/card.rs` — `@sat:order.card`: контейнер мода на одной строке — части, минимальная ширина, что урезается.
+- `crates/sat-core/src/patch.rs` — `@sat:patch`: патчи файлов как данные проекта, подпись содержимого, выходной мод.
 - `crates/sat-core/src/order/tests.rs` — `@sat:order.tests`: модельные тесты.
 - `crates/sat-core/src/resource/mod.rs` — `@sat:resource`: манифест, источник, возможности, политика, реестр (ADR 0011).
 - `crates/sat-core/src/resource/approvals.rs` — `@sat:resource.approvals`: одобрения пользователя, файл на машине.
@@ -190,7 +192,9 @@
 - `crates/sat-mo2/src/instance.rs` — `@sat:mo2.instance`: `Instance::load`, `from_dirs`, `mod_dir`; папки mods, overwrite, profiles, downloads.
 - `crates/sat-mo2/src/commit.rs` — `@sat:mo2.commit`: исполнение плана — версия-бэкап, журнал, операции (в т. ч. установка), запись профиля, замена файла проекта, откат.
 - `crates/sat-mo2/src/bake.rs` — `@sat:mo2.bake`: запекание группы в одну папку (последний участник выигрывает), ссылки или копии.
+- `crates/sat-mo2/src/patches.rs` — `@sat:mo2.patches`: применение патчей и сборка мода Satellite Patches, проверка основы.
 - `crates/sat-formats/src/fomod.rs` — `@sat:formats.fomod`: установщики FOMOD — чтение `ModuleConfig.xml`, умолчания, выбор → файлы.
+- `crates/sat-formats/src/ini.rs` — `@sat:formats.ini`: ini как модель с сохранением файла — чтение, задать, убрать, запись.
 - `crates/sat-mo2/src/install.rs` — `@sat:mo2.install`: установка мода из архива — корень Data, факты до установки, безопасная распаковка.
 - `crates/sat-mo2/src/profile.rs` — `@sat:mo2.profile`: файлы профиля байт в байт.
 - `crates/sat-mo2/src/meta.rs` — `@sat:mo2.meta`: `meta.ini`.
@@ -214,6 +218,7 @@
 - `tools/sat-cli/src/main.rs` — `@sat:cli`: `analyze`, `donor`, `sync`, `commit`, `ignore`, `inspect`, `bench-synth`.
 - `tools/sat-cli/src/commit_cmd.rs` — `@sat:cli.commit`: `sync` (записи и решения) и `commit` (план, `--apply`).
 - `tools/sat-cli/src/factory_cmd.rs` — `@sat:cli.factory`: `group` и `factory` — лог-группы и фабрики проекта.
+- `tools/sat-cli/src/patch_cmd.rs` — `@sat:cli.patch`: патчи ini модов — добавить, изменить, перебазировать, убрать, список.
 - `tools/sat-cli/src/ignore_cmd.rs` — `@sat:cli.ignore`: игнор-лист конфликтов в проекте.
 - `tools/sat-cli/src/intent_cmd.rs` — `@sat:cli.intent`: `plan-install` — запланированный мод из архива загрузок.
 - `tools/sat-cli/src/stickers_cmd.rs` — `@sat:cli.stickers`: условные стикеры проекта — список, добавить, убрать.

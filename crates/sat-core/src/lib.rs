@@ -35,6 +35,7 @@ pub mod jobs;
 pub mod metrics;
 pub mod order;
 pub mod overwrite;
+pub mod patch;
 pub mod plugin_edit;
 pub mod plugins;
 pub mod project;

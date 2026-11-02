@@ -67,6 +67,12 @@ pub struct Project {
     /// Where each mod comes from (`@sat:source`), by entity id: as the manager recorded it at the last analysis.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sources: BTreeMap<String, crate::source::ModSource>,
+    /// Edits of mods' files, written into the patches output mod at commit (`@sat:patch`); `source` by entity id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub patches: Vec<crate::patch::FilePatch>,
+    /// Fingerprint of the patches the output mod was last built from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patches_built: Option<String>,
     /// Factories: groups a commit turns into one output mod (`@sat:factory`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub factories: Vec<crate::factory::Factory>,
@@ -138,6 +144,8 @@ impl Project {
             counters: Vec::new(),
             sources: BTreeMap::new(),
             factories: Vec::new(),
+            patches: Vec::new(),
+            patches_built: None,
             extra: BTreeMap::new(),
         }
     }
