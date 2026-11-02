@@ -5,8 +5,8 @@
 //! folder safely (no path leaves the folder).
 //! Not here: when to install (`@sat:intent`, `@sat:sync.plan.installs`), the commit around it (`@sat:mo2.commit`).
 //!
-//! Formats: zip and 7z (told by their first bytes); rar — not yet. FOMOD installers: recognised and refused for now
-//! (the installer's choices will be part of the intent).
+//! Formats: zip and 7z (told by their first bytes); rar — not yet. FOMOD installers: the choices are part of the intent
+//! (`@sat:formats.fomod`); without choices — the installer's defaults.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -53,16 +53,29 @@ const DATA_DIRS: &[&str] = &[
 const DATA_EXTS: &[&str] = &["esp", "esm", "esl", "bsa", "ba2", "ini"];
 
 // @sat:mo2.install.layout
-/// What an archive holds, seen from the mod folder.
+/// What an install of an archive puts into the mod folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveLayout {
-    /// The prefix inside the archive that becomes the mod folder (`""`, or `Foo/` when everything is in one
-    /// folder, or `Foo/Data/`).
+    /// The prefix inside the archive that becomes the mod folder (`""`, `Foo/`, `Foo/Data/`); for a FOMOD — the
+    /// folder that holds `fomod/`.
     pub root: String,
-    /// Files under the root: path relative to the mod folder (`/`-separated) and size.
+    /// Files of the mod folder (`/`-separated, relative) and their sizes.
     pub files: Vec<(String, u64)>,
-    /// A FOMOD installer (`fomod/ModuleConfig.xml`): choices are needed.
-    pub fomod: bool,
+    /// Archive entry (normalized) → where it goes; one entry may go to several places.
+    pub map: Vec<(String, String)>,
+    /// The FOMOD installer and the choices in effect, if the archive has one.
+    pub fomod: Option<FomodChoice>,
+}
+
+/// A FOMOD install as resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FomodChoice {
+    pub module: String,
+    /// `step/group/option` in effect (given or by the installer's defaults).
+    pub chosen: Vec<String>,
+    /// Sources the config names that the archive does not have (skipped, as MO2 does).
+    pub missing: Vec<String>,
+    pub config: sat_formats::fomod::Config,
 }
 
 fn norm(name: &str) -> Option<String> {
@@ -171,25 +184,158 @@ fn listing(path: &Path) -> Result<Vec<(String, u64)>, String> {
     Ok(out)
 }
 
-/// Reads an archive's layout without extracting it.
+/// Reads an archive's layout without extracting it; a FOMOD archive takes the installer's defaults.
 pub fn inspect(path: &Path) -> Result<ArchiveLayout, String> {
+    inspect_with(path, None)
+}
+
+fn read_entry(path: &Path, raw: &str) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    match format_of(path)? {
+        Format::Zip => {
+            let mut z = open_zip(path)?;
+            let mut e = z
+                .by_name(raw)
+                .map_err(|e| format!("{}: {raw}: {e}", path.display()))?;
+            std::io::Read::read_to_end(&mut e, &mut out).map_err(|e| e.to_string())?;
+        }
+        Format::SevenZ => {
+            let mut found = false;
+            open_7z(path)?
+                .for_each_entries(|e, r| {
+                    if e.name() == raw {
+                        std::io::Read::read_to_end(r, &mut out)?;
+                        found = true;
+                        return Ok(false);
+                    }
+                    std::io::copy(r, &mut std::io::sink())?;
+                    Ok(true)
+                })
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            if !found {
+                return Err(format!("{}: {raw} not found", path.display()));
+            }
+        }
+    }
+    Ok(out)
+}
+
+// @sat:mo2.install.fomod
+/// [`inspect`] with FOMOD choices (`step/group/option`); `None` takes the installer's defaults.
+pub fn inspect_with(path: &Path, choices: Option<&[String]>) -> Result<ArchiveLayout, String> {
     let mut entries = Vec::new();
+    let mut raws = Vec::new();
     for (raw, size) in listing(path)? {
         let name = norm(&raw).ok_or_else(|| format!("{}: unsafe path {raw:?}", path.display()))?;
         entries.push((name, size));
+        raws.push(raw);
     }
-    let paths: Vec<String> = entries.iter().map(|(n, _)| n.clone()).collect();
-    let fomod = paths.iter().any(|p| {
+    let config_at = entries.iter().position(|(p, _)| {
         let l = p.to_lowercase();
-        l == "fomod/moduleconfig.xml" || l.ends_with("/fomod/moduleconfig.xml") && l.matches('/').count() <= 2
+        (l == "fomod/moduleconfig.xml" || l.ends_with("/fomod/moduleconfig.xml"))
+            && l.matches('/').count() <= 2
     });
-    let root = find_root(&paths);
-    let files = entries
-        .into_iter()
-        .filter_map(|(n, s)| n.strip_prefix(root.as_str()).map(|r| (r.to_string(), s)))
-        .filter(|(r, _)| !r.is_empty() && !r.to_lowercase().starts_with("fomod/"))
+    let size_of: std::collections::HashMap<String, u64> =
+        entries.iter().map(|(n, s)| (n.to_lowercase(), *s)).collect();
+    let mut map: Vec<(String, String)> = Vec::new();
+    let (root, fomod) = match config_at {
+        None => {
+            let paths: Vec<String> = entries.iter().map(|(n, _)| n.clone()).collect();
+            let root = find_root(&paths);
+            for (n, _) in &entries {
+                if let Some(rel) = n.strip_prefix(root.as_str())
+                    && !rel.is_empty()
+                {
+                    map.push((n.clone(), rel.to_string()));
+                }
+            }
+            (root, None)
+        }
+        Some(i) => {
+            let cfg_path = &entries[i].0;
+            let root = cfg_path[..cfg_path.len() - "fomod/moduleconfig.xml".len()].to_string();
+            let config = sat_formats::fomod::parse(&read_entry(path, &raws[i])?)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            let resolved = config.resolve(choices.unwrap_or(&[]))?;
+            // destination → source, in install order: a later file wins its place
+            let mut by_dest: Vec<(String, String)> = Vec::new();
+            let mut at: std::collections::HashMap<String, usize> = Default::default();
+            let mut missing = Vec::new();
+            let mut put = |src: &str, dest: String| match at.get(&dest.to_lowercase()) {
+                Some(&k) => by_dest[k] = (src.to_string(), dest),
+                None => {
+                    at.insert(dest.to_lowercase(), by_dest.len());
+                    by_dest.push((src.to_string(), dest));
+                }
+            };
+            let join = |a: &str, b: &str| match (a.is_empty(), b.is_empty()) {
+                (true, _) => b.to_string(),
+                (_, true) => a.to_string(),
+                _ => format!("{a}/{b}"),
+            };
+            for f in &resolved.files {
+                let src = join(root.trim_end_matches('/'), &f.source).to_lowercase();
+                if f.folder {
+                    let prefix = if src.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{src}/")
+                    };
+                    let mut any = false;
+                    for (n, _) in &entries {
+                        let under = n.len() > prefix.len()
+                            && n.is_char_boundary(prefix.len())
+                            && n[..prefix.len()].to_lowercase() == prefix;
+                        if let Some(rest) = under.then(|| &n[prefix.len()..]) {
+                            if rest.to_lowercase().starts_with("fomod/") && f.source.is_empty() {
+                                continue;
+                            }
+                            put(n, join(&f.destination, rest));
+                            any = true;
+                        }
+                    }
+                    if !any {
+                        missing.push(f.source.clone());
+                    }
+                } else if let Some((n, _)) = entries.iter().find(|(n, _)| n.to_lowercase() == src) {
+                    let dest = if f.destination.is_empty() {
+                        f.source.clone()
+                    } else {
+                        f.destination.clone()
+                    };
+                    put(n, dest);
+                } else {
+                    missing.push(f.source.clone());
+                }
+            }
+            map = by_dest;
+            (
+                root,
+                Some(FomodChoice {
+                    module: config.name.clone(),
+                    chosen: resolved.chosen,
+                    missing,
+                    config,
+                }),
+            )
+        }
+    };
+    map.retain(|(_, d)| !d.is_empty() && !d.to_lowercase().starts_with("fomod/"));
+    let files = map
+        .iter()
+        .map(|(src, dest)| {
+            (
+                dest.clone(),
+                size_of.get(&src.to_lowercase()).copied().unwrap_or(0),
+            )
+        })
         .collect();
-    Ok(ArchiveLayout { root, files, fomod })
+    Ok(ArchiveLayout {
+        root,
+        files,
+        map,
+        fomod,
+    })
 }
 
 // @sat:mo2.install.facts
@@ -236,17 +382,11 @@ pub fn facts_of(name: &str, layout: &ArchiveLayout) -> ModFacts {
 /// Extracts the archive's root into `target` (which must not exist), through a temp folder beside it and a
 /// rename, and writes `meta.ini` with the installation file (MO2 shows where the mod came from). On any error
 /// nothing is left behind. Returns the number of files.
-pub fn install(archive: &Path, target: &Path) -> Result<usize, String> {
+pub fn install(archive: &Path, target: &Path, choices: Option<&[String]>) -> Result<usize, String> {
     if target.exists() {
         return Err(format!("{} already exists", target.display()));
     }
-    let layout = inspect(archive)?;
-    if layout.fomod {
-        return Err(format!(
-            "{}: a FOMOD installer — its choices are not supported yet",
-            archive.display()
-        ));
-    }
+    let layout = inspect_with(archive, choices)?;
     let name = target
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -272,37 +412,58 @@ pub fn install(archive: &Path, target: &Path) -> Result<usize, String> {
     r
 }
 
-/// Where an archive entry goes in `into`; `Ok(None)` for what is not installed (outside the root, the installer).
-fn destination(
-    archive: &Path,
-    layout: &ArchiveLayout,
-    into: &Path,
-    raw: &str,
-) -> Result<Option<PathBuf>, String> {
+/// Where archive entries go: normalized lowercase entry name → destinations.
+type Targets = std::collections::HashMap<String, Vec<String>>;
+
+fn targets(layout: &ArchiveLayout) -> Targets {
+    let mut t: Targets = Default::default();
+    for (src, dest) in &layout.map {
+        t.entry(src.to_lowercase()).or_default().push(dest.clone());
+    }
+    t
+}
+
+/// The files an archive entry becomes in `into` (none: not installed).
+fn destinations(archive: &Path, t: &Targets, into: &Path, raw: &str) -> Result<Vec<PathBuf>, String> {
     let Some(name) = norm(raw) else {
         return Err(format!("{}: unsafe path {raw:?}", archive.display()));
     };
-    let Some(rel) = name.strip_prefix(layout.root.as_str()) else {
-        return Ok(None);
-    };
-    if rel.is_empty() || rel.to_lowercase().starts_with("fomod/") {
-        return Ok(None);
+    let mut out = Vec::new();
+    for rel in t.get(&name.to_lowercase()).into_iter().flatten() {
+        let p = into.join(rel);
+        // `norm` refused `..` and roots in entries; destinations come from a config — check what they are made of
+        if p.strip_prefix(into).map_or(true, |r| {
+            r.components().any(|c| !matches!(c, Component::Normal(_)))
+        }) {
+            return Err(format!("{}: unsafe destination {rel:?}", archive.display()));
+        }
+        if let Some(parent) = p.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        out.push(p);
     }
-    let out = into.join(rel);
-    // `norm` refused `..` and roots; check what the joined path is made of anyway
-    if out.strip_prefix(into).map_or(true, |r| {
-        r.components().any(|c| !matches!(c, Component::Normal(_)))
-    }) {
-        return Err(format!("{}: unsafe path {rel:?}", archive.display()));
+    Ok(out)
+}
+
+fn write_all(r: &mut dyn std::io::Read, outs: &[PathBuf]) -> Result<(), String> {
+    match outs {
+        [] => std::io::copy(r, &mut std::io::sink())
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+        [first, rest @ ..] => {
+            let mut f = File::create(first).map_err(|e| format!("{}: {e}", first.display()))?;
+            std::io::copy(r, &mut f).map_err(|e| format!("{}: {e}", first.display()))?;
+            for o in rest {
+                std::fs::copy(first, o).map_err(|e| format!("{}: {e}", o.display()))?;
+            }
+            Ok(())
+        }
     }
-    if let Some(parent) = out.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-    }
-    Ok(Some(out))
 }
 
 fn extract(archive: &Path, layout: &ArchiveLayout, into: &Path) -> Result<usize, String> {
     std::fs::create_dir_all(into).map_err(|e| format!("{}: {e}", into.display()))?;
+    let t = targets(layout);
     let mut n = 0;
     match format_of(archive)? {
         Format::Zip => {
@@ -316,10 +477,10 @@ fn extract(archive: &Path, layout: &ArchiveLayout, into: &Path) -> Result<usize,
                     .name()
                     .map_err(|x| format!("{}: {x}", archive.display()))?
                     .into_owned();
-                if let Some(out) = destination(archive, layout, into, &raw)? {
-                    let mut f = File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-                    std::io::copy(&mut e, &mut f).map_err(|e| format!("{}: {e}", out.display()))?;
-                    n += 1;
+                let outs = destinations(archive, &t, into, &raw)?;
+                if !outs.is_empty() {
+                    write_all(&mut e, &outs)?;
+                    n += outs.len();
                 }
             }
         }
@@ -331,16 +492,9 @@ fn extract(archive: &Path, layout: &ArchiveLayout, into: &Path) -> Result<usize,
                     if e.is_directory() {
                         return Ok(true);
                     }
-                    let res = destination(archive, layout, into, e.name()).and_then(|out| match out {
-                        Some(out) => {
-                            let mut f = File::create(&out).map_err(|x| format!("{}: {x}", out.display()))?;
-                            std::io::copy(reader, &mut f).map_err(|x| format!("{}: {x}", out.display()))?;
-                            n += 1;
-                            Ok(())
-                        }
-                        None => std::io::copy(reader, &mut std::io::sink())
-                            .map(|_| ())
-                            .map_err(|x| x.to_string()),
+                    let res = destinations(archive, &t, into, e.name()).and_then(|outs| {
+                        n += outs.len();
+                        write_all(reader, &outs)
                     });
                     match res {
                         Ok(()) => Ok(true),
@@ -388,19 +542,22 @@ mod tests {
         );
         let l = inspect(&a).unwrap();
         assert_eq!(l.root, "Mod 1.0/Data/");
-        assert!(!l.fomod);
+        assert!(l.fomod.is_none());
         let f = facts_of("Mod", &l);
         assert_eq!((f.metrics.files, f.metrics.plugins, f.metrics.dds), (2, 1, 1));
         let target = dir.path().join("mods").join("Mod");
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        assert_eq!(install(&a, &target).unwrap(), 2);
+        assert_eq!(install(&a, &target, None).unwrap(), 2);
         assert_eq!(std::fs::read(target.join("textures/a.dds")).unwrap(), b"aa");
         assert!(
             std::fs::read_to_string(target.join("meta.ini"))
                 .unwrap()
                 .contains("Mod-123.zip")
         );
-        assert!(install(&a, &target).is_err(), "never over an existing folder");
+        assert!(
+            install(&a, &target, None).is_err(),
+            "never over an existing folder"
+        );
     }
 
     #[test]
@@ -419,7 +576,7 @@ mod tests {
         let l = inspect(&a).unwrap();
         assert_eq!(l.root, "Seven/");
         let target = dir.path().join("Seven");
-        assert_eq!(install(&a, &target).unwrap(), 2);
+        assert_eq!(install(&a, &target, None).unwrap(), 2);
         assert_eq!(std::fs::read(target.join("textures/a.dds")).unwrap(), b"aa");
         let r = dir.path().join("x.rar");
         std::fs::write(&r, b"Rar!\x1a\x07\x00").unwrap();
@@ -427,27 +584,47 @@ mod tests {
     }
 
     #[test]
-    fn fomod_and_unsafe_archives_are_refused_and_leave_nothing() {
+    fn a_fomod_installs_the_chosen_options_and_unsafe_archives_are_refused() {
         let dir = tempfile::tempdir().unwrap();
         let a = dir.path().join("f.zip");
+        let xml = br#"<config><moduleName>F</moduleName>
+            <requiredInstallFiles><folder source="00 Core" destination=""/></requiredInstallFiles>
+            <installSteps order="Explicit"><installStep name="S"><optionalFileGroups><group name="G" type="SelectExactlyOne">
+              <plugins order="Explicit">
+                <plugin name="One"><files><file source="opt\one.esp" destination="F.esp"/></files>
+                  <typeDescriptor><type name="Recommended"/></typeDescriptor></plugin>
+                <plugin name="Two"><files><file source="opt\two.esp" destination="F.esp"/></files>
+                  <typeDescriptor><type name="Optional"/></typeDescriptor></plugin>
+              </plugins></group></optionalFileGroups></installStep></installSteps></config>"#;
         zip(
             &a,
             &[
-                ("fomod/ModuleConfig.xml", b"<x/>"),
-                ("00 Core/textures/a.dds", b"a"),
+                ("F 1.0/fomod/ModuleConfig.xml", xml),
+                ("F 1.0/00 Core/textures/a.dds", b"a"),
+                ("F 1.0/opt/one.esp", b"1"),
+                ("F 1.0/opt/two.esp", b"2"),
             ],
         );
-        assert!(inspect(&a).unwrap().fomod);
+        let l = inspect(&a).unwrap();
+        assert_eq!(l.fomod.as_ref().unwrap().chosen, ["S/G/One"]);
+        assert_eq!(l.root, "F 1.0/");
         let target = dir.path().join("F");
-        assert!(install(&a, &target).unwrap_err().contains("FOMOD"));
+        let two = vec!["S/G/Two".to_string()];
+        assert_eq!(install(&a, &target, Some(&two)).unwrap(), 2);
+        assert_eq!(std::fs::read(target.join("F.esp")).unwrap(), b"2");
+        assert!(target.join("textures/a.dds").exists());
+        assert!(!target.join("fomod").exists() && !target.join("opt").exists());
+        let bad = vec!["S/G/Three".to_string()];
+        assert!(install(&a, &dir.path().join("F2"), Some(&bad)).is_err());
         let b = dir.path().join("b.zip");
         zip(&b, &[("../evil.txt", b"x")]);
         assert!(inspect(&b).is_err());
-        assert!(install(&b, &dir.path().join("B")).is_err());
-        let left: Vec<_> = std::fs::read_dir(dir.path())
+        assert!(install(&b, &dir.path().join("B"), None).is_err());
+        let mut left: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
-            .map(|e| e.unwrap().file_name())
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(left.len(), 2, "{left:?}");
+        left.sort();
+        assert_eq!(left, ["F", "b.zip", "f.zip"]);
     }
 }

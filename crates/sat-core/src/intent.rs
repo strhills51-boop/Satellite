@@ -32,7 +32,22 @@ pub enum Source {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Action {
     /// Put the mod's files into its folder from the source (the place in the order is the canon's).
-    Install { source: Source },
+    Install {
+        source: Source,
+        /// FOMOD choices (`step/group/option`) as resolved when the intent was made: the commit installs exactly
+        /// these (`@sat:formats.fomod`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fomod: Option<Vec<String>>,
+    },
+}
+
+/// A planned mod as a commit sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Planned {
+    pub name: String,
+    pub source: Source,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fomod: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,10 +68,10 @@ pub struct Intent {
 }
 
 impl Intent {
-    pub fn install(entity: EntityId, source: Source) -> Self {
+    pub fn install(entity: EntityId, source: Source, fomod: Option<Vec<String>>) -> Self {
         Self {
             entity,
-            action: Action::Install { source },
+            action: Action::Install { source, fomod },
             status: IntentStatus::Pending,
         }
     }
@@ -65,10 +80,10 @@ impl Intent {
         self.status == IntentStatus::Pending
     }
 
-    /// The source of a pending install.
-    pub fn pending_install(&self) -> Option<&Source> {
+    /// A pending install as (source, FOMOD choices).
+    pub fn pending_install(&self) -> Option<(&Source, Option<&Vec<String>>)> {
         match (&self.action, self.status) {
-            (Action::Install { source }, IntentStatus::Pending) => Some(source),
+            (Action::Install { source, fomod }, IntentStatus::Pending) => Some((source, fomod.as_ref())),
             _ => None,
         }
     }

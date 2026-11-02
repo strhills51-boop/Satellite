@@ -58,6 +58,8 @@ pub enum DiskOp {
     Install {
         name: String,
         source: crate::intent::Source,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fomod: Option<Vec<String>>,
     },
 }
 
@@ -132,19 +134,20 @@ pub fn plan(canon: &Modlist, records: &[SyncRecord], disk: &[String]) -> Plan {
 pub fn plan_with(
     canon: &Modlist,
     records: &[SyncRecord],
-    installs: &[(String, crate::intent::Source)],
+    installs: &[crate::intent::Planned],
     disk: &[String],
     source_ok: &dyn Fn(&crate::intent::Source) -> Result<(), String>,
 ) -> Plan {
     let mut p = Plan::default();
-    for (name, source) in installs {
-        match source_ok(source) {
+    for i in installs {
+        match source_ok(&i.source) {
             Ok(()) => p.disk_ops.push(DiskOp::Install {
-                name: name.clone(),
-                source: source.clone(),
+                name: i.name.clone(),
+                source: i.source.clone(),
+                fomod: i.fomod.clone(),
             }),
             Err(why) => p.blockers.push(Blocker::SourceUnavailable {
-                name: name.clone(),
+                name: i.name.clone(),
                 why,
             }),
         }
@@ -558,36 +561,30 @@ mod tests {
             file: f.into(),
             size: None,
         };
+        let planned = |n: &str, f: &str| crate::intent::Planned {
+            name: n.into(),
+            source: src(f),
+            fomod: None,
+        };
         let c = canon(&["A", "B", "C"]);
         let ok = |s: &Source| match s {
             Source::Downloads { file, .. } if file == "gone.zip" => Err("not in downloads".to_string()),
             _ => Ok(()),
         };
-        let p = plan_with(
-            &c,
-            &[],
-            &[("B".into(), src("b.zip"))],
-            &["A".into(), "C".into()],
-            &ok,
-        );
+        let p = plan_with(&c, &[], &[planned("B", "b.zip")], &["A".into(), "C".into()], &ok);
         assert!(!p.blocked(), "{:?}", p.blockers);
         assert_eq!(
             p.disk_ops,
             [DiskOp::Install {
                 name: "B".into(),
-                source: src("b.zip")
+                source: src("b.zip"),
+                fomod: None
             }]
         );
-        let p = plan_with(&c, &[], &[("B".into(), src("gone.zip"))], &["A".into()], &ok);
+        let p = plan_with(&c, &[], &[planned("B", "gone.zip")], &["A".into()], &ok);
         assert!(matches!(&p.blockers[..], [Blocker::SourceUnavailable { name, .. }] if name == "B"));
         // a folder of that name is there already
-        let p = plan_with(
-            &c,
-            &[],
-            &[("C".into(), src("c.zip"))],
-            &["A".into(), "C".into()],
-            &ok,
-        );
+        let p = plan_with(&c, &[], &[planned("C", "c.zip")], &["A".into(), "C".into()], &ok);
         assert!(matches!(&p.blockers[..], [Blocker::TargetExists { name }] if name == "C"));
     }
 }

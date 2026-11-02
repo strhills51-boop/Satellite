@@ -21,8 +21,10 @@ fn listing_signature(file: &str, size: u64) -> u64 {
     h
 }
 
-/// `sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled]`: FILE is a file of
-/// the downloads folder (by name, or a path inside it). Nothing on disk changes until `sat-cli commit --apply`.
+/// `sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose
+/// "step/group/option"]... [--show]`: FILE is a file of the downloads folder (by name, or a path inside it). A FOMOD
+/// archive takes the installer's defaults unless options are chosen; `--show` lists the steps and changes nothing.
+/// Nothing on disk changes until `sat-cli commit --apply`.
 pub fn plan_install(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let layout = Layout::of(&inst);
@@ -39,11 +41,23 @@ pub fn plan_install(args: &[String]) -> Result<(), String> {
         ));
     }
     let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
-    let archive = sat_mo2::install::inspect(&path)?;
-    if archive.fomod {
-        return Err(format!(
-            "{file}: a FOMOD installer — its choices are not supported yet"
-        ));
+    let given = crate::flag_values(args, "--choose")
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let archive = sat_mo2::install::inspect_with(&path, (!given.is_empty()).then_some(given.as_slice()))?;
+    if let Some(f) = &archive.fomod {
+        show_fomod(f);
+        if has(args, "--show") {
+            return Ok(());
+        }
+    } else if has(args, "--show") {
+        println!(
+            "{file}: no installer; root {:?}, {} files",
+            archive.root,
+            archive.files.len()
+        );
+        return Ok(());
     }
     let stem = file.rsplit_once('.').map_or(file.as_str(), |x| x.0).to_string();
     let name = flag_value(args, "--name").map_or(stem, str::to_string);
@@ -54,6 +68,7 @@ pub fn plan_install(args: &[String]) -> Result<(), String> {
             file: file.clone(),
             size: Some(size),
         },
+        archive.fomod.as_ref().map(|f| f.chosen.clone()),
         flag_value(args, "--after"),
         !has(args, "--disabled"),
     )?;
@@ -73,6 +88,32 @@ pub fn plan_install(args: &[String]) -> Result<(), String> {
         }
     );
     Ok(())
+}
+
+/// Prints a FOMOD installer: visible steps, groups and options, the ones in effect marked.
+fn show_fomod(f: &sat_mo2::install::FomodChoice) {
+    use sat_formats::fomod::choice_id;
+    println!("FOMOD installer: {}", f.module);
+    let on: std::collections::HashSet<String> = f.chosen.iter().map(|c| c.to_lowercase()).collect();
+    for s in &f.config.steps {
+        println!("  step {:?}", s.name);
+        for g in &s.groups {
+            println!("    group {:?} ({:?})", g.name, g.kind);
+            for o in &g.options {
+                let id = choice_id(&s.name, &g.name, &o.name);
+                let mark = if on.contains(&id.to_lowercase()) {
+                    "[x]"
+                } else {
+                    "[ ]"
+                };
+                println!("      {mark} {id}   ({:?})", o.kind);
+            }
+        }
+    }
+    for m in &f.missing {
+        println!("  note: the config names {m:?}, the archive does not have it (skipped)");
+    }
+    println!("  choose with --choose \"step/group/option\" (repeat); a group not named keeps its defaults");
 }
 
 // @sat:cli.intent.source

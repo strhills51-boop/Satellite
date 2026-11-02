@@ -137,9 +137,12 @@ pub fn commit(args: &[String]) -> Result<(), String> {
             DiskOp::ToDeleted { name } => println!("  disk: move {name} → satellite/deleted/<stamp>/"),
             DiskOp::Rename { from, to } => println!("  disk: rename folder {from} → {to}"),
             DiskOp::Create { name, .. } => println!("  disk: create empty folder {name}"),
-            DiskOp::Install { name, source } => {
+            DiskOp::Install { name, source, fomod } => {
                 let sat_core::intent::Source::Downloads { file, .. } = source;
-                println!("  disk: install {name} from downloads/{file}")
+                println!("  disk: install {name} from downloads/{file}");
+                for c in fomod.iter().flatten() {
+                    println!("        FOMOD: {c}");
+                }
             }
         }
     }

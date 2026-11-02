@@ -275,10 +275,10 @@ fn run(
                 steps.push(Step::Created { path });
             }
             // @sat:mo2.commit.install
-            DiskOp::Install { name, source } => {
+            DiskOp::Install { name, source, fomod } => {
                 let sat_core::intent::Source::Downloads { file, .. } = source;
                 let path = layout.mods_dir.join(name);
-                crate::install::install(&layout.downloads_dir.join(file), &path)?;
+                crate::install::install(&layout.downloads_dir.join(file), &path, fomod.as_deref())?;
                 steps.push(Step::Installed { path });
             }
         }
@@ -620,6 +620,7 @@ mod tests {
                 file: "New.zip".into(),
                 size: None,
             },
+            fomod: None,
         });
         // 4 disk ops (0..3), then modlist (4): fail there — the installed folder goes away
         let r = execute(

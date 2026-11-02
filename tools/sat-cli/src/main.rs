@@ -71,7 +71,7 @@ fn main() {
         Some("inspect") => inspect(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply]\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply]\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -400,7 +400,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let planned: std::collections::HashSet<String> = project
         .planned()
         .into_iter()
-        .map(|(n, _)| n.to_lowercase())
+        .map(|p| p.name.to_lowercase())
         .collect();
     // the project file being written while the scan runs: facts go in as they come, unchanged ones are copied
     let mut writer = if save_facts {

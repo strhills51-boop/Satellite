@@ -233,15 +233,19 @@ impl Project {
     }
 
     // @sat:intent.planned
-    /// Planned mods: canon entries with a pending install (name, source), in canon order.
-    pub fn planned(&self) -> Vec<(String, crate::intent::Source)> {
+    /// Planned mods: canon entries with a pending install, in canon order.
+    pub fn planned(&self) -> Vec<crate::intent::Planned> {
         self.canon
             .entries
             .iter()
             .filter_map(|e| {
                 let id = self.entities.id_of(&e.name)?;
-                let src = self.intents.iter().find(|i| &i.entity == id)?.pending_install()?;
-                Some((e.name.clone(), src.clone()))
+                let (source, fomod) = self.intents.iter().find(|i| &i.entity == id)?.pending_install()?;
+                Some(crate::intent::Planned {
+                    name: e.name.clone(),
+                    source: source.clone(),
+                    fomod: fomod.cloned(),
+                })
             })
             .collect()
     }
@@ -252,6 +256,7 @@ impl Project {
         &mut self,
         name: &str,
         source: crate::intent::Source,
+        fomod: Option<Vec<String>>,
         after: Option<&str>,
         enabled: bool,
     ) -> Result<EntityId, String> {
@@ -277,7 +282,7 @@ impl Project {
         self.entities.follow(&self.canon);
         let id = self.entities.id_of(name).cloned().expect("just added");
         self.intents
-            .push(crate::intent::Intent::install(id.clone(), source));
+            .push(crate::intent::Intent::install(id.clone(), source, fomod));
         Ok(id)
     }
 
@@ -287,7 +292,7 @@ impl Project {
         let planned: HashSet<String> = self
             .planned()
             .into_iter()
-            .map(|(n, _)| n.to_lowercase())
+            .map(|p| p.name.to_lowercase())
             .collect();
         self.canon
             .entries
@@ -315,7 +320,7 @@ impl Project {
     pub fn observe(&mut self, disk: &[DiskFolder]) -> Reconcile {
         // a planned mod whose folder is there was installed (outside Satellite, or by a commit): fulfilled
         let present: HashSet<String> = disk.iter().map(|d| d.name.to_lowercase()).collect();
-        for (name, _) in self.planned() {
+        for crate::intent::Planned { name, .. } in self.planned() {
             if present.contains(&name.to_lowercase())
                 && let Some(id) = self.entities.id_of(&name).cloned()
             {
@@ -464,13 +469,15 @@ mod tests {
             file: "B-123.zip".into(),
             size: Some(5),
         };
-        p.plan_install("B", src.clone(), Some("nobody"), true).unwrap();
+        p.plan_install("B", src.clone(), None, Some("nobody"), true)
+            .unwrap();
         assert!(
-            p.plan_install("b", src.clone(), None, true).is_err(),
+            p.plan_install("b", src.clone(), None, None, true).is_err(),
             "names are taken any case"
         );
         assert_eq!(p.canon.entries[1].name, "B");
-        assert_eq!(p.planned(), [("B".to_string(), src.clone())]);
+        assert_eq!(p.planned()[0].name, "B");
+        assert_eq!(p.planned()[0].source, src);
         let folder = |n: &str| DiskFolder {
             name: n.into(),
             signature: None,

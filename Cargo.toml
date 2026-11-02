@@ -27,6 +27,7 @@ regex = "1.11"
 aho-corasick = "1"
 mimalloc = { version = "0.1", default-features = false }
 memory-stats = "1"
+roxmltree = "0.21"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "ppmd", "deflate", "compress"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
