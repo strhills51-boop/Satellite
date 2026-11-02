@@ -48,6 +48,18 @@ fn clean(v: &str) -> &str {
     v.trim().trim_start_matches(['d', 'v', 'V'])
 }
 
+/// A version as numbers (`1.2.0` → `[1, 2]`, trailing zeros dropped); `None` if it is not only numbers and dots.
+fn numeric(v: &str) -> Option<Vec<u64>> {
+    let mut parts: Vec<u64> = clean(v)
+        .split('.')
+        .map(|p| p.trim().parse().ok())
+        .collect::<Option<_>>()?;
+    while parts.last() == Some(&0) {
+        parts.pop();
+    }
+    Some(parts)
+}
+
 impl ModSource {
     pub fn is_empty(&self) -> bool {
         self.mod_id.is_none() && self.url.is_none() && self.file.is_none()
@@ -57,7 +69,11 @@ impl ModSource {
     /// The manager knows a newer version than the installed one.
     pub fn update_available(&self) -> bool {
         match (&self.version, &self.newest_version) {
-            (Some(v), Some(n)) => !n.trim().is_empty() && clean(v) != clean(n),
+            (Some(v), Some(n)) if !n.trim().is_empty() => match (numeric(v), numeric(n)) {
+                // `1.1` and `1.1.0` are one version; a newer one is greater, not just different
+                (Some(a), Some(b)) => b > a,
+                _ => clean(v) != clean(n),
+            },
             _ => false,
         }
     }
@@ -99,5 +115,23 @@ mod tests {
             ..s.clone()
         };
         assert!(!same.update_available());
+        let zeros = ModSource {
+            version: Some("1.1".into()),
+            newest_version: Some("1.1.0".into()),
+            ..s.clone()
+        };
+        assert!(!zeros.update_available(), "1.1 is 1.1.0");
+        let older = ModSource {
+            version: Some("2.0".into()),
+            newest_version: Some("1.9".into()),
+            ..s.clone()
+        };
+        assert!(!older.update_available(), "the installed one is newer");
+        let text = ModSource {
+            version: Some("1.0b".into()),
+            newest_version: Some("1.0c".into()),
+            ..s
+        };
+        assert!(text.update_available());
     }
 }
