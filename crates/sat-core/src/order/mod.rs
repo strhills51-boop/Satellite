@@ -13,6 +13,7 @@
 //! Owns: the layout of the load order engine (ADR 0008).
 
 pub mod book;
+pub mod card;
 pub mod cursor;
 pub mod decor;
 pub mod flow;

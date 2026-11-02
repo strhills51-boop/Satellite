@@ -366,7 +366,7 @@ async function sync(follow) {
       const r = c.row, el = cardEl(r.key);
       seen.add(r.key);
       r.index = c.index;
-      const pos = [`translate(${c.x}px,${Math.round(l.y - vt)}px)`, c.width + "px", (l.header ? ROW : c.height) + "px"];
+      const pos = [`translate(${c.x}px,${Math.round(l.y + (c.dy || 0) - vt)}px)`, c.width + "px", (l.header ? ROW : c.height) + "px"];
       if (!el._pos || el._pos.join() !== pos.join()) { el._pos = pos; place(el); }
       paint(el, r);
       if (r.focused) focused = r;

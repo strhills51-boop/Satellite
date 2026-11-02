@@ -1656,6 +1656,7 @@ mod tests {
             card_height: 40,
             header_height: 30,
             gap: 4,
+            reserve: 0,
         };
         let q = Query::Lines {
             view: order::MAIN,

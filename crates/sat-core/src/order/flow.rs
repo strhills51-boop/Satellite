@@ -22,6 +22,11 @@ pub struct FlowParams {
     pub card_height: u32,
     pub header_height: u32,
     pub gap: u32,
+    /// Spare room at the end of every block, before the next separator (ADR 0016): a block's height is its natural
+    /// height plus the reserve, rounded up to a multiple of it — a card that grows a little mostly moves nothing
+    /// below (only crossing a multiple does). 0 — no spare room.
+    #[serde(default)]
+    pub reserve: u32,
 }
 
 impl FlowParams {
@@ -68,6 +73,13 @@ pub struct Placed {
     pub x: u32,
     pub width: u32,
     pub height: u32,
+    /// Offset of the card's top from the line's top: the same for every card of a line (the indicator line, below).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dy: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// One line of the layout: a separator header or a line of cards.
@@ -140,11 +152,12 @@ impl OrderBook {
         let mut y = 0;
         for b in &mut blocks {
             b.y = y;
-            b.height = if b.styled {
+            let natural = if b.styled {
                 self.block_lines(v, b, &params, 0).iter().map(|l| l.height).sum()
             } else {
                 plain_height(b, &params)
             };
+            b.height = with_reserve(natural, params.reserve);
             y += b.height;
         }
         FlowIndex {
@@ -217,6 +230,7 @@ impl OrderBook {
                     x: 0,
                     width: p.width,
                     height: head,
+                    dy: 0,
                 }],
             });
         }
@@ -244,6 +258,7 @@ impl OrderBook {
                     x: i as u32 * (cw + p.gap),
                     width: cw,
                     height: p.card_height,
+                    dy: 0,
                 })
                 .collect();
             out.push(Line {
@@ -270,27 +285,47 @@ impl OrderBook {
                     x: 0,
                     width: p.width,
                     height: p.header_height,
+                    dy: 0,
                 }],
             });
             y += p.header_height;
         }
         let cw = p.default_card_width();
         let mut cur: Vec<Placed> = Vec::new();
+        // (top margin, bottom margin) of each card of the current line
+        let mut margins: Vec<(u32, u32)> = Vec::new();
         let mut x = 0u32;
-        let mut lh = 0u32;
-        let flush = |cur: &mut Vec<Placed>, x: &mut u32, lh: &mut u32, y: &mut u32, out: &mut Vec<Line>| {
+        // @sat:order.flow.indicator-line
+        // The load order is read by the indicators (ADR 0016): in a line they keep the line of the majority. The
+        // cards' top margins vote; every card of the line takes the winning offset, so a minority card is pulled to
+        // the majority instead of breaking the reading line.
+        let flush = |cur: &mut Vec<Placed>,
+                     margins: &mut Vec<(u32, u32)>,
+                     x: &mut u32,
+                     y: &mut u32,
+                     out: &mut Vec<Line>| {
             if !cur.is_empty() {
-                let h = *lh + p.gap;
+                let dy = majority(margins.iter().map(|m| m.0));
+                let body = cur
+                    .iter()
+                    .zip(margins.iter())
+                    .map(|(c, m)| c.height + m.1)
+                    .max()
+                    .unwrap_or(0);
+                for c in cur.iter_mut() {
+                    c.dy = dy;
+                }
+                let h = dy + body + p.gap;
                 out.push(Line {
                     y: *y,
                     height: h,
                     header: false,
                     cards: std::mem::take(cur),
                 });
+                margins.clear();
                 *y += h;
             }
             *x = 0;
-            *lh = 0;
         };
         for (i, k) in self
             .seq
@@ -306,12 +341,15 @@ impl OrderBook {
                 st.and_then(|s| s.width).map_or(cw, u32::from).min(p.width)
             };
             let h = st.and_then(|s| s.height).map_or(p.card_height, u32::from);
-            let margins = st.map_or(0, |s| {
-                u32::from(s.margin_top.unwrap_or(0)) + u32::from(s.margin_bottom.unwrap_or(0))
+            let m = st.map_or((0, 0), |s| {
+                (
+                    u32::from(s.margin_top.unwrap_or(0)),
+                    u32::from(s.margin_bottom.unwrap_or(0)),
+                )
             });
             let break_before = st.is_some_and(|s| s.break_before) || full;
             if break_before || (x > 0 && x + w > p.width) {
-                flush(&mut cur, &mut x, &mut lh, &mut y, &mut out);
+                flush(&mut cur, &mut margins, &mut x, &mut y, &mut out);
             }
             cur.push(Placed {
                 row: b.first_row + i as u32,
@@ -319,15 +357,41 @@ impl OrderBook {
                 x,
                 width: w,
                 height: h,
+                dy: 0,
             });
+            margins.push(m);
             x += w + p.gap;
-            lh = lh.max(h + margins);
             if full || st.is_some_and(|s| s.break_after) {
-                flush(&mut cur, &mut x, &mut lh, &mut y, &mut out);
+                flush(&mut cur, &mut margins, &mut x, &mut y, &mut out);
             }
         }
-        flush(&mut cur, &mut x, &mut lh, &mut y, &mut out);
+        flush(&mut cur, &mut margins, &mut x, &mut y, &mut out);
         out
+    }
+}
+
+/// The most common value (ties: the smallest); 0 for none.
+fn majority(values: impl Iterator<Item = u32>) -> u32 {
+    let mut count: Vec<(u32, u32)> = Vec::new();
+    for v in values {
+        match count.iter_mut().find(|c| c.0 == v) {
+            Some(c) => c.1 += 1,
+            None => count.push((v, 1)),
+        }
+    }
+    count
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
+        .map_or(0, |c| c.0)
+}
+
+// @sat:order.flow.reserve
+/// A block's height with its spare room: `natural + reserve`, rounded up to a multiple of `reserve`.
+fn with_reserve(natural: u32, reserve: u32) -> u32 {
+    if reserve == 0 {
+        natural
+    } else {
+        (natural + reserve).div_ceil(reserve) * reserve
     }
 }
 
@@ -368,6 +432,7 @@ mod tests {
         card_height: 40,
         header_height: 30,
         gap: 4,
+        reserve: 0,
     };
 
     /// Every visible row appears exactly once, lines do not overlap and cover the whole height.
@@ -503,5 +568,41 @@ mod tests {
         // two separators stack
         let idx = b.flow_index_in(MAIN, P, Some(&[s2, s1]));
         assert_eq!(idx.total_height, 30 + 88 + 30 + 44);
+    }
+
+    #[test]
+    fn the_indicator_line_follows_the_majority_and_the_reserve_absorbs_growth() {
+        let mut b = book(&[6]);
+        let keys: Vec<Key> = b.seq.rows_from(1, MAIN).take(3).collect();
+        // two cards of the first line want a top margin of 8, one wants 20: all three take 8
+        for (k, m) in keys.iter().zip([8u8, 8, 20]) {
+            b.set_style(
+                &[*k],
+                Some(CardStyle {
+                    margin_top: Some(m),
+                    ..CardStyle::default()
+                }),
+            )
+            .unwrap();
+        }
+        let idx = b.flow_index(MAIN, P);
+        let lines = b.flow_lines(MAIN, &idx, 0, 10_000);
+        let first = &lines[1];
+        assert!(first.cards.iter().all(|c| c.dy == 8), "{first:?}");
+        assert_eq!(first.height, 8 + 40 + 4);
+        // spare room: a block's height is a multiple of the reserve, and a small growth stays inside it
+        let r = FlowParams { reserve: 64, ..P };
+        let before = b.flow_index(MAIN, r);
+        assert_eq!(before.total_height % 64, 0);
+        b.set_style(
+            &[keys[0]],
+            Some(CardStyle {
+                margin_top: Some(8),
+                height: Some(42),
+                ..CardStyle::default()
+            }),
+        )
+        .unwrap();
+        assert_eq!(b.flow_index(MAIN, r).total_height, before.total_height);
     }
 }
