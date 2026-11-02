@@ -124,7 +124,8 @@ pub fn commit(args: &[String]) -> Result<(), String> {
     let mut p = plan_with(&project.canon, &project.sync, &planned, &disk, &|s| {
         crate::intent_cmd::source_ok(&inst, s)
     });
-    let built = factories(&project, &disk, &mut p);
+    let confirmed: Vec<&str> = crate::flag_values(args, "--confirm");
+    let (built, sealed) = factories(&project, &disk, &mut p, &confirmed);
     let patched = patches(&project, &layout, &disk, &mut p);
     println!("commit plan for {}:", inst.profile_dir().display());
     for op in &p.project_ops {
@@ -181,6 +182,17 @@ pub fn commit(args: &[String]) -> Result<(), String> {
     for (i, fp) in built {
         after.factories[i].built = Some(fp);
     }
+    // a sealed group is done: its factory and the group itself leave the project with the members
+    let gone: Vec<String> = sealed
+        .iter()
+        .map(|&i| project.factories[i].group.clone())
+        .collect();
+    after.decor.groups.retain(|g| !gone.contains(&g.id));
+    let mut i = 0;
+    after.factories.retain(|_| {
+        i += 1;
+        !sealed.contains(&(i - 1))
+    });
     if let Some(fp) = patched {
         after.patches_built = fp;
     }
@@ -308,8 +320,14 @@ fn patches(
 /// Adds the work of dirty factories to the plan (`@sat:factory`): an output whose inputs changed (or that is not
 /// on disk) is rebuilt — the old output goes to `deleted/` — and placed after its group. Returns (factory index,
 /// fingerprint) of the ones built, recorded in the project after the commit.
-fn factories(project: &Project, disk: &[String], p: &mut sat_core::sync::plan::Plan) -> Vec<(usize, String)> {
-    use sat_core::factory::{fingerprint, place_output};
+fn factories(
+    project: &Project,
+    disk: &[String],
+    p: &mut sat_core::sync::plan::Plan,
+    confirmed: &[&str],
+) -> (Vec<(usize, String)>, Vec<usize>) {
+    use sat_core::factory::{FactoryMode, fingerprint, place_output};
+    let mut sealed = Vec::new();
     let groups = project.book().0.decor().groups;
     let on_disk = |n: &str| disk.iter().any(|d| d.eq_ignore_ascii_case(n));
     let mut out = Vec::new();
@@ -331,8 +349,19 @@ fn factories(project: &Project, disk: &[String], p: &mut sat_core::sync::plan::P
             })
             .collect();
         let fp = fingerprint(f, &sigs);
-        if f.built.as_deref() == Some(fp.as_str()) && on_disk(&f.output) {
+        let seal = f.mode == FactoryMode::Seal;
+        if !seal && f.built.as_deref() == Some(fp.as_str()) && on_disk(&f.output) {
             continue;
+        }
+        if seal && !confirmed.iter().any(|c| c.eq_ignore_ascii_case(&f.output)) {
+            p.blockers.push(Blocker::NeedsConfirmation {
+                what: format!(
+                    "sealing {} takes its {} member(s) out of the build for good",
+                    g.name,
+                    g.members.len()
+                ),
+                confirm: f.output.clone(),
+            });
         }
         for m in g.members.iter().filter(|m| !on_disk(m)) {
             p.blockers.push(Blocker::MissingFolder { name: m.clone() });
@@ -348,9 +377,19 @@ fn factories(project: &Project, disk: &[String], p: &mut sat_core::sync::plan::P
             link: f.link,
         });
         p.canon_after = place_output(&p.canon_after, f, &g.members);
+        if seal {
+            for m in &g.members {
+                p.disk_ops.push(DiskOp::ToDeleted { name: m.clone() });
+            }
+            let members = &g.members;
+            p.canon_after
+                .entries
+                .retain(|e| !members.iter().any(|m| m.eq_ignore_ascii_case(&e.name)));
+            sealed.push(i);
+        }
         out.push((i, fp));
     }
-    out
+    (out, sealed)
 }
 
 fn blocker(b: &Blocker, records: &[SyncRecord]) -> String {
@@ -384,6 +423,9 @@ fn blocker(b: &Blocker, records: &[SyncRecord]) -> String {
         Blocker::CanonMismatch { name } => format!("{name}: the project list does not fit the change"),
         Blocker::SeparatorNotEmpty { name } => format!("separator {name} still has mods in its block"),
         Blocker::SourceUnavailable { name, why } => format!("planned mod {name}: {why}"),
+        Blocker::NeedsConfirmation { what, confirm } => format!(
+            "{what} — not undone by a later commit; to go ahead: sat-cli commit … --apply --confirm \"{confirm}\""
+        ),
         Blocker::PatchBaseChanged { source, path } => format!(
             "{source}/{path} changed since it was patched (updated?): look at the patch again (sat-cli patch … --rebase)"
         ),

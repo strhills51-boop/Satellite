@@ -4,7 +4,7 @@
 //! listing factories with their state (never built, built, dirty).
 //! Not here: groups in the order (`@sat:order.book`), factories (`@sat:factory`), building (`@sat:mo2.bake`).
 
-use sat_core::factory::{Factory, FactoryKind, fingerprint};
+use sat_core::factory::{Factory, FactoryKind, FactoryMode, fingerprint};
 use sat_mo2::commit::Layout;
 
 use crate::{flag_value, flag_values, has, open_instance, project_io};
@@ -60,8 +60,9 @@ pub fn group(args: &[String]) -> Result<(), String> {
 }
 
 // @sat:cli.factory.run
-/// `sat-cli factory <instance> [--add "GROUP=OUTPUT" [--link] [--keep-members]] [--remove OUTPUT]`: the next
-/// `sat-cli commit --apply` builds what is new or changed.
+/// `sat-cli factory <instance> [--add "GROUP=OUTPUT" [--link] [--keep-members] [--seal]] [--remove OUTPUT]`: the
+/// next `sat-cli commit --apply` builds what is new or changed. `--seal` — bake once and take the members out of the
+/// build (the commit asks for `--confirm "OUTPUT"`).
 pub fn factory(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
@@ -101,6 +102,11 @@ pub fn factory(args: &[String]) -> Result<(), String> {
             kind: FactoryKind::Bake,
             link: has(args, "--link"),
             keep_members: has(args, "--keep-members"),
+            mode: if has(args, "--seal") {
+                FactoryMode::Seal
+            } else {
+                FactoryMode::Live
+            },
             built: None,
         });
         changed = true;
@@ -141,8 +147,13 @@ pub fn factory(args: &[String]) -> Result<(), String> {
             }
         };
         println!(
-            "{}  ←  bake{}{}  ({state})",
+            "{}  ←  bake{}{}{}  ({state})",
             f.output,
+            if f.mode == FactoryMode::Seal {
+                " and seal"
+            } else {
+                ""
+            },
             if f.link { ", links" } else { "" },
             if f.keep_members { ", members kept" } else { "" }
         );

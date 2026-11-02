@@ -104,6 +104,8 @@ pub enum Blocker {
     /// The mismatch a decided record describes is no longer what the disk and the canon show (the folder came
     /// back, the entry was edited...): the analysis is stale, run it again (the pre-commit freshness check).
     Stale { fingerprint: String },
+    /// A step that is not undone by a later commit (sealing a group): runs only when confirmed by name.
+    NeedsConfirmation { what: String, confirm: String },
     /// A patched file changed since the patch was made (the mod was updated): look at the patch again.
     PatchBaseChanged { source: String, path: String },
     /// A planned mod's source is not here or not what the intent saw (`@sat:intent`).

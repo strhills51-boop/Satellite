@@ -21,6 +21,19 @@ pub enum FactoryKind {
     Bake,
 }
 
+// @sat:factory.mode
+/// The two roles of PHILOSOPHY «Лог-группа».
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FactoryMode {
+    /// A living group: rebuilt whenever its inputs change; the members stay.
+    #[default]
+    Live,
+    /// A finished group baked once and sealed: the members leave the build (into `deleted/`), the group and the
+    /// factory are done. Not undone by the next commit — the commit asks for an explicit confirmation.
+    Seal,
+}
+
 // @sat:factory.def
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Factory {
@@ -36,6 +49,9 @@ pub struct Factory {
     /// Keep the members enabled next to the output (by default they are switched off: the output replaces them).
     #[serde(default)]
     pub keep_members: bool,
+    /// What happens to the group after the build.
+    #[serde(default)]
+    pub mode: FactoryMode,
     /// Fingerprint of the inputs at the last build; `None` — never built.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub built: Option<String>,
@@ -112,6 +128,7 @@ mod tests {
             kind: FactoryKind::Bake,
             link: false,
             keep_members: false,
+            mode: FactoryMode::Live,
             built: None,
         };
         let after = place_output(&canon, &f, &["A".into(), "B".into()]);
