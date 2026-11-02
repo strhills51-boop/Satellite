@@ -282,6 +282,47 @@ impl App {
             fields.push(names("hidden", hidden));
             sections.push(("plugins", Origin::Observed, fields));
         }
+        // where it comes from (as the manager recorded it)
+        if let Some(src) = self.sources.get(&name.to_lowercase()).cloned() {
+            let text = |id: &str, v: Option<String>| {
+                v.map(|text| Field {
+                    id: id.into(),
+                    value: Value::Text { text },
+                    signal: None,
+                })
+            };
+            let mut fields: Vec<Field> = [
+                text("site", Some(src.site.clone())),
+                src.mod_id.map(|n| count("mod_id", n)),
+                text("version", src.version.clone()),
+                text("newest_version", src.newest_version.clone()).map(|f| {
+                    if src.update_available() {
+                        signal(f, Signal::Note)
+                    } else {
+                        f
+                    }
+                }),
+                text("file", src.file.clone()),
+                text("link", src.link()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if src.update_available() {
+                fields.insert(
+                    0,
+                    signal(
+                        Field {
+                            id: "update".into(),
+                            value: Value::Flag { on: true },
+                            signal: None,
+                        },
+                        Signal::Note,
+                    ),
+                );
+            }
+            sections.push(("source", Origin::Observed, fields));
+        }
         // what the rules say
         let mut rules = Vec::new();
         if let Some(m) = self.session.mod_id(&name) {

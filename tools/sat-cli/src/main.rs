@@ -287,6 +287,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
             p.intents = old.intents;
             p.sticker_rules = old.sticker_rules;
             p.counters = old.counters;
+            p.sources = old.sources;
             p.new_mods = old.new_mods;
             p.extra = old.extra;
             eprintln!(
@@ -693,6 +694,48 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let _again = OverwriteProjection::compute(&table, prio);
     timings.insert("overwrite_recompute", t.elapsed().as_millis());
 
+    // @sat:cli.sources
+    // where each mod comes from, as MO2 recorded it (`meta.ini`): read anew each run, offline kept from the project
+    if !offline {
+        use rayon::prelude::*;
+        let t = Instant::now();
+        let read: Vec<(String, sat_core::source::ModSource)> = project
+            .canon
+            .entries
+            .par_iter()
+            .filter(|e| e.is_mod())
+            .filter_map(|e| {
+                let m = sat_mo2::ModMeta::read(&inst.mod_dir(&e.name));
+                let src = sat_core::source::ModSource {
+                    site: "nexus".into(),
+                    game: m.game_name,
+                    mod_id: m.mod_id,
+                    version: m.version,
+                    newest_version: m.newest_version,
+                    file: m.installation_file,
+                    url: m.url,
+                };
+                (!src.is_empty()).then(|| (e.name.clone(), src))
+            })
+            .collect();
+        project.sources = read
+            .into_iter()
+            .filter_map(|(n, s)| Some((project.entities.id_of(&n)?.0.clone(), s)))
+            .collect();
+        let updates = project.sources.values().filter(|s| s.update_available()).count();
+        eprintln!(
+            "sources: {} mods with a source (Nexus id {}), {updates} with a known update, {} ms",
+            project.sources.len(),
+            project.sources.values().filter(|s| s.mod_id.is_some()).count(),
+            t.elapsed().as_millis()
+        );
+    }
+    let sources: std::collections::HashMap<String, sat_core::source::ModSource> = project
+        .sources_by_name()
+        .into_iter()
+        .map(|(n, s)| (n.to_lowercase(), s))
+        .collect();
+
     // @sat:cli.find
     if let Some(expr) = &find {
         let by_name: std::collections::HashMap<String, &Seen> =
@@ -717,6 +760,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 separator: sep,
                 enabled: e.enabled,
                 priority: pos as u32,
+                source: sources.get(&e.name.to_lowercase()),
             };
             if expr.test(&|id| view.get(id)) {
                 hits += 1;

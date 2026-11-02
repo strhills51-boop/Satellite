@@ -23,6 +23,7 @@ pub(crate) struct ViewParts {
     tags: String,
     enabled: bool,
     priority: u32,
+    source: Option<sat_core::source::ModSource>,
 }
 
 impl ViewParts {
@@ -35,6 +36,7 @@ impl ViewParts {
             tags: Some(&self.tags),
             enabled: self.enabled,
             priority: self.priority,
+            source: self.source.as_ref(),
         }
     }
 }
@@ -74,7 +76,9 @@ impl App {
             }
             None => (None, None),
         };
+        let source = self.sources.get(&name.to_lowercase()).cloned();
         ViewParts {
+            source,
             metrics,
             stat,
             name,
@@ -90,6 +94,11 @@ impl App {
         let (c, errors) = sat_core::counters::Counters::compile(defs);
         self.counters = c;
         errors
+    }
+
+    /// Where mods come from (`@sat:source`), by name — the project's `sources` handed over by the shell.
+    pub fn set_sources(&mut self, sources: Vec<(String, sat_core::source::ModSource)>) {
+        self.sources = sources.into_iter().map(|(n, s)| (n.to_lowercase(), s)).collect();
     }
 
     /// System stickers by mod name (`Project::system_stickers`: `planned`, `new`), handed over by the shell.

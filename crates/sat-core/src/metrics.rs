@@ -80,6 +80,8 @@ pub const MOD_METRICS: &[MetricDef] = &[
     m("mid", "В середине стека", "conflicts", Unit::Count),
     m("unique", "Уникальных путей", "conflicts", Unit::Count),
     m("overridden", "Не виден в игре (X)", "conflicts", Unit::Flag),
+    m("nexus_id", "Id мода на Nexus", "source", Unit::Count),
+    m("update", "Есть обновление", "source", Unit::Flag),
 ];
 
 // @sat:metrics.aliases
@@ -116,6 +118,8 @@ pub struct ModView<'a> {
     pub tags: Option<&'a str>,
     pub enabled: bool,
     pub priority: u32,
+    /// Where the mod comes from (`@sat:source`); `None` when not known.
+    pub source: Option<&'a crate::source::ModSource>,
 }
 
 // @sat:metrics.value
@@ -129,6 +133,8 @@ impl ModView<'_> {
             "enabled" => return Value::Bool(self.enabled),
             "tags" => return self.tags.map_or(Value::Null, |t| Value::Text(t.to_string())),
             "priority" => return n(u64::from(self.priority)),
+            "nexus_id" => return self.source.and_then(|s| s.mod_id).map_or(Value::Null, n),
+            "update" => return Value::Bool(self.source.is_some_and(|s| s.update_available())),
             _ => {}
         }
         if let Some(s) = self.stat {
@@ -200,6 +206,7 @@ mod tests {
             tags: Some("Textures, 4K"),
             enabled: true,
             priority: 40,
+            source: None,
         };
         let q = |s: &str| Expr::compile(s, &is_mod_metric).unwrap().test(&|id| v.get(id));
         assert!(q(

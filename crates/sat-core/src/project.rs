@@ -64,6 +64,9 @@ pub struct Project {
     /// Mods the last commit brought in (adopted folders, installs): the system sticker `new` until the next commit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub new_mods: Vec<EntityId>,
+    /// Where each mod comes from (`@sat:source`), by entity id: as the manager recorded it at the last analysis.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sources: BTreeMap<String, crate::source::ModSource>,
     /// User-made counters on mod cards (`@sat:counters`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub counters: Vec<crate::counters::CounterDef>,
@@ -130,6 +133,7 @@ impl Project {
             sticker_rules: Vec::new(),
             new_mods: Vec::new(),
             counters: Vec::new(),
+            sources: BTreeMap::new(),
             extra: BTreeMap::new(),
         }
     }
@@ -258,6 +262,19 @@ impl Project {
         // intents of entities that left the project go with them
         let live: HashSet<&EntityId> = self.entities.iter().map(|e| &e.id).collect();
         self.intents.retain(|i| live.contains(&i.entity));
+    }
+
+    /// Sources by mod name (for a session, which knows names).
+    pub fn sources_by_name(&self) -> Vec<(String, crate::source::ModSource)> {
+        self.sources
+            .iter()
+            .filter_map(|(id, s)| {
+                Some((
+                    self.entities.name_of(&EntityId(id.clone()))?.to_string(),
+                    s.clone(),
+                ))
+            })
+            .collect()
     }
 
     // @sat:project.system-stickers

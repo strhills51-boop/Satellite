@@ -85,6 +85,7 @@ mod tests {
             tags: None,
             enabled: true,
             priority: 0,
+            source: None,
         };
         assert_eq!(r.stickers(&view(&m)), ["heavy"]);
         assert!(r.stickers(&view(&ModMetrics::default())).is_empty());

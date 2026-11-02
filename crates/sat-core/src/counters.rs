@@ -228,6 +228,7 @@ mod tests {
             tags: None,
             enabled: true,
             priority: 0,
+            source: None,
         };
         let out = c.render(&v);
         assert_eq!(out.len(), 2, "the dll counter hides: no DLLs");

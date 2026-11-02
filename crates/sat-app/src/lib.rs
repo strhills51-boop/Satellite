@@ -572,6 +572,8 @@ pub struct App {
     sticker_rules: sat_core::sticker_rules::StickerRules,
     /// The project's counters (`@sat:counters`).
     counters: sat_core::counters::Counters,
+    /// Where mods come from, by folded name (`@sat:source`).
+    sources: std::collections::HashMap<String, sat_core::source::ModSource>,
     /// The project's own stickers by folded mod name (`planned`, `new`).
     system_stickers: std::collections::HashMap<String, Vec<String>>,
 }
@@ -590,6 +592,7 @@ impl App {
             sticker_rules: Default::default(),
             system_stickers: Default::default(),
             counters: Default::default(),
+            sources: Default::default(),
         }
     }
 
@@ -1431,6 +1434,35 @@ mod tests {
         else {
             panic!()
         };
+        // where a mod comes from: a known update is a metric and a sheet section
+        a.set_sources(vec![(
+            "B".into(),
+            sat_core::source::ModSource {
+                site: "nexus".into(),
+                game: Some("SkyrimSE".into()),
+                mod_id: Some(7),
+                version: Some("1.0".into()),
+                newest_version: Some("1.1".into()),
+                ..Default::default()
+            },
+        )]);
+        assert_eq!(find(&mut a, "update && nexus_id == 7"), ["B"]);
+        let kb = a.session.book().key_of("B").unwrap();
+        let Reply::ModSheet { sheet: sb } = a
+            .query(Query::ModSheet {
+                key: kb,
+                level: sheet::SheetLevel::Full,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        let src = sb.sections.iter().find(|s| s.id == "source").unwrap();
+        assert_eq!(src.fields[0].id, "update");
+        assert!(src.fields.iter().any(|f| f.value
+            == sheet::Value::Text {
+                text: "https://www.nexusmods.com/skyrimspecialedition/mods/7".into()
+            }));
         // the counter constructor: rows carry the project's counters
         assert!(
             a.set_counters(&[sat_core::counters::CounterDef {

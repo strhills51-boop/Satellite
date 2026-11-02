@@ -43,6 +43,7 @@
 | Решения по конфликтам: цепочка «решена» на подписи содержимого, переживает перестановку, пробег и переименование мода | `@sat:decisions` (`@sat:decisions.chains`), в сессии `@sat:session.decide`, команда `SetChainDone`; ключи участников — id сущностей: `@sat:session.member-keys` | хранение — раздел `decisions` проекта (`@sat:project`) |
 | Сводка мода: с кем и в чём конфликтует (соперники ▲/▼, «зубы» по цепочкам, цепочки с путями), плагины мода | `@sat:app.mod-detail` (`Query::ModDetail`) | счётчики W/L/M на карточке — `Counters` |
 | Карточка мода — стандарт быстрого обзора (ADR 0015): значок / мини / полная, разделы с происхождением (наблюдено, пользователь; позже автор, сообщество) и сигналами | `@sat:app.sheet` (`ModSheet`, `Query::ModSheet`), сборка — `@sat:app.sheet.build`; сводка фактов мода без путей — `@sat:table.summary` | подписи полей — в окне, по id поля |
+| Источник мода (внешняя идентичность, ADR 0015 шаг 2): Nexus id, версия, новейшая версия, файл, ссылка | `@sat:source` (`ModSource`), `@sat:source.update`, `@sat:source.link`; в проекте — `sources` (по id); чтение `meta.ini` — `@sat:mo2.meta`, в анализе — `@sat:cli.sources`; метрики `nexus_id`, `update` (`@sat:metrics`); в карточке — раздел `source` | представление автора с сайта — позже |
 | Фокус по ссылке («перейти к моду»), раскрывая свёрнутый блок | `@sat:order.cursor.focus-entry` (`Command::Focus`) | навигация клавишами — `@sat:order.cursor.navigate` |
 | Оболочка разработки: сборка MO2 в браузере на localhost, песочница | `@sat:devserver`, `@sat:devserver.load`, `@sat:devserver.http` | смысл команд — `@sat:app` |
 | Ресурс: манифест (данные, без кода), род, id без доверия | `@sat:resource` (`@sat:resource.manifest`, `@sat:resource.kind`, `@sat:resource.digest`) | анализатор как контракт — `@sat:scan.analyzer` |
@@ -140,6 +141,7 @@
 - `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`, `apply_plan`, запланированные моды, системные стикеры.
 - `crates/sat-core/src/run.rs` — `@sat:run`: статусы пробега, `Authority`, `seal`.
 - `crates/sat-core/src/session.rs` — `@sat:session`: книга порядка + таблица фактов + граф проекций; ленивые `priorities()` / `overwrite()`.
+- `crates/sat-core/src/source.rs` — `@sat:source`: откуда мод — сайт, id, версии, файл установки, ссылка на страницу.
 - `crates/sat-core/src/order/mod.rs` — `@sat:order`: оглавление движка порядка (ADR 0008).
 - `crates/sat-core/src/order/seq.rs` — `@sat:order.seq`: последовательность кусками, агрегаты, O(log n) запросы.
 - `crates/sat-core/src/order/book.rs` — `@sat:order.book`: канон + декорации + вид, операции, патчи, история.
