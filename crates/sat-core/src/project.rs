@@ -6,10 +6,12 @@
 //! - the manager's list → [`Project::manager_diff`] → a visible difference, never a silent replacement
 //!   (the monolith's `pendingOrder` trap, NG-D001).
 //!
-//! The on-disk container is not decided yet (ADR 0007); until then the type is serde-serializable with a schema
-//! number and callers store it as they see fit.
+//! On disk it is `project.stll` (`@sat:stll.file`): the tree of this type cut into sections; fields this build does
+//! not know are kept (`Project::extra`). Schema migrations happen on load (`@sat:project.load`).
 //!
-//! Owns: the project: canon + signatures + sync records + decoration + conflict decisions; observe and manager diff.
+//! Owns: the project: entities, canon, signatures, sync records, decoration, conflict decisions, plugin lists,
+//! ignore list, tag catalog, intents and planned mods, sticker rules, counters, the mods the last commit brought;
+//! observe, manager diff, applying a commit plan, system stickers.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 

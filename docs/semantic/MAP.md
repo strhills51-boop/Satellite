@@ -60,7 +60,7 @@
 | Суффикс разделителя `_separator` | `@sat:canon.separator-suffix` | `sat_mo2::profile::SEPARATOR_SUFFIX` — реэкспорт, не копия |
 | Папка-разделитель на диске | `@sat:sync.names.separator-folder` | — |
 | Имя мода для сверки (`normalizeName` монолита) | `@sat:sync.names.normalize` | ключи донора `raw/norm/loose_key` там же |
-| Проект — канон сборки (ADR 0006) | `@sat:project` (`Project`) | `modlist.txt` — сторона, не канон |
+| Проект — канон сборки (ADR 0006) и самостоятельное желаемое состояние (ADR 0007): сущности, канон, декорация, решения, плагины, намерения, правила стикеров, счётчики; неизвестные поля сохраняются (`extra`) | `@sat:project` (`Project`), чтение с переводом схем — `@sat:project.load`, исполненный план — `@sat:project.apply-plan` | `modlist.txt` — сторона, не канон; файл на диске — `@sat:stll.file` |
 | Сверка проекта с диском, запоминание сигнатур | `@sat:project.observe` | — |
 | Расхождение канона с менеджером (видимое, не применяется) | `@sat:project.manager-diff` | — |
 | Живая книга проекта (канон + декорации) | `@sat:project.book` | — |
@@ -94,7 +94,7 @@
 | Класс загрузки плагина (NG) | `@sat:formats.plugin.kind` | тип монолита для паритета — `@sat:formats.plugin.monolith-type` |
 | Экземпляр MO2 (папки, профили, ini) | `@sat:mo2.instance` | — |
 | `modlist.txt` / `plugins.txt` / `loadorder.txt` | `@sat:mo2.profile`; два формата `plugins.txt` (со звёздами / список без звёзд = все активны) — `@sat:mo2.plugins-txt`, запись в формате прежнего файла — `@sat:mo2.plugins-write` | порядок — `loadorder.txt`; плагины сверх лимита MO2 в списки не вносит — их находит скан |
-| Правка плагинов: отметка, скрытие (blacklist), каскадное включение по мастерам, что получают `plugins.txt` / `loadorder.txt` | `@sat:plugins.edit` (`set_checked`, `set_blacklisted`), `@sat:plugins.edit.cascade`, `@sat:plugins.edit.files`; скрытые в списке — `Plugin::blacklisted` (`@sat:plugins.list`); в проекте — `plugin_blacklist` | команды окна — `@sat:app.plugins-edit` (`SetPluginChecked` включает мод-владельца, `SetPluginHidden`, `CascadePlugins`; пока без отмены); запись при фиксации — `Payload::plugin_files` (`@sat:mo2.commit`) |
+| Правка плагинов: отметка, скрытие (blacklist), каскадное включение по мастерам, что получают `plugins.txt` / `loadorder.txt` | `@sat:plugins.edit` (`set_checked`, `set_blacklisted`), `@sat:plugins.edit.cascade`, `@sat:plugins.edit.files`; скрытые в списке — `Plugin::blacklisted` (`@sat:plugins.list`); в проекте — раздел `plugins` (`PluginCanon::blacklist`; ранний `plugin_blacklist` сворачивается при чтении) | команды окна — `@sat:app.plugins-edit` (`SetPluginChecked` включает мод-владельца, `SetPluginHidden`, `CascadePlugins`; пока без отмены); запись при фиксации — `Payload::plugin_files` (`@sat:mo2.commit`) |
 | `meta.ini` мода, цвет QColor | `@sat:mo2.meta`, `@sat:mo2.ini` | — |
 | Атомарная запись файла | `@sat:mo2.write-atomic` | — |
 | Сигнатура папки мода | `@sat:scan.signature.v3` (`signature_v2` / `signature_v1` — только перенос кеша) | сигнатура монолита (`buildAnalysisSignature`) — другая |
@@ -127,7 +127,7 @@
 - `crates/sat-core/src/jobs.rs` — `@sat:jobs`: задачи с отменой и поколениями, ворота публикации.
 - `crates/sat-core/src/expr.rs` — `@sat:expr`: язык выражений фильтров, правил и счётчиков.
 - `crates/sat-core/src/facts.rs` — `@sat:facts`: факты сканера.
-- `crates/sat-core/src/table.rs` — `@sat:table`: колонки провайдеров, CSR по путям и модам.
+- `crates/sat-core/src/table.rs` — `@sat:table`: колонки провайдеров, CSR по путям и модам, сводка мода (метрики, найденные теги).
 - `crates/sat-core/src/tag_rules.rs` — `@sat:tag-rules`: наборы правил тегов и их применение к фактам мода.
 - `crates/sat-core/src/sticker_rules.rs` — `@sat:sticker-rules`: условные стикеры — стикер по выражению над метриками мода.
 - `crates/sat-core/src/tags.rs` — `@sat:tags`: каталог тегов и их цвета.
@@ -137,7 +137,7 @@
 - `crates/sat-core/src/plugin_edit.rs` — `@sat:plugins.edit`: правка канона плагинов и файлы менеджера.
 - `crates/sat-core/src/plugins.rs` — `@sat:plugins`: канон плагинов, версии по модам, список плагинов как его видит игра.
 - `crates/sat-core/src/routes.rs` — `@sat:routes`: нормализованные цепочки (группы маршрутов точных цепочек).
-- `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`.
+- `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`, `apply_plan`, запланированные моды, системные стикеры.
 - `crates/sat-core/src/run.rs` — `@sat:run`: статусы пробега, `Authority`, `seal`.
 - `crates/sat-core/src/session.rs` — `@sat:session`: книга порядка + таблица фактов + граф проекций; ленивые `priorities()` / `overwrite()`.
 - `crates/sat-core/src/order/mod.rs` — `@sat:order`: оглавление движка порядка (ADR 0008).
@@ -181,15 +181,15 @@
 ### `crates/sat-mo2` — адаптер Mod Organizer 2
 - `crates/sat-mo2/src/lib.rs` — `@sat:mo2`: `Mo2Error`, `read`, `write_atomic`.
 - `crates/sat-mo2/src/ini.rs` — `@sat:mo2.ini`: ini MO2, `@ByteArray`, `@Variant`.
-- `crates/sat-mo2/src/instance.rs` — `@sat:mo2.instance`: `Instance::load`, `from_dirs`, `mod_dir`.
-- `crates/sat-mo2/src/commit.rs` — `@sat:mo2.commit`: исполнение плана — версия-бэкап, журнал, операции, запись профиля, откат.
+- `crates/sat-mo2/src/instance.rs` — `@sat:mo2.instance`: `Instance::load`, `from_dirs`, `mod_dir`; папки mods, overwrite, profiles, downloads.
+- `crates/sat-mo2/src/commit.rs` — `@sat:mo2.commit`: исполнение плана — версия-бэкап, журнал, операции (в т. ч. установка), запись профиля, замена файла проекта, откат.
 - `crates/sat-formats/src/fomod.rs` — `@sat:formats.fomod`: установщики FOMOD — чтение `ModuleConfig.xml`, умолчания, выбор → файлы.
 - `crates/sat-mo2/src/install.rs` — `@sat:mo2.install`: установка мода из архива — корень Data, факты до установки, безопасная распаковка.
 - `crates/sat-mo2/src/profile.rs` — `@sat:mo2.profile`: файлы профиля байт в байт.
 - `crates/sat-mo2/src/meta.rs` — `@sat:mo2.meta`: `meta.ini`.
 
 ### `crates/sat-stll` — проект на диске (ADR 0007)
-- `crates/sat-stll/src/lib.rs` — `@sat:stll`: проект на диске; открытие папки и перевод ранней раскладки.
+- `crates/sat-stll/src/lib.rs` — `@sat:stll`: проект на диске; открытие папки, перевод ранней раскладки, проект без фактов (`strip_facts`).
 - `crates/sat-stll/src/file.rs` — `@sat:stll.file`: файл `.stll` — манифест, разделы, факты, атомарное сохранение.
 - `crates/sat-stll/src/sections.rs` — `@sat:stll.sections`: дерево проекта ↔ разделы NDJSON.
 - `crates/sat-stll/src/facts.rs` — `@sat:stll.facts`: формат факта мода; ранняя раскладка-папка.
