@@ -186,8 +186,8 @@ fn condition(n: Node) -> Condition {
 fn ordered<T>(mut v: Vec<T>, order: Option<&str>, name: impl Fn(&T) -> &str) -> Vec<T> {
     match order {
         Some("Explicit") => {}
-        Some("Descending") => v.sort_by(|a, b| name(b).to_lowercase().cmp(&name(a).to_lowercase())),
-        _ => v.sort_by(|a, b| name(a).to_lowercase().cmp(&name(b).to_lowercase())),
+        Some("Descending") => v.sort_by_key(|x| std::cmp::Reverse(name(x).to_lowercase())),
+        _ => v.sort_by_key(|x| name(x).to_lowercase()),
     }
     v
 }
