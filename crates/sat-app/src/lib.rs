@@ -567,6 +567,8 @@ pub struct App {
     heads: Option<chains::Cached>,
     /// Conditional stickers of the project (`@sat:sticker-rules`).
     sticker_rules: sat_core::sticker_rules::StickerRules,
+    /// The project's own stickers by folded mod name (`planned`, `new`).
+    system_stickers: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl App {
@@ -581,6 +583,7 @@ impl App {
             sync: Default::default(),
             tags: Default::default(),
             sticker_rules: Default::default(),
+            system_stickers: Default::default(),
         }
     }
 

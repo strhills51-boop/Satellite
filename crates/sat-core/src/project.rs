@@ -59,6 +59,9 @@ pub struct Project {
     /// Tag collections with colours (`@sat:tags`); the built-in ones when absent.
     #[serde(default, skip_serializing_if = "is_default_catalog")]
     pub tags: crate::tags::TagCatalog,
+    /// Mods the last commit brought in (adopted folders, installs): the system sticker `new` until the next commit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub new_mods: Vec<EntityId>,
     /// Conditional stickers (`@sat:sticker-rules`): a sticker on every mod an expression holds for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sticker_rules: Vec<crate::sticker_rules::StickerRule>,
@@ -120,6 +123,7 @@ impl Project {
             tags: Default::default(),
             intents: Vec::new(),
             sticker_rules: Vec::new(),
+            new_mods: Vec::new(),
             extra: BTreeMap::new(),
         }
     }
@@ -231,9 +235,38 @@ impl Project {
                 }
             }
         }
+        // what this commit brought in is new until the next one
+        self.new_mods = plan
+            .project_ops
+            .iter()
+            .filter_map(|op| match op {
+                ProjectOp::Adopt { name, .. } => Some(name),
+                _ => None,
+            })
+            .chain(plan.disk_ops.iter().filter_map(|op| match op {
+                crate::sync::plan::DiskOp::Install { name, .. } => Some(name),
+                _ => None,
+            }))
+            .filter_map(|n| self.entities.id_of(n).cloned())
+            .collect();
         // intents of entities that left the project go with them
         let live: HashSet<&EntityId> = self.entities.iter().map(|e| &e.id).collect();
         self.intents.retain(|i| live.contains(&i.entity));
+    }
+
+    // @sat:project.system-stickers
+    /// Stickers the project itself puts (never stored on the mod): `planned` — waits for its install, `new` —
+    /// brought in by the last commit. (name, sticker).
+    pub fn system_stickers(&self) -> Vec<(String, &'static str)> {
+        let mut out: Vec<(String, &'static str)> =
+            self.planned().into_iter().map(|p| (p.name, "planned")).collect();
+        out.extend(
+            self.new_mods
+                .iter()
+                .filter_map(|id| self.entities.name_of(id))
+                .map(|n| (n.to_string(), "new")),
+        );
+        out
     }
 
     // @sat:intent.planned
@@ -481,6 +514,7 @@ mod tests {
         );
         assert_eq!(p.canon.entries[1].name, "B");
         assert_eq!(p.planned()[0].name, "B");
+        assert_eq!(p.system_stickers(), [("B".to_string(), "planned")]);
         assert_eq!(p.planned()[0].source, src);
         let folder = |n: &str| DiskFolder {
             name: n.into(),
@@ -489,6 +523,12 @@ mod tests {
         let r = p.observe(&[folder("A")]);
         assert!(r.records.is_empty(), "{:?}", r.records);
         // the mod was installed by hand: the intent is fulfilled, the mod is an ordinary one
+        // a commit that installs it: it is new until the next commit
+        let plan = crate::sync::plan::plan_with(&p.canon, &[], &p.planned(), &["A".into()], &|_| Ok(()));
+        let mut q = p.clone();
+        q.apply_plan(&plan);
+        assert_eq!(q.system_stickers(), [("B".to_string(), "new")]);
+        assert_eq!(q.intents[0].status, IntentStatus::Done);
         let r = p.observe(&[folder("A"), folder("B")]);
         assert!(r.records.is_empty());
         assert_eq!(p.intents[0].status, IntentStatus::Done);

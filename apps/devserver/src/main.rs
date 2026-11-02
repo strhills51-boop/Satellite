@@ -101,6 +101,7 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     for e in app.set_sticker_rules(&p.sticker_rules) {
         eprintln!("{e}");
     }
+    app.set_system_stickers(p.system_stickers());
     Ok(app)
 }
 
@@ -128,6 +129,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut ignore = Default::default();
     let mut tags = sat_core::tags::TagCatalog::default();
     let mut sticker_rules = Vec::new();
+    let mut system_stickers = Vec::new();
     // the project file; the early layout is read as it is (the sandbox converts nothing)
     let opened = if project_file.exists() {
         sat_stll::Stll::open(&project_file)
@@ -153,6 +155,7 @@ fn load(args: &[String]) -> Result<App, String> {
             ignore = p.conflict_ignore.clone();
             tags = p.tags.clone();
             sticker_rules = p.sticker_rules.clone();
+            system_stickers = p.system_stickers();
             p.book().0
         }
         _ => {
@@ -231,6 +234,7 @@ fn load(args: &[String]) -> Result<App, String> {
     for e in app.set_sticker_rules(&sticker_rules) {
         eprintln!("{e}");
     }
+    app.set_system_stickers(system_stickers);
     Ok(app)
 }
 

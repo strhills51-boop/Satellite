@@ -85,13 +85,28 @@ impl App {
         }
     }
 
-    /// Stickers the project's rules give the mod at `key`.
-    pub(crate) fn rule_stickers(&mut self, key: Key) -> Vec<String> {
-        if self.sticker_rules.is_empty() {
-            return Vec::new();
+    /// System stickers by mod name (`Project::system_stickers`: `planned`, `new`), handed over by the shell.
+    pub fn set_system_stickers(&mut self, stickers: Vec<(String, &'static str)>) {
+        self.system_stickers.clear();
+        for (n, s) in stickers {
+            self.system_stickers
+                .entry(n.to_lowercase())
+                .or_default()
+                .push(s.to_string());
         }
-        let parts = self.view_parts(key);
-        self.sticker_rules.stickers(&parts.view())
+    }
+
+    /// Stickers the project's rules give the mod at `key`, then the project's own (`planned`, `new`).
+    pub(crate) fn rule_stickers(&mut self, key: Key) -> Vec<String> {
+        let name = self.session.book().name(key).to_lowercase();
+        let mut out = if self.sticker_rules.is_empty() {
+            Vec::new()
+        } else {
+            let parts = self.view_parts(key);
+            self.sticker_rules.stickers(&parts.view())
+        };
+        out.extend(self.system_stickers.get(&name).into_iter().flatten().cloned());
+        out
     }
 
     // @sat:app.find.query
