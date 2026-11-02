@@ -27,6 +27,39 @@ fn walk(root: &Path, rel: &mut PathBuf, out: &mut Vec<PathBuf>) -> std::io::Resu
 /// Builds `target` (which must not exist) from the folders of `members` (canon order) in `mods_dir`. Returns the
 /// number of files. Members' `meta.ini` stay theirs; the output gets its own.
 pub fn bake(mods_dir: &Path, members: &[String], target: &Path, link: bool) -> Result<usize, String> {
+    bake_with(mods_dir, members, target, link, false)
+}
+
+/// Top folders the game reads from archives (packed by `bake_with(.., pack)`); the rest stays loose (SKSE plugins,
+/// configs, anything a program reads from disk).
+const PACKED: &[&str] = &[
+    "meshes",
+    "textures",
+    "sound",
+    "music",
+    "scripts",
+    "interface",
+    "seq",
+    "strings",
+    "lodsettings",
+    "grass",
+    "shadersfx",
+    "trees",
+    "video",
+    "facegen",
+    "materials",
+];
+
+// @sat:mo2.bake.pack
+/// [`bake`], packing when asked: the game's data folders go into `<plugin>.bsa` (textures into
+/// `<plugin> - Textures.bsa`), an empty light plugin `<plugin>.esp` loads them (`plugin` from the target's name).
+pub fn bake_with(
+    mods_dir: &Path,
+    members: &[String],
+    target: &Path,
+    link: bool,
+    pack: bool,
+) -> Result<usize, String> {
     if target.exists() {
         return Err(format!("{} already exists", target.display()));
     }
@@ -53,7 +86,24 @@ pub fn bake(mods_dir: &Path, members: &[String], target: &Path, link: bool) -> R
     let _ = std::fs::remove_dir_all(&tmp);
     let r = (|| {
         std::fs::create_dir_all(&tmp).map_err(|e| io(&tmp, e))?;
+        let plugin = sat_core::factory::pack_plugin(&name);
+        let stem = plugin.trim_end_matches(".esp").to_string();
+        let (mut tex, mut other) = (Vec::new(), Vec::new());
         for (dir, rel) in winner.values() {
+            let rel_s = rel.to_string_lossy().replace('\\', "/");
+            let top = rel_s.split('/').next().unwrap_or("").to_lowercase();
+            if pack && rel_s.contains('/') && PACKED.contains(&top.as_str()) {
+                let f = sat_formats::bsa_write::PackFile {
+                    path: rel_s,
+                    source: dir.join(rel),
+                };
+                if top == "textures" {
+                    tex.push(f)
+                } else {
+                    other.push(f)
+                }
+                continue;
+            }
             let (src, dst) = (dir.join(rel), tmp.join(rel));
             if let Some(p) = dst.parent() {
                 std::fs::create_dir_all(p).map_err(|e| io(p, e))?;
@@ -61,6 +111,25 @@ pub fn bake(mods_dir: &Path, members: &[String], target: &Path, link: bool) -> R
             let linked = link && std::fs::hard_link(&src, &dst).is_ok();
             if !linked {
                 std::fs::copy(&src, &dst).map_err(|e| io(&src, e))?;
+            }
+        }
+        if pack && (!tex.is_empty() || !other.is_empty()) {
+            for (files, archive) in [
+                (&other, format!("{stem}.bsa")),
+                (&tex, format!("{stem} - Textures.bsa")),
+            ] {
+                if files.is_empty() {
+                    continue;
+                }
+                let at = tmp.join(&archive);
+                let f = std::fs::File::create(&at).map_err(|e| io(&at, e))?;
+                sat_formats::bsa_write::write_bsa(std::io::BufWriter::new(f), files)
+                    .map_err(|e| format!("{archive}: {e}"))?;
+            }
+            let esp = tmp.join(&plugin);
+            if !esp.exists() {
+                std::fs::write(&esp, sat_formats::bsa_write::empty_light_plugin("Satellite"))
+                    .map_err(|e| io(&esp, e))?;
             }
         }
         std::fs::write(

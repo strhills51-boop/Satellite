@@ -66,6 +66,9 @@ pub enum DiskOp {
         members: Vec<String>,
         #[serde(default)]
         link: bool,
+        /// Pack into archives with an empty light plugin (`@sat:formats.bsa-write`).
+        #[serde(default)]
+        pack: bool,
     },
     /// A planned mod's folder made from its source (`@sat:intent`).
     Install {

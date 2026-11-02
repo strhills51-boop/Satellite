@@ -279,9 +279,14 @@ fn run(
                 crate::patches::build(&layout.mods_dir, patches, &path)?;
                 steps.push(Step::Installed { path });
             }
-            DiskOp::Bake { name, members, link } => {
+            DiskOp::Bake {
+                name,
+                members,
+                link,
+                pack,
+            } => {
                 let path = layout.mods_dir.join(name);
-                crate::bake::bake(&layout.mods_dir, members, &path, *link)?;
+                crate::bake::bake_with(&layout.mods_dir, members, &path, *link, *pack)?;
                 steps.push(Step::Installed { path });
             }
             // @sat:mo2.commit.install

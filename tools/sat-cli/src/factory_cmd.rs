@@ -60,9 +60,10 @@ pub fn group(args: &[String]) -> Result<(), String> {
 }
 
 // @sat:cli.factory.run
-/// `sat-cli factory <instance> [--add "GROUP=OUTPUT" [--link] [--keep-members] [--seal]] [--remove OUTPUT]`: the
+/// `sat-cli factory <instance> [--add "GROUP=OUTPUT" [--link] [--keep-members] [--seal] [--pack]] [--remove OUTPUT]`:
+/// the
 /// next `sat-cli commit --apply` builds what is new or changed. `--seal` — bake once and take the members out of the
-/// build (the commit asks for `--confirm "OUTPUT"`).
+/// build (the commit asks for `--confirm "OUTPUT"`); `--pack` — archives and an empty light plugin.
 pub fn factory(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
@@ -101,6 +102,7 @@ pub fn factory(args: &[String]) -> Result<(), String> {
             output: output.trim().to_string(),
             kind: FactoryKind::Bake,
             link: has(args, "--link"),
+            pack: has(args, "--pack"),
             keep_members: has(args, "--keep-members"),
             mode: if has(args, "--seal") {
                 FactoryMode::Seal

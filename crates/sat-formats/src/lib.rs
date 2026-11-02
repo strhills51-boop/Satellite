@@ -6,6 +6,7 @@
 //! Owns: the format crate layout and path normalization of archive entries.
 
 pub mod archive;
+pub mod bsa_write;
 pub mod dds;
 pub mod fomod;
 pub mod ini;

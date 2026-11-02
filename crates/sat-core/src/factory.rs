@@ -22,6 +22,15 @@ pub enum FactoryKind {
 }
 
 // @sat:factory.mode
+/// The plugin a packed output loads its archives with: the output's name, made a valid file name.
+pub fn pack_plugin(output: &str) -> String {
+    let stem: String = output
+        .chars()
+        .map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c })
+        .collect();
+    format!("{}.esp", stem.trim())
+}
+
 /// The two roles of PHILOSOPHY «Лог-группа».
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,6 +55,10 @@ pub struct Factory {
     /// Hard links instead of copies.
     #[serde(default)]
     pub link: bool,
+    /// Pack the game's data folders into archives with an empty light plugin (`<output>.esp`, `.bsa`,
+    /// ` - Textures.bsa`): thousands of loose files become a few (`@sat:formats.bsa-write`).
+    #[serde(default)]
+    pub pack: bool,
     /// Keep the members enabled next to the output (by default they are switched off: the output replaces them).
     #[serde(default)]
     pub keep_members: bool,
@@ -67,7 +80,7 @@ pub fn fingerprint(f: &Factory, members: &[(String, Option<u64>)]) -> String {
         }
         h = (h ^ 0xff).wrapping_mul(0x0100_0000_01b3);
     };
-    eat(&[f.kind as u8, u8::from(f.link)]);
+    eat(&[f.kind as u8, u8::from(f.link), u8::from(f.pack)]);
     for (name, sig) in members {
         eat(name.to_lowercase().as_bytes());
         eat(&sig.unwrap_or(0).to_le_bytes());
@@ -127,6 +140,7 @@ mod tests {
             output: "AB baked".into(),
             kind: FactoryKind::Bake,
             link: false,
+            pack: false,
             keep_members: false,
             mode: FactoryMode::Live,
             built: None,

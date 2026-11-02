@@ -143,10 +143,20 @@ pub fn commit(args: &[String]) -> Result<(), String> {
             DiskOp::Patches { name, patches } => {
                 println!("  disk: write {name} ({} patched file(s))", patches.len())
             }
-            DiskOp::Bake { name, members, link } => println!(
-                "  disk: build {name} from {} member(s){} — the members are switched off unless kept",
+            DiskOp::Bake {
+                name,
+                members,
+                link,
+                pack,
+            } => println!(
+                "  disk: build {name} from {} member(s){}{} — the members are switched off unless kept",
                 members.len(),
-                if *link { " (hard links)" } else { "" }
+                if *link { " (hard links)" } else { "" },
+                if *pack {
+                    " packed into archives with an empty light plugin (enabled in plugins.txt)"
+                } else {
+                    ""
+                }
             ),
             DiskOp::Install { name, source, fomod } => {
                 let sat_core::intent::Source::Downloads { file, .. } = source;
@@ -206,7 +216,7 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         plan: &p,
         modlist: profile::serialize_modlist(&p.canon_after, &style),
         project_after: prepared.clone(),
-        plugin_files: None,
+        plugin_files: packed_plugins(&layout, &p),
     };
     let stamp = flag_value(args, "--stamp").map_or_else(stamp_now, str::to_string);
     let report = execute(&layout, &stamp, &payload, Faults::default());
@@ -236,6 +246,43 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         )),
         Outcome::Refused { error } => Err(format!("refused: {error}")),
     }
+}
+
+// @sat:cli.commit.plugins
+/// `plugins.txt` and `loadorder.txt` with the plugins of packed outputs added (enabled, last), or `None` when
+/// the commit packs nothing — then both files stay as they are.
+fn packed_plugins(layout: &Layout, p: &sat_core::sync::plan::Plan) -> Option<(Vec<u8>, Vec<u8>)> {
+    let packed: Vec<String> = p
+        .disk_ops
+        .iter()
+        .filter_map(|op| match op {
+            DiskOp::Bake { name, pack: true, .. } => Some(sat_core::factory::pack_plugin(name)),
+            _ => None,
+        })
+        .collect();
+    if packed.is_empty() {
+        return None;
+    }
+    let read = |f: &str| std::fs::read(layout.profile_dir.join(f)).unwrap_or_default();
+    let (pt, lo) = (read("plugins.txt"), read("loadorder.txt"));
+    let mut lines: Vec<(String, bool)> = profile::parse_plugins(&pt)
+        .into_iter()
+        .map(|l| (l.name, l.enabled))
+        .collect();
+    let mut order = profile::parse_loadorder(&lo);
+    for e in &packed {
+        match lines.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(e)) {
+            Some(l) => l.1 = true,
+            None => lines.push((e.clone(), true)),
+        }
+        if !order.iter().any(|n| n.eq_ignore_ascii_case(e)) {
+            order.push(e.clone());
+        }
+    }
+    Some((
+        profile::serialize_plugins(&lines, &pt),
+        profile::serialize_loadorder(&order, &lo),
+    ))
 }
 
 // @sat:cli.commit.patches
@@ -375,6 +422,7 @@ fn factories(
             name: f.output.clone(),
             members: g.members.clone(),
             link: f.link,
+            pack: f.pack,
         });
         p.canon_after = place_output(&p.canon_after, f, &g.members);
         if seal {
