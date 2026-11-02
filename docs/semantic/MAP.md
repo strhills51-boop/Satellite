@@ -189,6 +189,7 @@
 - `crates/sat-stll/src/file.rs` — `@sat:stll.file`: файл `.stll` — манифест, разделы, факты, атомарное сохранение.
 - `crates/sat-stll/src/sections.rs` — `@sat:stll.sections`: дерево проекта ↔ разделы NDJSON.
 - `crates/sat-stll/src/facts.rs` — `@sat:stll.facts`: формат факта мода; ранняя раскладка-папка.
+- `crates/sat-stll/examples/save_bench.rs` — `@sat:stll.bench`: время сохранения и чтения проекта в масштабе сборки.
 
 ### `crates/sat-scan` — обход папок модов (холодный ярус)
 - `crates/sat-scan/src/lib.rs` — `@sat:scan`: `ScanJob`, `ScanOptions`, `ScanProgress`, `scan` / `scan_batched`, выбор маршрута.

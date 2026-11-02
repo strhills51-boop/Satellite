@@ -1,4 +1,8 @@
-//! Times saving a project file with many mods' facts: `cargo run --release -p sat-stll --example save_bench [MODS] [FILES]`.
+//! Times saving a project file with many mods' facts. @sat:stll.bench
+//!
+//! Owns: the save/open/read timing of `project.stll` at build scale (`cargo run --release -p sat-stll --example
+//! save_bench [MODS] [FILES]`; 7 500 × 400: first save 0.5 s, 3 MiB, unchanged save 0.4 s).
+//! Not here: the file (`@sat:stll.file`).
 use sat_core::canon::{Entry, EntryKind, Modlist};
 use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::project::Project;
