@@ -44,6 +44,30 @@ pub struct ModSummary {
     /// Tags a rule set found in the facts (`@sat:tag-rules`), with scores; empty without a rule set.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub found_tags: Vec<(String, u32)>,
+    /// What the mod is made of (`@sat:profile`), from the same facts.
+    #[serde(default)]
+    pub profile: crate::profile::ContentProfile,
+}
+
+/// The content profile of a mod's facts: loose files by folder, archive entries by path.
+fn profile_of(m: &ModFacts) -> crate::profile::ContentProfile {
+    use crate::profile::{ARCHIVED, ContentProfile, DirShape, LOOSE};
+    let mut p = ContentProfile {
+        plugins: m.plugins.len() as u32,
+        ..ContentProfile::default()
+    };
+    for d in &m.dirs {
+        let shape = DirShape::of(&d.rel);
+        for f in &d.files {
+            p.observe(shape, &f.name, LOOSE);
+        }
+    }
+    for a in &m.archives {
+        for e in a.manifest.iter().flat_map(|x| &x.entries) {
+            p.observe_path(&e.path, ARCHIVED);
+        }
+    }
+    p
 }
 
 // @sat:table.provider-table
@@ -130,6 +154,7 @@ impl TableBuilder {
             missing: m.missing,
             error: m.error.clone(),
             found_tags: self.rules.as_ref().map_or_else(Vec::new, |r| r.tags(m)),
+            profile: profile_of(m),
         });
         for d in &m.dirs {
             let dir = self.interner.dir(&d.rel);

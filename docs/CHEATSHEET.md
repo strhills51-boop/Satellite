@@ -128,6 +128,22 @@ hkx dll nested_archives source_files wins loses mid unique overridden`, а та�
 `dir.<папка верхнего уровня>` (`dir.meshes`). Синоним: `weight` = `size`. Ошибка показывает место; опечатка ловится до скана. Тот же язык
 пойдёт в условные стикеры и кейсы счётчиков (ADR 0013).
 
+Профиль содержимого (как в монолите): `kind` (основной вид: textures, meshes, scripts, animations, native, mixed,
+none), `kinds`, `coverage80`, `archived_share` (% содержимого в архивах), `package` (empty, plugin-and-assets,
+plugin-centric, asset-only, support-only, other), `profile` (все метки через запятую), `cargo` / `cargo_signals`
+(вложенные архивы, исходники, отладочные файлы), `top_ext`, `ext_kinds`, `extensionless`, `domains`,
+`presentation`, `deep_paths`, `long_paths`, `junk`, `data_wrapper`.
+
+```bat
+sat-cli analyze X:\MO2 --no-save --content
+sat-cli analyze X:\MO2 --no-save --find "cargo && size > 100 MB"
+sat-cli analyze X:\MO2 --no-save --find "data_wrapper > 0 || junk > 0"
+sat-cli analyze X:\MO2 --no-save --find "profile ~ \"voice-package\""
+```
+
+`--content` печатает сводку по сборке: формы пакетов, основные виды, частоту меток, моды с грузом не для игры
+(первые 20) и с системным мусором (первые 10).
+
 ### Игнор-лист конфликтов
 
 ```bat

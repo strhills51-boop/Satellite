@@ -21,6 +21,7 @@ pub enum Unit {
     Count,
     Flag,
     Text,
+    Percent,
 }
 
 /// One metric of the catalog.
@@ -80,6 +81,53 @@ pub const MOD_METRICS: &[MetricDef] = &[
     m("mid", "В середине стека", "conflicts", Unit::Count),
     m("unique", "Уникальных путей", "conflicts", Unit::Count),
     m("overridden", "Не виден в игре (X)", "conflicts", Unit::Flag),
+    m("kind", "Основной вид содержимого", "profile", Unit::Text),
+    m("kinds", "Виды содержимого (по убыванию)", "profile", Unit::Text),
+    m(
+        "coverage80",
+        "Виды, дающие 80% содержимого",
+        "profile",
+        Unit::Text,
+    ),
+    m(
+        "archived_share",
+        "Доля содержимого в архивах",
+        "profile",
+        Unit::Percent,
+    ),
+    m("package", "Форма пакета", "profile", Unit::Text),
+    m("profile", "Метки профиля", "profile", Unit::Text),
+    m("cargo", "Похоже на груз не для игры", "profile", Unit::Flag),
+    m("cargo_signals", "Сигналы груза", "profile", Unit::Text),
+    m("top_ext", "Топ расширений", "profile", Unit::Text),
+    m("ext_kinds", "Разных расширений", "profile", Unit::Count),
+    m("extensionless", "Файлов без расширения", "profile", Unit::Count),
+    m(
+        "domains",
+        "Области путей (textures, meshes, docs…)",
+        "profile",
+        Unit::Text,
+    ),
+    m(
+        "presentation",
+        "Локализация, интерфейс, звук, видео",
+        "profile",
+        Unit::Text,
+    ),
+    m("deep_paths", "Путей глубже 8 уровней", "profile", Unit::Count),
+    m("long_paths", "Путей длиннее 180 символов", "profile", Unit::Count),
+    m(
+        "junk",
+        "Системного мусора (.DS_Store, thumbs.db…)",
+        "profile",
+        Unit::Count,
+    ),
+    m(
+        "data_wrapper",
+        "Файлов под лишней папкой Data",
+        "profile",
+        Unit::Count,
+    ),
     m("nexus_id", "Id мода на Nexus", "source", Unit::Count),
     m("update", "Есть обновление", "source", Unit::Flag),
 ];
@@ -111,6 +159,8 @@ pub fn is_mod_metric(id: &str) -> bool {
 pub struct ModView<'a> {
     /// Scan aggregates; `None` when the mod was not scanned or its folder is missing.
     pub metrics: Option<&'a ModMetrics>,
+    /// What the mod is made of; `None` like `metrics`.
+    pub profile: Option<&'a crate::profile::ContentProfile>,
     pub stat: Option<&'a ModStat>,
     pub name: &'a str,
     pub separator: Option<&'a str>,
@@ -144,6 +194,37 @@ impl ModView<'_> {
                 "mid" => return n(u64::from(s.mid)),
                 "unique" => return n(u64::from(s.unique)),
                 "overridden" => return Value::Bool(s.fully_overridden),
+                _ => {}
+            }
+        }
+        if let Some(p) = self.profile {
+            let text = |v: Vec<&str>| Value::Text(v.join(", "));
+            match id {
+                "kind" => return Value::Text(p.primary_kind().into()),
+                "kinds" => return text(p.kinds()),
+                "coverage80" => return text(p.coverage80()),
+                "archived_share" => return Value::Num(p.archived_share()),
+                "package" => return Value::Text(p.package_shape().into()),
+                "profile" => return text(p.labels()),
+                "cargo" => return Value::Bool(!p.cargo_signals().is_empty()),
+                "cargo_signals" => return text(p.cargo_signals()),
+                "top_ext" => {
+                    return text(
+                        p.top_extensions(12)
+                            .into_iter()
+                            .map(|e| e.0)
+                            .filter(|e| !e.is_empty())
+                            .collect(),
+                    );
+                }
+                "ext_kinds" => return n(p.extension_kinds() as u64),
+                "extensionless" => return n(u64::from(p.extensionless())),
+                "domains" => return text(p.domain_names()),
+                "presentation" => return text(p.presentation_kinds()),
+                "deep_paths" => return n(u64::from(p.deep)),
+                "long_paths" => return n(u64::from(p.long)),
+                "junk" => return n(u64::from(p.junk)),
+                "data_wrapper" => return n(u64::from(p.data_wrapper())),
                 _ => {}
             }
         }
@@ -200,6 +281,7 @@ mod tests {
         };
         let v = ModView {
             metrics: Some(&f.metrics),
+            profile: None,
             stat: Some(&stat),
             name: &f.name,
             separator: Some("Textures"),
@@ -218,6 +300,22 @@ mod tests {
         assert!(!q("plugins > 0"));
         // not scanned: facts metrics are null, canon metrics still answer
         let blind = ModView { metrics: None, ..v };
+        // a profile answers its own metrics
+        let mut p = crate::profile::ContentProfile::default();
+        p.observe_path("textures/a.dds", crate::profile::LOOSE);
+        p.observe_path("textures/b.dds", crate::profile::ARCHIVED);
+        let pv = ModView {
+            profile: Some(&p),
+            ..v
+        };
+        assert!(
+            Expr::compile(
+                "kind == \"textures\" && archived_share == 50 && package == \"asset-only\" && !cargo",
+                &is_mod_metric
+            )
+            .unwrap()
+            .test(&|id| pv.get(id))
+        );
         assert!(
             !Expr::compile("size >= 0", &is_mod_metric)
                 .unwrap()

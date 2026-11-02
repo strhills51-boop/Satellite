@@ -38,6 +38,7 @@ pub mod overwrite;
 pub mod patch;
 pub mod plugin_edit;
 pub mod plugins;
+pub mod profile;
 pub mod project;
 pub mod resource;
 pub mod routes;

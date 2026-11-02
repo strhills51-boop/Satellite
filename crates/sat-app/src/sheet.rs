@@ -216,6 +216,46 @@ impl App {
             }
             sections.push(("content", Origin::Observed, content));
 
+            // what it is made of (`@sat:profile`)
+            if !sum.missing {
+                let p = &sum.profile;
+                let text = |id: &str, text: String| Field {
+                    id: id.into(),
+                    value: Value::Text { text },
+                    signal: None,
+                };
+                let list = |v: Vec<&str>| v.into_iter().map(str::to_string).collect::<Vec<_>>();
+                let mut profile = vec![
+                    text("kind", p.primary_kind().into()),
+                    text("package", p.package_shape().into()),
+                    names("coverage80", list(p.coverage80())),
+                    names("labels", list(p.labels())),
+                    names(
+                        "top_ext",
+                        p.top_extensions(12)
+                            .into_iter()
+                            .map(|(e, n)| format!("{} {n}", if e.is_empty() { "(none)" } else { e }))
+                            .collect(),
+                    ),
+                    names("domains", list(p.domain_names())),
+                    names("presentation", list(p.presentation_kinds())),
+                    count("deep_paths", p.deep),
+                    count("long_paths", p.long),
+                    count("data_wrapper", p.data_wrapper()),
+                ];
+                if p.tracked() > 0 {
+                    profile.insert(2, text("archived_share", format!("{}%", p.archived_share())));
+                }
+                let cargo = p.cargo_signals();
+                if !cargo.is_empty() {
+                    profile.push(signal(names("cargo_signals", list(cargo)), Signal::Note));
+                }
+                if p.junk > 0 {
+                    profile.push(signal(count("junk", p.junk), Signal::Note));
+                }
+                sections.push(("profile", Origin::Observed, profile));
+            }
+
             // how it meets the other mods
             let ow = self.session.overwrite();
             let s = ow.stat(m);

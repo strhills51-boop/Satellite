@@ -222,6 +222,7 @@ mod tests {
         };
         let v = ModView {
             metrics: Some(&m),
+            profile: None,
             stat: Some(&s),
             name: "A",
             separator: None,

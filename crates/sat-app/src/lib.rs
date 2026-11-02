@@ -1601,15 +1601,18 @@ mod tests {
             ids,
             [
                 ("content", Origin::Observed),
+                ("profile", Origin::Observed),
                 ("conflicts", Origin::Observed),
                 ("user", Origin::User)
             ]
         );
+        let profile = &full.sections[1].fields;
+        assert!(profile.iter().any(|f| f.id == "package"), "{profile:?}");
         let content = &full.sections[0].fields;
         assert_eq!(content[0].id, "bytes");
         assert_eq!(content[0].value, Value::Bytes { n: 10 });
         assert!(content.iter().all(|f| f.id != "dll"), "zero counts say nothing");
-        let conflicts = &full.sections[1].fields;
+        let conflicts = &full.sections[2].fields;
         assert_eq!(conflicts[0].id, "fully_overridden");
         // the badge: signals only
         let badge = sheet(&mut a, SheetLevel::Badge);

@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR] [--content] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -774,6 +774,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
             let view = sat_core::metrics::ModView {
                 tags: tags.as_deref(),
                 metrics: seen.and_then(|o| o.metrics.as_ref()),
+                profile: index
+                    .get(&e.name.to_lowercase())
+                    .map(|&m| table.summary(m))
+                    .filter(|s| !s.missing)
+                    .map(|s| &s.profile),
                 stat: index.get(&e.name.to_lowercase()).map(|&m| proj.stat(m)),
                 name: &e.name,
                 separator: sep,
@@ -791,6 +796,60 @@ fn analyze(args: &[String]) -> Result<(), String> {
             }
         }
         eprintln!("find: {hits} mod(s) match `{}`", expr.source());
+    }
+
+    // @sat:cli.content
+    // what the build is made of: package shapes, primary kinds, label frequencies (`@sat:profile`)
+    if has(args, "--content") {
+        use std::collections::BTreeMap as Map;
+        let (mut shapes, mut kinds, mut labels) = (
+            Map::<&str, usize>::new(),
+            Map::<&str, usize>::new(),
+            Map::<&str, usize>::new(),
+        );
+        let mut cargo: Vec<(&str, Vec<&str>)> = Vec::new();
+        let mut junk: Vec<(&str, u32)> = Vec::new();
+        for m in 0..table.mod_count() {
+            let id = ModId::from_idx(m);
+            let s = table.summary(id);
+            if s.missing {
+                continue;
+            }
+            let p = &s.profile;
+            let name = table.mod_names()[m].as_str();
+            *shapes.entry(p.package_shape()).or_default() += 1;
+            *kinds.entry(p.primary_kind()).or_default() += 1;
+            for l in p.labels() {
+                *labels.entry(l).or_default() += 1;
+            }
+            let c = p.cargo_signals();
+            if !c.is_empty() {
+                cargo.push((name, c));
+            }
+            if p.junk > 0 {
+                junk.push((name, p.junk));
+            }
+        }
+        let show = |title: &str, m: &Map<&str, usize>| {
+            let mut v: Vec<_> = m.iter().collect();
+            v.sort_by_key(|x| std::cmp::Reverse(*x.1));
+            println!("{title}:");
+            for (k, n) in v {
+                println!("  {n:>6}  {k}");
+            }
+        };
+        show("package shapes", &shapes);
+        show("primary kinds", &kinds);
+        show("labels", &labels);
+        println!("possible non-runtime cargo: {} mod(s)", cargo.len());
+        for (name, c) in cargo.iter().take(20) {
+            println!("  {name}   [{}]", c.join(", "));
+        }
+        junk.sort_by_key(|x| std::cmp::Reverse(x.1));
+        println!("system junk: {} mod(s)", junk.len());
+        for (name, n) in junk.iter().take(10) {
+            println!("  {n:>6}  {name}");
+        }
     }
 
     if let Some(r) = &rules {

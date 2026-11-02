@@ -17,6 +17,7 @@ use crate::{App, AppError};
 /// What a view of one mod is made of (owned: the view borrows it).
 pub(crate) struct ViewParts {
     metrics: Option<ModMetrics>,
+    profile: Option<sat_core::profile::ContentProfile>,
     stat: Option<ModStat>,
     name: String,
     separator: Option<String>,
@@ -30,6 +31,7 @@ impl ViewParts {
     pub(crate) fn view(&self) -> ModView<'_> {
         ModView {
             metrics: self.metrics.as_ref(),
+            profile: self.profile.as_ref(),
             stat: self.stat.as_ref(),
             name: &self.name,
             separator: self.separator.as_deref(),
@@ -68,18 +70,23 @@ impl App {
         let enabled = book.enabled(key);
         let priority = book.pos(key) as u32;
         let mut tags: Vec<String> = book.marks(key).map(|m| m.tags.clone()).unwrap_or_default();
-        let (metrics, stat) = match self.session.mod_id(&name) {
+        let (metrics, profile, stat) = match self.session.mod_id(&name) {
             Some(m) => {
                 let sum = self.session.table().summary(m);
                 tags.extend(sum.found_tags.iter().map(|(t, _)| t.clone()));
-                ((!sum.missing).then(|| sum.metrics.clone()), Some(*ow.stat(m)))
+                (
+                    (!sum.missing).then(|| sum.metrics.clone()),
+                    (!sum.missing).then(|| sum.profile.clone()),
+                    Some(*ow.stat(m)),
+                )
             }
-            None => (None, None),
+            None => (None, None, None),
         };
         let source = self.sources.get(&name.to_lowercase()).cloned();
         ViewParts {
             source,
             metrics,
+            profile,
             stat,
             name,
             separator,
