@@ -109,12 +109,14 @@ pub fn choice_id(step: &str, group: &str, option: &str) -> String {
 fn decode(bytes: &[u8]) -> Result<String, String> {
     let utf16 = |le: bool, b: &[u8]| {
         let units: Vec<u16> = b
-            .chunks_exact(2)
-            .map(|c| {
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| {
                 if le {
-                    u16::from_le_bytes([c[0], c[1]])
+                    u16::from_le_bytes(c)
                 } else {
-                    u16::from_be_bytes([c[0], c[1]])
+                    u16::from_be_bytes(c)
                 }
             })
             .collect();
