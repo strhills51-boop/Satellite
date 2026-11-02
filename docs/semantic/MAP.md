@@ -106,6 +106,7 @@
 | Файл проекта `.stll` (ADR 0007 шаг 3): один zip — манифест, разделы NDJSON, факты; атомарное сохранение, чужое сохраняется | `@sat:stll.file` (`Stll`), `@sat:stll.file.version`, `@sat:stll.file.open`, `@sat:stll.file.save` (`Writer`: `put_facts`, `finish`, `finish_to`); разрезание дерева проекта — `@sat:stll.sections`, `@sat:stll.sections.split`, `@sat:stll.sections.join`; неизвестные поля проекта — `Project::extra` (`@sat:project`); перевод ранней раскладки — `@sat:stll.migrate`; команды — `@sat:cli.project` | замена проекта в фиксации — `@sat:mo2.commit.project` |
 | Записи SYNC и сверка диска с проектом | `@sat:sync.records.reconcile` | ключ сопоставления — `normalize_name`, ключ отпечатка — точное имя в нижнем регистре |
 | Фиксация (техпроцесс «скан/синхронизация → обработка → фиксация», NG-D003 §7): решения по записям, план, бэкап, журнал, откат | ответы — `@sat:sync.records.resolution`; план — `@sat:sync.plan`, `@sat:sync.plan.build`, `@sat:sync.plan.canon`, `@sat:sync.plan.order`; исполнение — `@sat:mo2.commit`, `@sat:mo2.commit.execute`, `@sat:mo2.commit.undo`; API приложения — `@sat:app.sync`, `@sat:app.sync.decide` (`Command::Decide`, `Query::Sync`: записи, ответы, план; исполнения нет); командная строка — `@sat:cli.commit`, `@sat:cli.commit.sync`, `@sat:cli.commit.run` | сверка — `@sat:sync.records.reconcile`; запись файлов — `@sat:mo2.write-atomic` |
+| Намерения и запланированные моды (ADR 0007 шаг 4): мод в порядке раньше, чем на диске; ставится фиксацией из архива загрузок | запись — `@sat:intent`, `@sat:intent.record` (`Source::Downloads`); запланированные — `@sat:intent.planned` (`Project::planned`, `plan_install`; папки нет — не расхождение); в плане — `@sat:sync.plan.installs` (`DiskOp::Install`, `Blocker::SourceUnavailable`); установка — `@sat:mo2.install`, `@sat:mo2.install.layout` (корень `Data`, FOMOD), `@sat:mo2.install.facts` (факты до установки), `@sat:mo2.install.extract`; в фиксации — `@sat:mo2.commit.install` (откат удаляет распакованное); команда — `@sat:cli.intent` (`plan-install`), проверка источника — `@sat:cli.intent.source` | 7z/rar и выбор FOMOD — далее; адаптеры площадок — позже |
 
 ## Файлы
 
@@ -116,6 +117,7 @@
 - `crates/sat-core/src/entity.rs` — `@sat:entity`: устойчивые id сущностей и реестр id ↔ имя.
 - `crates/sat-core/src/identity.rs` — `@sat:identity`: эмодзи и оттенок цепочек и контекстов из состава.
 - `crates/sat-core/src/ignore.rs` — `@sat:ignore`: правила игнор-листа конфликтов, нормальная форма, сопоставление.
+- `crates/sat-core/src/intent.rs` — `@sat:intent`: намерения проекта (поставить мод из источника), запланированные моды.
 - `crates/sat-core/src/ids.rs` — `@sat:ids`: типизированные `u32`-идентификаторы.
 - `crates/sat-core/src/metrics.rs` — `@sat:metrics`: каталог метрик мода и их значения.
 - `crates/sat-core/src/interner.rs` — `@sat:interner`: арена строк, свёртка регистра, каталоги, `file_key`.
@@ -174,6 +176,7 @@
 - `crates/sat-mo2/src/ini.rs` — `@sat:mo2.ini`: ini MO2, `@ByteArray`, `@Variant`.
 - `crates/sat-mo2/src/instance.rs` — `@sat:mo2.instance`: `Instance::load`, `from_dirs`, `mod_dir`.
 - `crates/sat-mo2/src/commit.rs` — `@sat:mo2.commit`: исполнение плана — версия-бэкап, журнал, операции, запись профиля, откат.
+- `crates/sat-mo2/src/install.rs` — `@sat:mo2.install`: установка мода из архива — корень Data, факты до установки, безопасная распаковка.
 - `crates/sat-mo2/src/profile.rs` — `@sat:mo2.profile`: файлы профиля байт в байт.
 - `crates/sat-mo2/src/meta.rs` — `@sat:mo2.meta`: `meta.ini`.
 
@@ -195,6 +198,7 @@
 - `tools/sat-cli/src/main.rs` — `@sat:cli`: `analyze`, `donor`, `sync`, `commit`, `ignore`, `inspect`, `bench-synth`.
 - `tools/sat-cli/src/commit_cmd.rs` — `@sat:cli.commit`: `sync` (записи и решения) и `commit` (план, `--apply`).
 - `tools/sat-cli/src/ignore_cmd.rs` — `@sat:cli.ignore`: игнор-лист конфликтов в проекте.
+- `tools/sat-cli/src/intent_cmd.rs` — `@sat:cli.intent`: `plan-install` — запланированный мод из архива загрузок.
 - `tools/sat-cli/src/project_io.rs` — `@sat:cli.project`: файл проекта сборки для команд — открыть, перевести раз, сохранить.
 - `tools/sat-cli/src/bench_order.rs` — `@sat:cli.bench-order`: бенчмарк движка порядка.
 

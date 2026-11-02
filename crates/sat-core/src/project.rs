@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::canon::{EntryKind, Modlist};
 use crate::decisions::ChainDecisions;
-use crate::entity::Entities;
+use crate::entity::{Entities, EntityId};
 #[cfg(test)]
 use crate::order::MAIN;
 use crate::order::{Decor, DecorIssue, OrderBook};
@@ -59,6 +59,9 @@ pub struct Project {
     /// Tag collections with colours (`@sat:tags`); the built-in ones when absent.
     #[serde(default, skip_serializing_if = "is_default_catalog")]
     pub tags: crate::tags::TagCatalog,
+    /// What the user wants done to the build, fulfilled by a commit (`@sat:intent`): planned mods.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub intents: Vec<crate::intent::Intent>,
     /// Fields this build does not know (written by a newer one or an extension): kept as they are and written
     /// back, so opening a project never loses another program's data (ADR 0007 §Модель).
     #[serde(flatten)]
@@ -112,6 +115,7 @@ impl Project {
             plugin_blacklist: Vec::new(),
             conflict_ignore: Default::default(),
             tags: Default::default(),
+            intents: Vec::new(),
             extra: BTreeMap::new(),
         }
     }
@@ -213,14 +217,82 @@ impl Project {
         self.canon = plan.canon_after.clone();
         self.entities.follow(&self.canon);
         self.sync.retain(|r| !plan.settles.contains(&r.fingerprint));
+        // installed planned mods: their intents are fulfilled
+        for op in &plan.disk_ops {
+            if let crate::sync::plan::DiskOp::Install { name, .. } = op
+                && let Some(id) = self.entities.id_of(name)
+            {
+                for i in self.intents.iter_mut().filter(|i| &i.entity == id && i.pending()) {
+                    i.status = crate::intent::IntentStatus::Done;
+                }
+            }
+        }
+        // intents of entities that left the project go with them
+        let live: HashSet<&EntityId> = self.entities.iter().map(|e| &e.id).collect();
+        self.intents.retain(|i| live.contains(&i.entity));
+    }
+
+    // @sat:intent.planned
+    /// Planned mods: canon entries with a pending install (name, source), in canon order.
+    pub fn planned(&self) -> Vec<(String, crate::intent::Source)> {
+        self.canon
+            .entries
+            .iter()
+            .filter_map(|e| {
+                let id = self.entities.id_of(&e.name)?;
+                let src = self.intents.iter().find(|i| &i.entity == id)?.pending_install()?;
+                Some((e.name.clone(), src.clone()))
+            })
+            .collect()
+    }
+
+    /// Adds a planned mod: a new canon entry after `after` (at the end when `None` or unknown) with a pending
+    /// install from `source`. `Err` if the name is taken.
+    pub fn plan_install(
+        &mut self,
+        name: &str,
+        source: crate::intent::Source,
+        after: Option<&str>,
+        enabled: bool,
+    ) -> Result<EntityId, String> {
+        if self.entities.id_of(name).is_some() {
+            return Err(format!("{name}: already in the project"));
+        }
+        let at = after
+            .and_then(|a| {
+                self.canon
+                    .entries
+                    .iter()
+                    .position(|e| e.name.eq_ignore_ascii_case(a))
+            })
+            .map_or(self.canon.entries.len(), |i| i + 1);
+        self.canon.entries.insert(
+            at,
+            crate::canon::Entry {
+                name: name.to_string(),
+                kind: EntryKind::Mod,
+                enabled,
+            },
+        );
+        self.entities.follow(&self.canon);
+        let id = self.entities.id_of(name).cloned().expect("just added");
+        self.intents
+            .push(crate::intent::Intent::install(id.clone(), source));
+        Ok(id)
     }
 
     /// Mods and separators of the canon as reconcile entities (foreign manager entries are not folders).
     pub fn entities(&self) -> Vec<ProjectEntity> {
+        // a planned mod has no folder yet by design: that is no mismatch
+        let planned: HashSet<String> = self
+            .planned()
+            .into_iter()
+            .map(|(n, _)| n.to_lowercase())
+            .collect();
         self.canon
             .entries
             .iter()
-            .filter(|e| e.kind != EntryKind::Foreign)
+            .filter(|e| e.kind != EntryKind::Foreign && !planned.contains(&e.name.to_lowercase()))
             .map(|e| ProjectEntity {
                 name: e.name.clone(),
                 kind: if e.kind == EntryKind::Separator {
@@ -241,6 +313,17 @@ impl Project {
     /// Compares the canon with the mods folder: stores the records (keeping decisions) and records the content
     /// signature of every matched entity for the next run. The canon itself is not changed.
     pub fn observe(&mut self, disk: &[DiskFolder]) -> Reconcile {
+        // a planned mod whose folder is there was installed (outside Satellite, or by a commit): fulfilled
+        let present: HashSet<String> = disk.iter().map(|d| d.name.to_lowercase()).collect();
+        for (name, _) in self.planned() {
+            if present.contains(&name.to_lowercase())
+                && let Some(id) = self.entities.id_of(&name).cloned()
+            {
+                for i in self.intents.iter_mut().filter(|i| i.entity == id && i.pending()) {
+                    i.status = crate::intent::IntentStatus::Done;
+                }
+            }
+        }
         let r = reconcile(&self.entities(), disk, &self.sync);
         let sig: HashMap<&str, u64> = disk
             .iter()
@@ -367,6 +450,41 @@ mod tests {
         assert_eq!(p.extra.get("journal_hint"), Some(&serde_json::json!({"last": 3})));
         let back: serde_json::Value = serde_json::from_slice(&p.to_json().unwrap()).unwrap();
         assert_eq!(back["journal_hint"]["last"], 3);
+    }
+
+    #[test]
+    fn a_planned_mod_makes_no_sync_record_until_its_folder_appears() {
+        use crate::intent::{IntentStatus, Source};
+        let mut p = Project::import(Modlist::new(vec![Entry {
+            name: "A".into(),
+            kind: EntryKind::Mod,
+            enabled: true,
+        }]));
+        let src = Source::Downloads {
+            file: "B-123.zip".into(),
+            size: Some(5),
+        };
+        p.plan_install("B", src.clone(), Some("nobody"), true).unwrap();
+        assert!(
+            p.plan_install("b", src.clone(), None, true).is_err(),
+            "names are taken any case"
+        );
+        assert_eq!(p.canon.entries[1].name, "B");
+        assert_eq!(p.planned(), [("B".to_string(), src.clone())]);
+        let folder = |n: &str| DiskFolder {
+            name: n.into(),
+            signature: None,
+        };
+        let r = p.observe(&[folder("A")]);
+        assert!(r.records.is_empty(), "{:?}", r.records);
+        // the mod was installed by hand: the intent is fulfilled, the mod is an ordinary one
+        let r = p.observe(&[folder("A"), folder("B")]);
+        assert!(r.records.is_empty());
+        assert_eq!(p.intents[0].status, IntentStatus::Done);
+        assert!(p.planned().is_empty());
+        // the record keeps its shape through the project file
+        let back = Project::from_json(&p.to_json().unwrap()).unwrap();
+        assert_eq!(back.intents, p.intents);
     }
 
     #[test]

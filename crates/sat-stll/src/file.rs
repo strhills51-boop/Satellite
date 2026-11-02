@@ -341,6 +341,11 @@ impl Writer<'_> {
         Ok(true)
     }
 
+    /// The facts stored in the file being replaced (a planned mod's facts come from its archive, not a scan).
+    pub fn stored_facts(&mut self, id: &str) -> Option<(u64, ModFacts)> {
+        self.src.facts(id)
+    }
+
     // @sat:stll.file.put
     /// Puts one mod's facts: unchanged ones (same content signature as stored) are copied as they are.
     pub fn put_facts(&mut self, id: &str, signature: u64, facts: &ModFacts) -> std::io::Result<Put> {

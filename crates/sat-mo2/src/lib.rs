@@ -12,6 +12,7 @@
 
 pub mod commit;
 pub mod ini;
+pub mod install;
 pub mod instance;
 pub mod meta;
 pub mod profile;

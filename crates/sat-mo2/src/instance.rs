@@ -18,6 +18,8 @@ pub struct Instance {
     pub mods_dir: PathBuf,
     pub overwrite_dir: PathBuf,
     pub profiles_dir: PathBuf,
+    /// Where MO2 keeps downloaded archives (`download_directory`).
+    pub downloads_dir: PathBuf,
     pub profile: String,
     pub profiles: Vec<String>,
 }
@@ -73,6 +75,7 @@ impl Instance {
         let mods_dir = resolve("mod_directory", "mods");
         let overwrite_dir = resolve("overwrite_directory", "overwrite");
         let profiles_dir = resolve("profiles_directory", "profiles");
+        let downloads_dir = resolve("download_directory", "downloads");
         let profiles = list_dirs(&profiles_dir);
         let mut profile = get(general, "selected_profile");
         if profile.is_empty() {
@@ -86,6 +89,7 @@ impl Instance {
             mods_dir,
             overwrite_dir,
             profiles_dir,
+            downloads_dir,
             profile,
             profiles,
         })
@@ -108,6 +112,7 @@ impl Instance {
             .or_else(|| profiles.first().cloned())
             .unwrap_or_default();
         let base_dir = mods_dir.parent().map(Path::to_path_buf).unwrap_or_default();
+        let downloads_dir = base_dir.join("downloads");
         Self {
             ini_path: PathBuf::new(),
             base_dir,
@@ -116,6 +121,7 @@ impl Instance {
             mods_dir,
             overwrite_dir,
             profiles_dir,
+            downloads_dir,
             profile,
             profiles,
         }

@@ -201,3 +201,14 @@ SAT_MODEL_SEEDS=250 cargo test --release -p sat-core order   # модельны�
 
 Куда смотреть в репозитории: `PHILOSOPHY.md` (направление и дорожная карта) → `docs/adr/` (решения, 0010 — ядро и
 движок) → `docs/semantic/MAP.md` (понятие → якорь → файл) → `docs/parity/` (что делает монолит и как это в NG).
+
+## Запланировать мод из архива загрузок
+
+```bat
+sat-cli plan-install X:\MO2 --archive "Имя архива.zip" [--name "Имя мода"] [--after "Мод, после которого"] [--disabled]
+sat-cli analyze X:\MO2
+sat-cli commit X:\MO2            (план: install …)
+sat-cli commit X:\MO2 --apply    (распаковка в mods, modlist.txt, проект)
+```
+Архив должен лежать в папке загрузок MO2. Мод сразу встаёт в порядок, а `analyze` показывает его конфликты ещё до
+установки (по оглавлению архива). Пока только zip без FOMOD-установщика; 7z, rar и FOMOD — дальше.

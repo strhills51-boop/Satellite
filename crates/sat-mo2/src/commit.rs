@@ -39,6 +39,8 @@ pub struct Layout {
     pub deleted_dir: PathBuf,
     /// The project file of this profile.
     pub project_file: PathBuf,
+    /// Archives for installs (MO2 `download_directory`).
+    pub downloads_dir: PathBuf,
 }
 
 impl Layout {
@@ -50,6 +52,7 @@ impl Layout {
             versions_dir: sat.join("versions"),
             deleted_dir: inst.base_dir.join("satellite").join("deleted"),
             project_file: sat.join("project.stll"),
+            downloads_dir: inst.downloads_dir.clone(),
         }
     }
 }
@@ -63,6 +66,10 @@ pub enum Step {
         to: PathBuf,
     },
     Created {
+        path: PathBuf,
+    },
+    /// A mod folder made from an archive by this commit.
+    Installed {
         path: PathBuf,
     },
     /// A profile or project file replaced; `backup` is its copy in the version folder (`None`: it did not exist).
@@ -267,6 +274,13 @@ fn run(
                 std::fs::create_dir(&path).map_err(|e| io(&path, e))?;
                 steps.push(Step::Created { path });
             }
+            // @sat:mo2.commit.install
+            DiskOp::Install { name, source } => {
+                let sat_core::intent::Source::Downloads { file, .. } = source;
+                let path = layout.mods_dir.join(name);
+                crate::install::install(&layout.downloads_dir.join(file), &path)?;
+                steps.push(Step::Installed { path });
+            }
         }
         journal(version_dir, steps)?;
     }
@@ -328,6 +342,8 @@ fn undo(steps: &[Step]) -> Vec<String> {
             Step::Moved { from, to } => std::fs::rename(to, from).map_err(|e| io(to, e)),
             // only an empty folder Satellite created itself is removed
             Step::Created { path } => std::fs::remove_dir(path).map_err(|e| io(path, e)),
+            // a folder this commit extracted (the archive stays in downloads)
+            Step::Installed { path } => std::fs::remove_dir_all(path).map_err(|e| io(path, e)),
             Step::Wrote {
                 path,
                 backup: Some(b),
@@ -385,6 +401,7 @@ mod tests {
                 versions_dir: sat.join("versions"),
                 deleted_dir: base.join("satellite").join("deleted"),
                 project_file: sat.join("project.stll"),
+                downloads_dir: base.join("downloads"),
             },
             _dir: dir,
         }
@@ -583,5 +600,40 @@ mod tests {
             std::fs::read_to_string(b.layout.profile_dir.join("loadorder.txt")).unwrap(),
             "New.esp\n"
         );
+    }
+
+    #[test]
+    fn an_install_is_undone_with_the_rest() {
+        use std::io::Write;
+        let b = build();
+        let dl = b.layout.downloads_dir.clone();
+        std::fs::create_dir_all(&dl).unwrap();
+        let mut w = zip::ZipWriter::new(std::fs::File::create(dl.join("New.zip")).unwrap());
+        w.start_file("textures/a.dds", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        w.write_all(b"a").unwrap();
+        w.finish().unwrap();
+        let mut p = the_plan();
+        p.disk_ops.push(DiskOp::Install {
+            name: "New".into(),
+            source: sat_core::intent::Source::Downloads {
+                file: "New.zip".into(),
+                size: None,
+            },
+        });
+        // 4 disk ops (0..3), then modlist (4): fail there — the installed folder goes away
+        let r = execute(
+            &b.layout,
+            "s",
+            &payload(&p, &b),
+            Faults {
+                fail_before_step: Some(4),
+            },
+        );
+        assert!(matches!(r.outcome, Outcome::RolledBack { .. }), "{:?}", r.outcome);
+        assert_eq!(folders(&b.layout.mods_dir), ["A", "Junk", "Renamed"]);
+        let r = execute(&b.layout, "t", &payload(&p, &b), Faults::default());
+        assert_eq!(r.outcome, Outcome::Committed);
+        assert!(b.layout.mods_dir.join("New/textures/a.dds").exists());
     }
 }

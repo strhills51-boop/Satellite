@@ -54,6 +54,11 @@ pub enum DiskOp {
         name: String,
         kind: EntityKind,
     },
+    /// A planned mod's folder made from its source (`@sat:intent`).
+    Install {
+        name: String,
+        source: crate::intent::Source,
+    },
 }
 
 /// Why a plan must not run.
@@ -84,6 +89,8 @@ pub enum Blocker {
     /// The mismatch a decided record describes is no longer what the disk and the canon show (the folder came
     /// back, the entry was edited...): the analysis is stale, run it again (the pre-commit freshness check).
     Stale { fingerprint: String },
+    /// A planned mod's source is not here or not what the intent saw (`@sat:intent`).
+    SourceUnavailable { name: String, why: String },
 }
 
 // @sat:sync.plan.build
@@ -116,7 +123,32 @@ fn kind_of(k: EntityKind) -> EntryKind {
 
 /// Builds the plan from the canon, the current records and the folder names on disk now.
 pub fn plan(canon: &Modlist, records: &[SyncRecord], disk: &[String]) -> Plan {
+    plan_with(canon, records, &[], disk, &|_| Ok(()))
+}
+
+// @sat:sync.plan.installs
+/// [`plan`] with the pending installs of planned mods (name, source); `source_ok` checks a source on this
+/// machine (the file is in the downloads folder, its size is the one the intent saw).
+pub fn plan_with(
+    canon: &Modlist,
+    records: &[SyncRecord],
+    installs: &[(String, crate::intent::Source)],
+    disk: &[String],
+    source_ok: &dyn Fn(&crate::intent::Source) -> Result<(), String>,
+) -> Plan {
     let mut p = Plan::default();
+    for (name, source) in installs {
+        match source_ok(source) {
+            Ok(()) => p.disk_ops.push(DiskOp::Install {
+                name: name.clone(),
+                source: source.clone(),
+            }),
+            Err(why) => p.blockers.push(Blocker::SourceUnavailable {
+                name: name.clone(),
+                why,
+            }),
+        }
+    }
     let on_disk: HashSet<String> = disk.iter().map(|d| d.to_lowercase()).collect();
     let in_canon: HashSet<String> = canon.entries.iter().map(|e| e.name.to_lowercase()).collect();
     let disk_has = |n: &str| on_disk.contains(&n.to_lowercase());
@@ -273,7 +305,7 @@ fn order_disk(ops: Vec<DiskOp>, disk: &[String], blockers: &mut Vec<Blocker>) ->
     for op in &ops {
         let target = match op {
             DiskOp::Rename { to, .. } => Some(to),
-            DiskOp::Create { name, .. } => Some(name),
+            DiskOp::Create { name, .. } | DiskOp::Install { name, .. } => Some(name),
             DiskOp::ToDeleted { .. } => None,
         };
         if let Some(t) = target {
@@ -338,7 +370,7 @@ fn order_disk(ops: Vec<DiskOp>, disk: &[String], blockers: &mut Vec<Blocker>) ->
     }
     // 3. creations last
     for op in &ops {
-        if let DiskOp::Create { name, .. } = op {
+        if let DiskOp::Create { name, .. } | DiskOp::Install { name, .. } = op {
             if present.insert(low(name)) {
                 out.push(op.clone());
             } else {
@@ -517,5 +549,45 @@ mod tests {
         let p = plan(&canon(&["A"]), &recs, &disk(&["A"]));
         assert!(matches!(p.blockers[..], [Blocker::Stale { .. }]));
         assert!(p.canon_after.entries.len() == 1 && p.settles.is_empty());
+    }
+
+    #[test]
+    fn installs_join_the_plan_and_their_sources_are_checked() {
+        use crate::intent::Source;
+        let src = |f: &str| Source::Downloads {
+            file: f.into(),
+            size: None,
+        };
+        let c = canon(&["A", "B", "C"]);
+        let ok = |s: &Source| match s {
+            Source::Downloads { file, .. } if file == "gone.zip" => Err("not in downloads".to_string()),
+            _ => Ok(()),
+        };
+        let p = plan_with(
+            &c,
+            &[],
+            &[("B".into(), src("b.zip"))],
+            &["A".into(), "C".into()],
+            &ok,
+        );
+        assert!(!p.blocked(), "{:?}", p.blockers);
+        assert_eq!(
+            p.disk_ops,
+            [DiskOp::Install {
+                name: "B".into(),
+                source: src("b.zip")
+            }]
+        );
+        let p = plan_with(&c, &[], &[("B".into(), src("gone.zip"))], &["A".into()], &ok);
+        assert!(matches!(&p.blockers[..], [Blocker::SourceUnavailable { name, .. }] if name == "B"));
+        // a folder of that name is there already
+        let p = plan_with(
+            &c,
+            &[],
+            &[("C".into(), src("c.zip"))],
+            &["A".into(), "C".into()],
+            &ok,
+        );
+        assert!(matches!(&p.blockers[..], [Blocker::TargetExists { name }] if name == "C"));
     }
 }

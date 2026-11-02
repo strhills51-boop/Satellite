@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 
 use sat_core::project::Project;
-use sat_core::sync::plan::{Blocker, DiskOp, ProjectOp, plan};
+use sat_core::sync::plan::{Blocker, DiskOp, ProjectOp, plan_with};
 use sat_core::sync::records::{Mismatch, Resolution, Status, SyncRecord};
 use sat_mo2::commit::{Faults, Layout, Outcome, PROJECT_BEFORE, Payload, execute, stamp_now};
 use sat_mo2::profile;
@@ -120,7 +120,10 @@ pub fn sync(args: &[String]) -> Result<(), String> {
 pub fn commit(args: &[String]) -> Result<(), String> {
     let (inst, layout, mut stll, project) = load(args)?;
     let disk = subfolders(&inst.mods_dir);
-    let p = plan(&project.canon, &project.sync, &disk);
+    let planned = project.planned();
+    let p = plan_with(&project.canon, &project.sync, &planned, &disk, &|s| {
+        crate::intent_cmd::source_ok(&inst, s)
+    });
     println!("commit plan for {}:", inst.profile_dir().display());
     for op in &p.project_ops {
         match op {
@@ -134,6 +137,10 @@ pub fn commit(args: &[String]) -> Result<(), String> {
             DiskOp::ToDeleted { name } => println!("  disk: move {name} → satellite/deleted/<stamp>/"),
             DiskOp::Rename { from, to } => println!("  disk: rename folder {from} → {to}"),
             DiskOp::Create { name, .. } => println!("  disk: create empty folder {name}"),
+            DiskOp::Install { name, source } => {
+                let sat_core::intent::Source::Downloads { file, .. } = source;
+                println!("  disk: install {name} from downloads/{file}")
+            }
         }
     }
     println!(
@@ -230,5 +237,6 @@ fn blocker(b: &Blocker, records: &[SyncRecord]) -> String {
         Blocker::RenameCycle { names } => format!("renames wait on each other: {}", names.join(", ")),
         Blocker::CanonMismatch { name } => format!("{name}: the project list does not fit the change"),
         Blocker::SeparatorNotEmpty { name } => format!("separator {name} still has mods in its block"),
+        Blocker::SourceUnavailable { name, why } => format!("planned mod {name}: {why}"),
     }
 }
