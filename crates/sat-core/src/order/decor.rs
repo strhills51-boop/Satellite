@@ -28,6 +28,10 @@ pub struct Decor {
     /// Muted entries (names): kept in the analysis, hidden from views.
     #[serde(default)]
     pub muted: Vec<String>,
+    /// Nesting level of separators (names → level ≥ 1; absent = 0), ADR 0016: a separator of level `n` holds the
+    /// following separators of a higher level. MO2 sees them as plain separators.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub levels: BTreeMap<String, u8>,
     /// Card styles (names → style), ADR 0012.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub styles: BTreeMap<String, CardStyle>,
@@ -265,6 +269,11 @@ impl Decor {
         }
         d.collapsed = self.collapsed.iter().filter_map(|k| map(k)).collect();
         d.muted = self.muted.iter().filter_map(|k| map(k)).collect();
+        for (k, v) in &self.levels {
+            if let Some(n) = map(k) {
+                d.levels.insert(n, *v);
+            }
+        }
         for (k, v) in &self.styles {
             if let Some(n) = map(k) {
                 d.styles.insert(n, v.clone());
@@ -283,6 +292,7 @@ impl Decor {
             && self.groups.is_empty()
             && self.collapsed.is_empty()
             && self.muted.is_empty()
+            && self.levels.is_empty()
             && self.styles.is_empty()
             && self.marks.is_empty()
     }

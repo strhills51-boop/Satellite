@@ -252,7 +252,12 @@ fn run(seed: u64, n: usize, steps: usize) {
                 };
                 ("filter", Some(b.set_filter(v, f).unwrap()))
             }
-            85..=90 => ("undo", b.undo()),
+            85..=87 => {
+                // nesting of separators (ADR 0016): levels 0..2 on any entry (non-separators are ignored)
+                let keys = vec![pick(&mut rng, &b)];
+                ("level", b.set_level(&keys, rng.below(3) as u8).unwrap())
+            }
+            88..=90 => ("undo", b.undo()),
             91..=93 => ("redo", b.redo()),
             94..=95 => {
                 let n = 1 + rng.below(3);
@@ -642,4 +647,81 @@ fn marks_are_undoable_normalized_and_travel_with_the_project() {
     b.redo();
     b.patch_marks(&mods, |_| Marks::default()).unwrap();
     assert!(b.marks(mods[1]).is_none());
+}
+
+#[test]
+fn nested_separators_collapse_move_and_keep_their_levels() {
+    let names = [
+        "A_separator",
+        "a1",
+        "B_separator",
+        "b1",
+        "b2",
+        "C_separator",
+        "c1",
+    ];
+    let list = Modlist::new(
+        names
+            .iter()
+            .map(|n| Entry {
+                name: n.to_string(),
+                kind: if n.ends_with("_separator") {
+                    EntryKind::Separator
+                } else {
+                    EntryKind::Mod
+                },
+                enabled: true,
+            })
+            .collect(),
+    );
+    let mut b = OrderBook::from_modlist(&list);
+    let k = |b: &OrderBook, n: &str| b.key_of(n).unwrap();
+    // B goes inside A
+    b.set_level(&[k(&b, "B_separator")], 1).unwrap();
+    let rows = |b: &OrderBook| {
+        b.rows(MAIN, 0, usize::MAX)
+            .iter()
+            .map(|r| (r.name.to_string(), r.depth))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        rows(&b)[..5],
+        [
+            ("A_separator".into(), 0),
+            ("a1".into(), 1),
+            ("B_separator".into(), 1),
+            ("b1".into(), 2),
+            ("b2".into(), 2)
+        ]
+    );
+    assert_eq!(b.rows(MAIN, 0, 1)[0].size, 4, "A holds a1, B and B's mods");
+    // collapsing A hides B and its mods; C stays
+    b.set_collapsed(MAIN, k(&b, "A_separator"), true).unwrap();
+    let shown: Vec<String> = rows(&b).into_iter().map(|r| r.0).collect();
+    assert_eq!(shown, ["A_separator", "C_separator", "c1"]);
+    b.set_collapsed(MAIN, k(&b, "A_separator"), false).unwrap();
+    // moving A to the end takes B along
+    b.move_keys(&[k(&b, "A_separator")], None).unwrap();
+    let order: Vec<String> = b.to_modlist().entries.into_iter().map(|e| e.name).collect();
+    assert_eq!(
+        order,
+        [
+            "C_separator",
+            "c1",
+            "A_separator",
+            "a1",
+            "B_separator",
+            "b1",
+            "b2"
+        ]
+    );
+    // the level is decoration: it survives the project file, and undo takes it back
+    let d = b.decor();
+    assert_eq!(d.levels.get("B_separator"), Some(&1));
+    let mut c = OrderBook::from_modlist(&b.to_modlist());
+    c.apply_decor(&d);
+    assert_eq!(c.level(c.key_of("B_separator").unwrap()), 1);
+    b.undo(); // the move
+    b.undo(); // the level
+    assert_eq!(b.level(k(&b, "B_separator")), 0);
 }

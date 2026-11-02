@@ -66,6 +66,11 @@ pub enum Command {
         keys: Vec<Key>,
         color: Option<u32>,
     },
+    /// Nesting level of separators (ADR 0016): a separator holds the following separators of a higher level.
+    SetLevel {
+        keys: Vec<Key>,
+        level: u8,
+    },
     /// Card style of entries (ADR 0012); `None` clears it.
     SetStyle {
         keys: Vec<Key>,
@@ -296,6 +301,13 @@ pub struct SeparatorTile {
     pub first: Option<u32>,
     pub mods: u32,
     pub enabled: u32,
+    /// Nesting level (ADR 0016).
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub level: u8,
+}
+
+fn is_zero_u8(n: &u8) -> bool {
+    *n == 0
 }
 
 // @sat:app.mod-detail
@@ -625,6 +637,7 @@ impl App {
             C::Move { keys, before } => self.session.command(|b| b.move_keys(&keys, before))?,
             C::SetEnabled { keys, enabled } => self.session.command(|b| b.set_enabled(&keys, enabled))?,
             C::SetColor { keys, color } => self.session.command(|b| b.set_color(&keys, color))?,
+            C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             // @sat:app.marks
             C::EditMarks { keys, edit } => self.session.command(|b| {
@@ -1072,6 +1085,7 @@ impl App {
                             first: None,
                             mods: 0,
                             enabled: 0,
+                            level: book.level(book.key_at(pos)),
                         }),
                         sat_core::canon::EntryKind::Mod => {
                             if let Some(t) = tiles.last_mut() {

@@ -154,11 +154,16 @@ pub(super) struct Item {
     pub(super) color: Option<u32>,
     pub(super) group: Option<GroupId>,
     pub(super) muted: bool,
+    /// Nesting level of a separator (ADR 0016); 0 for every other entry.
+    pub(super) level: u8,
     /// Index into the book's interned card styles (ADR 0012).
     pub(super) style: Option<u32>,
     /// Index into the book's interned marks (tags, stickers, note).
     pub(super) marks: Option<u32>,
 }
+
+/// Deepest separator nesting (ADR 0016).
+pub const MAX_LEVEL: u8 = 7;
 
 #[derive(Debug, Clone)]
 pub(super) struct Group {
@@ -183,6 +188,8 @@ enum Op {
     /// Marks by interned id.
     Marks(Vec<(Key, Option<u32>)>),
     Muted(Vec<(Key, bool)>),
+    /// Separator levels.
+    Level(Vec<(Key, u8)>),
     MakeGroup {
         id: GroupId,
         name: String,
@@ -318,6 +325,7 @@ impl OrderBook {
                 color: None,
                 group: None,
                 muted: false,
+                level: 0,
                 style: None,
                 marks: None,
             })
@@ -519,8 +527,9 @@ impl OrderBook {
     /// Whether entry `k` is a row of view `v`, given `block_collapsed` = the state of its block's separator.
     fn want_with(&self, k: Key, v: ViewId, block_collapsed: bool) -> bool {
         let it = &self.items[k as usize];
+        // a separator is always a row, unless a collapsed separator above holds it (ADR 0016)
         if it.kind == EntryKind::Separator {
-            return true;
+            return !block_collapsed;
         }
         if block_collapsed || !self.passes_filter(it, v) {
             return false;
@@ -532,12 +541,7 @@ impl OrderBook {
     }
 
     fn want(&self, k: Key, v: ViewId) -> bool {
-        let collapsed = self.items[k as usize].kind != EntryKind::Separator
-            && self
-                .seq
-                .separator_before(self.seq.pos(k))
-                .is_some_and(|s| self.view(v).collapsed.contains(&s));
-        self.want_with(k, v, collapsed)
+        self.want_with(k, v, self.hidden_by_collapse(k, v))
     }
 
     /// Re-evaluates rows of `keys` (any order; sorted here) in every view of `out`, emitting patches;
@@ -575,23 +579,46 @@ impl OrderBook {
     /// Recomputes view `v`'s rows from scratch (no patches): opening a view, a new filter, new decoration.
     fn refill_view(&mut self, v: ViewId) {
         let mut vis = vec![false; self.items.len()];
-        let mut collapsed = false;
+        // open separators: (level, whether what follows is hidden)
+        let mut open: Vec<(u8, bool)> = Vec::new();
         for k in self.seq.iter_from(0) {
-            if self.items[k as usize].kind == EntryKind::Separator {
-                collapsed = self.view(v).collapsed.contains(&k);
+            let it = &self.items[k as usize];
+            if it.kind == EntryKind::Separator {
+                while open.last().is_some_and(|o| o.0 >= it.level) {
+                    open.pop();
+                }
+                let hidden = open.last().is_some_and(|o| o.1);
+                vis[k as usize] = self.want_with(k, v, hidden);
+                open.push((it.level, hidden || self.view(v).collapsed.contains(&k)));
+            } else {
+                vis[k as usize] = self.want_with(k, v, open.last().is_some_and(|o| o.1));
             }
-            vis[k as usize] = self.want_with(k, v, collapsed);
         }
         self.seq.reflag_all(v, |k| vis[k as usize]);
         let focus = self.effective_focus(v);
         self.view_mut(v).cursor.shown = focus;
     }
 
-    /// Entries of the block after separator `s` (excluding `s`).
+    /// Entries of the block after separator `s` (excluding `s`), with the blocks of the separators it holds.
     pub(super) fn block_keys(&self, s: Key) -> Vec<Key> {
         let start = self.seq.pos(s) + 1;
-        let end = self.seq.block_end(start);
+        let end = self.subtree_end(s);
         self.seq.iter_from(start).take(end - start).collect()
+    }
+
+    /// Position after everything separator `s` holds: its block and the blocks of deeper separators that follow.
+    pub(super) fn subtree_end(&self, s: Key) -> usize {
+        let level = self.items[s as usize].level;
+        let len = self.seq.len();
+        let mut end = self.seq.block_end(self.seq.pos(s) + 1);
+        while end < len {
+            let next = self.seq.at(end);
+            if self.items[next as usize].level <= level {
+                break;
+            }
+            end = self.seq.block_end(end + 1);
+        }
+        end
     }
 
     pub(super) fn owner(&self, k: Key) -> Option<Key> {
@@ -778,6 +805,51 @@ impl OrderBook {
         i
     }
 
+    // @sat:order.book.level
+    /// Sets the nesting level of separators (ADR 0016; capped at [`MAX_LEVEL`]): a separator holds the following
+    /// separators of a higher level, they collapse and move with it. Other entries are ignored; undoable.
+    pub fn set_level(&mut self, keys: &[Key], level: u8) -> Result<Option<Change>, OrderError> {
+        for &k in keys {
+            self.check_key(k)?;
+        }
+        let l = level.min(MAX_LEVEL);
+        self.apply_recorded(Op::Level(keys.iter().map(|&k| (k, l)).collect()))
+    }
+
+    /// The nesting level of an entry (0 unless a nested separator).
+    pub fn level(&self, k: Key) -> u8 {
+        self.items[k as usize].level
+    }
+
+    /// Separators that hold `k`, nearest first.
+    pub fn ancestors(&self, k: Key) -> Vec<Key> {
+        let mut out = Vec::new();
+        let mut pos = self.seq.pos(k);
+        let mut below = if self.items[k as usize].kind == EntryKind::Separator {
+            self.items[k as usize].level
+        } else {
+            u8::MAX
+        };
+        while below > 0 {
+            let Some(s) = self.seq.separator_before(pos) else {
+                break;
+            };
+            let l = self.items[s as usize].level;
+            if l < below {
+                out.push(s);
+                below = l;
+            }
+            pos = self.seq.pos(s);
+        }
+        out
+    }
+
+    /// Whether a collapsed separator above hides `k` in view `v`.
+    fn hidden_by_collapse(&self, k: Key, v: ViewId) -> bool {
+        let collapsed = &self.view(v).collapsed;
+        self.ancestors(k).iter().any(|s| collapsed.contains(s))
+    }
+
     // @sat:order.book.muted
     /// Mutes (hides unless the filter shows muted entries) or unmutes entries. Separators cannot be muted.
     pub fn set_muted(&mut self, keys: &[Key], muted: bool) -> Result<Option<Change>, OrderError> {
@@ -870,6 +942,7 @@ impl OrderBook {
                     color: None,
                     group: None,
                     muted: false,
+                    level: 0,
                     style: None,
                     marks: None,
                 });
@@ -1032,6 +1105,37 @@ impl OrderBook {
                 p.truth(Truth::Decoration, touched.iter().copied());
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Marks(inv))
+            }
+            Op::Level(each) => {
+                let mut inv = Vec::new();
+                let mut touched = HashSet::new();
+                for &(k, l) in each {
+                    if self.items[k as usize].kind != EntryKind::Separator
+                        || self.items[k as usize].level == l
+                    {
+                        continue;
+                    }
+                    // everything under the separator before and after: depth and visibility follow
+                    // the separator before it and all their holders change size (before and after)
+                    let holders = |b: &Self| {
+                        let mut h = b.ancestors(k);
+                        if let Some(s) = b.seq.separator_before(b.seq.pos(k)) {
+                            h.push(s);
+                            h.extend(b.ancestors(s));
+                        }
+                        h
+                    };
+                    touched.insert(k);
+                    touched.extend(self.block_keys(k));
+                    touched.extend(holders(self));
+                    inv.push((k, self.items[k as usize].level));
+                    self.items[k as usize].level = l;
+                    touched.extend(self.block_keys(k));
+                    touched.extend(holders(self));
+                }
+                p.truth(Truth::Decoration, touched.iter().copied());
+                self.after_content_change(touched, p);
+                (!inv.is_empty()).then_some(Op::Level(inv))
             }
             Op::Muted(each) => {
                 let mut inv = Vec::new();
@@ -1223,6 +1327,8 @@ impl OrderBook {
             // the block the entry is in (for a separator: the block it cuts) changes size
             if let Some(s) = self.seq.separator_before(pos) {
                 headers.insert(s);
+                // nested separators: every holder above changes size too
+                headers.extend(self.ancestors(s));
             }
             if pos > 0 {
                 neighbours.push(self.seq.at(pos - 1));
@@ -1267,6 +1373,8 @@ impl OrderBook {
             // the block the entry is in (for a separator: the block it cuts) changes size
             if let Some(s) = self.seq.separator_before(pos) {
                 headers.insert(s);
+                // nested separators: every holder above changes size too
+                headers.extend(self.ancestors(s));
             }
             if pos > 0 {
                 neighbours.push(self.seq.at(pos - 1));
@@ -1320,6 +1428,9 @@ impl OrderBook {
             if it.muted {
                 d.muted.push(it.name.clone());
             }
+            if it.level > 0 {
+                d.levels.insert(it.name.clone(), it.level);
+            }
             if let Some(i) = it.style {
                 d.styles.insert(it.name.clone(), self.styles[i as usize].clone());
             }
@@ -1352,6 +1463,7 @@ impl OrderBook {
             it.color = None;
             it.group = None;
             it.muted = false;
+            it.level = 0;
             it.style = None;
             it.marks = None;
         }
@@ -1394,6 +1506,14 @@ impl OrderBook {
             match self.key_of(name) {
                 Some(k) if self.items[k as usize].kind != EntryKind::Separator => {
                     self.items[k as usize].muted = true
+                }
+                _ => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+            }
+        }
+        for (name, &l) in &d.levels {
+            match self.key_of(name) {
+                Some(k) if self.items[k as usize].kind == EntryKind::Separator => {
+                    self.items[k as usize].level = l.min(MAX_LEVEL)
                 }
                 _ => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
             }
@@ -1557,7 +1677,6 @@ impl OrderBook {
     fn row_of(&self, k: Key, v: ViewId, focus: Option<Key>) -> Row<'_> {
         let it = &self.items[k as usize];
         let pos = self.seq.pos(k);
-        let in_block = self.owner(k).is_some();
         let mut row = Row {
             key: k,
             pos: pos as u32,
@@ -1568,7 +1687,11 @@ impl OrderBook {
             },
             name: &it.name,
             enabled: it.enabled,
-            depth: in_block as u8,
+            depth: if it.kind == EntryKind::Separator {
+                it.level
+            } else {
+                self.owner(k).map_or(0, |s| self.items[s as usize].level + 1)
+            },
             collapsed: self.view(v).collapsed.contains(&k),
             color: it.color,
             size: 0,
@@ -1580,7 +1703,7 @@ impl OrderBook {
             selected: self.view(v).cursor.selected.contains(&k),
         };
         if it.kind == EntryKind::Separator {
-            row.size = (self.seq.block_end(pos + 1) - pos - 1) as u32;
+            row.size = (self.subtree_end(k) - pos - 1) as u32;
         } else if let Some((gid, g)) = self.group(k) {
             if g.valid && self.group_collapsed(gid, v) && g.first == k {
                 row.kind = RowKind::Group;
@@ -1619,11 +1742,19 @@ impl OrderBook {
         };
         let mut out = Vec::new();
         let mut collapsed = false;
+        // levels of the separators that hold the current position, each with "hides what follows"
+        let mut open: Vec<(u8, bool)> = Vec::new();
         for &k in &order {
             let it = &self.items[k as usize];
             if it.kind == EntryKind::Separator {
-                collapsed = self.view(v).collapsed.contains(&k);
-                out.push(k);
+                open.retain(|o| o.0 < it.level);
+                let above = open.iter().any(|o| o.1);
+                let mine = self.view(v).collapsed.contains(&k);
+                open.push((it.level, above || mine));
+                collapsed = above || mine;
+                if !above {
+                    out.push(k);
+                }
                 continue;
             }
             if collapsed || !self.passes_filter(it, v) {

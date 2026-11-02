@@ -269,6 +269,7 @@ function paint(el, r) {
   place(el);
   if (r.kind === "separator" || r.kind === "group") {
     cls.push("sep"); el.className = cls.join(" ");
+    if (r.depth) el.style.paddingLeft = (8 + r.depth * 18) + "px";
     el.innerHTML = `<span>${r.collapsed ? "▸" : "▾"}</span><span>${esc(r.name.replace(/_separator$/, ""))}</span><span class="size">${r.size}</span>`;
     return;
   }
@@ -694,6 +695,7 @@ list.addEventListener("contextmenu", ev => {
   ctx.innerHTML = `<h4>${r.kind === "mod" ? "Мод" : "Запись"}: ${esc(r.name)}</h4><input id="ctxFilter" type="search" placeholder="Фильтр разделителей…">` +
     `<div id="ctxMoves">${moves}</div><hr>` +
     (r.kind === "mod" ? `<div class="it" data-act="toggle">${r.enabled ? "Выключить" : "Включить"}</div>` : "") +
+    (r.kind === "separator" ? `<div class="it" data-act="nest">Вложить в разделитель выше</div>` + (r.depth > 0 ? `<div class="it" data-act="unnest">Вынести на уровень выше</div>` : "") : "") +
     `<div class="it" data-act="paint">Покрасить…</div>` + (r.color !== null ? `<div class="it" data-act="unpaint">Снять цвет</div>` : "") +
     (r.style ? `<div class="it" data-act="unstyle">Сбросить декорацию</div>` : "") +
     `<div class="it" data-act="copy">Скопировать имя</div>`;
@@ -718,6 +720,8 @@ $("ctx").addEventListener("click", ev => {
   else if (it.dataset.act === "paint") { closeMenus(); return paint_(sel, r.name); }
   else if (it.dataset.act === "unpaint") run({ type: "set-color", keys: sel, color: null });
   else if (it.dataset.act === "unstyle") run({ type: "set-style", keys: sel, style: null });
+  else if (it.dataset.act === "nest") run({ type: "set-level", keys: sel, level: r.depth + 1 });
+  else if (it.dataset.act === "unnest") run({ type: "set-level", keys: sel, level: Math.max(0, r.depth - 1) });
   else if (it.dataset.act === "copy") { try { navigator.clipboard.writeText(r.name); } catch (_) {} }
   closeMenus(); list.focus({ preventScroll: true });
 });
