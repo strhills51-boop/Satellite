@@ -56,6 +56,7 @@ mod factory_cmd;
 mod ignore_cmd;
 mod intent_cmd;
 mod patch_cmd;
+mod plugins_cmd;
 mod project_io;
 mod stickers_cmd;
 
@@ -72,6 +73,7 @@ fn main() {
         Some("ignore") => ignore_cmd::ignore(&args[1..]),
         Some("plan-install") => intent_cmd::plan_install(&args[1..]),
         Some("stickers") => stickers_cmd::stickers(&args[1..]),
+        Some("plugins") => plugins_cmd::plugins(&args[1..]),
         Some("group") => factory_cmd::group(&args[1..]),
         Some("factory") => factory_cmd::factory(&args[1..]),
         Some("patch") => patch_cmd::patch(&args[1..]),
@@ -79,7 +81,7 @@ fn main() {
         Some("inspect") => inspect(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -879,19 +881,32 @@ fn analyze(args: &[String]) -> Result<(), String> {
     // plugins: the manager's lists + versions across mods + mod priorities
     let t = Instant::now();
     let read = |f: &str| std::fs::read(inst.profile_dir().join(f)).unwrap_or_default();
+    // @sat:cli.plugins-reconcile
+    // the manager's lists are taken unless the user edited the project's since they were last seen
     let plugin_canon = if offline {
         project.plugins.clone()
     } else {
-        PluginCanon {
+        let disk = PluginCanon {
             load_order: sat_mo2::profile::parse_loadorder(&read("loadorder.txt")),
             checked: sat_mo2::profile::parse_plugins(&read("plugins.txt"))
                 .into_iter()
                 .map(|l| (l.name, l.enabled))
                 .collect(),
-            blacklist: project.plugins.blacklist.clone(),
+            blacklist: Vec::new(),
+        };
+        let (canon, r) =
+            sat_core::plugin_edit::reconcile(&project.plugins, project.plugins_seen.as_ref(), &disk);
+        if r.conflict {
+            eprintln!(
+                "plugins: changed both in the manager and in the project since the last run — the project's edit stands (the commit writes it)"
+            );
+        } else if r.pending {
+            eprintln!("plugins: the project has edits of its own (the commit writes them)");
         }
+        project.plugins_seen = Some(disk);
+        canon
     };
-    // the project keeps the manager's lists as last seen, so the plugin list works without the build
+    // the project keeps the plugin canon, so the plugin list works without the build
     project.plugins = plugin_canon.clone();
     let plugin_list = PluginList::compute(&plugin_versions, &plugin_canon, proj.priorities());
     timings.insert("plugins", t.elapsed().as_millis());

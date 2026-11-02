@@ -116,6 +116,9 @@ pub enum Colour {
 pub struct Version {
     pub owner: ModId,
     pub kind: PluginKind,
+    /// Loads with the masters, before every regular plugin: the ESM flag, or a `.esm` / `.esl` file (a light-flagged
+    /// `.esp` is light, not a master).
+    pub master: bool,
     pub masters: Vec<String>,
     /// Header could not be read (masters unknown).
     pub error: Option<String>,
@@ -137,9 +140,15 @@ fn version_of(owner: ModId, p: &PluginFacts) -> Version {
             .header
             .as_ref()
             .map_or_else(|| kind_from_name(&p.file_name), |h| h.kind(&p.file_name)),
+        master: is_master_file(&p.file_name) || p.header.as_ref().is_some_and(|h| h.master_flag),
         masters: p.header.as_ref().map(|h| h.masters.clone()).unwrap_or_default(),
         error: p.error.clone(),
     }
+}
+
+fn is_master_file(name: &str) -> bool {
+    let l = name.to_ascii_lowercase();
+    l.ends_with(".esm") || l.ends_with(".esl")
 }
 
 fn kind_from_name(name: &str) -> PluginKind {
@@ -198,6 +207,8 @@ pub struct Plugin {
     /// Every version, winner included, lowest priority first.
     pub versions: Vec<Version>,
     pub kind: PluginKind,
+    /// Loads in the masters' block (see [`Version::master`]).
+    pub master: bool,
     pub masters: Vec<String>,
     /// At least one owner mod is enabled (or the game provides it).
     pub present: bool,
@@ -322,13 +333,14 @@ impl PluginList {
                     (None, false) if origin == Origin::Base => Listed::Implicit,
                     (None, false) => Listed::Unlisted,
                 };
-                let (kind, masters) = match (winner, origin) {
-                    (Some(w), _) => (vs[w].kind, vs[w].masters.clone()),
+                let (kind, master, masters) = match (winner, origin) {
+                    (Some(w), _) => (vs[w].kind, vs[w].master, vs[w].masters.clone()),
                     (None, Origin::Base) => (
                         PluginKind::Esm,
+                        true,
                         base[&key].iter().map(|s| s.to_string()).collect(),
                     ),
-                    (None, _) => (kind_from_name(&name), Vec::new()),
+                    (None, _) => (kind_from_name(&name), is_master_file(&name), Vec::new()),
                 };
                 let present = matches!(origin, Origin::Base | Origin::CreationClub) || enabled_owner;
                 // a base master cannot be hidden: the game loads it whatever the lists say
@@ -344,6 +356,7 @@ impl PluginList {
                     winner,
                     versions: vs,
                     kind,
+                    master,
                     masters,
                     present,
                     active,

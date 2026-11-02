@@ -123,6 +123,13 @@ pub enum Command {
     },
     /// Check plugins in layers by masters from the base game up; uncheck the rest of the present ones.
     CascadePlugins,
+    /// Move plugins (in their current order) to just before `before`, or to the end; refused when the move breaks
+    /// the game's order rules (`@sat:plugins.edit.order`).
+    MovePlugins {
+        names: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+    },
     /// Decide a sync record (by fingerprint): pending, ignore, or confirm with an answer that fits it.
     Decide {
         fingerprint: String,
@@ -564,6 +571,8 @@ pub enum AppError {
     Record(String),
     #[error("no plugin {0:?}")]
     Plugin(String),
+    #[error(transparent)]
+    PluginOrder(#[from] sat_core::plugin_edit::PluginOrderError),
     #[error("bad style patch: {0}")]
     Style(String),
     #[error("{0}")]
@@ -739,6 +748,20 @@ impl App {
             C::SetPluginHidden { name, hidden } => {
                 let mut canon = self.session.plugin_canon().clone();
                 if !canon.set_blacklisted(&name, hidden) {
+                    return Ok(Event::Nothing);
+                }
+                self.session.set_plugin_canon(canon);
+                self.revision += 1;
+                return Ok(Event::Changed {
+                    revision: self.revision,
+                    views: Vec::new(),
+                    canon: true,
+                });
+            }
+            C::MovePlugins { names, before } => {
+                let list = self.session.plugins();
+                let mut canon = self.session.plugin_canon().clone();
+                if !canon.move_plugins(&list, &names, before.as_deref())? {
                     return Ok(Event::Nothing);
                 }
                 self.session.set_plugin_canon(canon);
@@ -1987,6 +2010,24 @@ mod tests {
         a.command(Command::CascadePlugins).unwrap();
         assert!(state(&mut a, "D.esp").1, "cascade turns it back on: no masters");
         assert!(!state(&mut a, "A.esp").1, "hidden stays off");
+        // a move to the end changes the order; a base master does not move
+        let pos = |a: &mut App, n: &str| a.session().plugins().plugins.iter().position(|p| p.name == n);
+        let before = pos(&mut a, "D.esp");
+        let ev = a
+            .command(Command::MovePlugins {
+                names: vec!["D.esp".into()],
+                before: None,
+            })
+            .unwrap();
+        assert!(matches!(ev, Event::Changed { canon: true, .. }));
+        assert!(pos(&mut a, "D.esp") >= before);
+        assert!(matches!(
+            a.command(Command::MovePlugins {
+                names: vec!["Skyrim.esm".into()],
+                before: None
+            }),
+            Err(AppError::PluginOrder(_))
+        ));
     }
 
     #[test]

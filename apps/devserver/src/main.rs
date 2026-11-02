@@ -129,7 +129,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut decisions = None;
     let mut member_keys = Vec::new();
     let mut records = Vec::new();
-    let mut blacklist = Vec::new();
+    let mut plugins = (PluginCanon::default(), None);
     let mut ignore = Default::default();
     let mut tags = sat_core::tags::TagCatalog::default();
     let mut sticker_rules = Vec::new();
@@ -157,7 +157,7 @@ fn load(args: &[String]) -> Result<App, String> {
             decisions = Some(p.decisions.clone());
             member_keys = p.member_keys().collect();
             records = p.sync.clone();
-            blacklist = p.plugins.blacklist.clone();
+            plugins = (p.plugins.clone(), p.plugins_seen.clone());
             ignore = p.conflict_ignore.clone();
             tags = p.tags.clone();
             sticker_rules = p.sticker_rules.clone();
@@ -210,14 +210,20 @@ fn load(args: &[String]) -> Result<App, String> {
     }
     session.set_conflict_ignore(ignore);
     session.set_plugin_facts(Arc::new(versions));
-    session.set_plugin_canon(PluginCanon {
+    // the manager's lists, unless the project edited its own since they were last seen
+    let disk = PluginCanon {
         load_order: profile::parse_loadorder(&read("loadorder.txt").unwrap_or_default()),
         checked: profile::parse_plugins(&read("plugins.txt").unwrap_or_default())
             .into_iter()
             .map(|l| (l.name, l.enabled))
             .collect(),
-        blacklist,
-    });
+        blacklist: Vec::new(),
+    };
+    let (canon, r) = sat_core::plugin_edit::reconcile(&plugins.0, plugins.1.as_ref(), &disk);
+    if r.pending {
+        eprintln!("plugins: the project has edits of its own");
+    }
+    session.set_plugin_canon(canon);
     let t = Instant::now();
     let totals = session.overwrite().totals();
     eprintln!(

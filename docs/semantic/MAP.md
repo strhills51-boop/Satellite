@@ -102,6 +102,7 @@
 | Экземпляр MO2 (папки, профили, ini) | `@sat:mo2.instance` | — |
 | `modlist.txt` / `plugins.txt` / `loadorder.txt` | `@sat:mo2.profile`; два формата `plugins.txt` (со звёздами / список без звёзд = все активны) — `@sat:mo2.plugins-txt`, запись в формате прежнего файла — `@sat:mo2.plugins-write` | порядок — `loadorder.txt`; плагины сверх лимита MO2 в списки не вносит — их находит скан |
 | Правка плагинов: отметка, скрытие (blacklist), каскадное включение по мастерам, что получают `plugins.txt` / `loadorder.txt` | `@sat:plugins.edit` (`set_checked`, `set_blacklisted`), `@sat:plugins.edit.cascade`, `@sat:plugins.edit.files`; скрытые в списке — `Plugin::blacklisted` (`@sat:plugins.list`); в проекте — раздел `plugins` (`PluginCanon::blacklist`; ранний `plugin_blacklist` сворачивается при чтении) | команды окна — `@sat:app.plugins-edit` (`SetPluginChecked` включает мод-владельца, `SetPluginHidden`, `CascadePlugins`; пока без отмены); запись при фиксации — `Payload::plugin_files` (`@sat:mo2.commit`) |
+| Порядок плагинов и запись файлов менеджера: перемещение с правилами игры (мастера выше обычных, плагин ниже своих мастеров; отказ только за новое нарушение), сведение правок проекта с файлами MO2 (порядок целиком, отметки по плагину; `plugins_seen` — как файлы виделись в прошлый раз), запись при фиксации | перемещение — `@sat:plugins.edit.order` (`move_plugins`, `PluginOrderError`), флаг мастера — `Plugin::master`; сведение — `@sat:plugins.edit.reconcile` (`reconcile`), в анализе — `@sat:cli.plugins-reconcile`; файлы из канона — `@sat:plugins.edit.canon-files`, при фиксации — `@sat:cli.commit.plugins`; команда — `@sat:cli.plugins` (`sat-cli plugins`), в окне — `MovePlugins` (`@sat:app.plugins-edit`) | MO2 перечитывает файлы при старте: запущенный MO2 перепишет их своими — фиксировать при закрытом MO2 |
 | `meta.ini` мода, цвет QColor | `@sat:mo2.meta`, `@sat:mo2.ini` | — |
 | Атомарная запись файла | `@sat:mo2.write-atomic` | — |
 | Сигнатура папки мода | `@sat:scan.signature.v3` (`signature_v2` / `signature_v1` — только перенос кеша) | сигнатура монолита (`buildAnalysisSignature`) — другая |
@@ -225,6 +226,7 @@
 - `tools/sat-cli/src/patch_cmd.rs` — `@sat:cli.patch`: патчи ini модов — добавить, изменить, перебазировать, убрать, список.
 - `tools/sat-cli/src/ignore_cmd.rs` — `@sat:cli.ignore`: игнор-лист конфликтов в проекте.
 - `tools/sat-cli/src/intent_cmd.rs` — `@sat:cli.intent`: `plan-install` — запланированный мод из архива загрузок.
+- `tools/sat-cli/src/plugins_cmd.rs` — `@sat:cli.plugins`: список плагинов проекта и его правка — порядок, отметки, скрытие, каскад.
 - `tools/sat-cli/src/stickers_cmd.rs` — `@sat:cli.stickers`: условные стикеры проекта — список, добавить, убрать.
 - `tools/sat-cli/src/project_io.rs` — `@sat:cli.project`: файл проекта сборки для команд — открыть, перевести раз, сохранить.
 - `tools/sat-cli/src/bench_order.rs` — `@sat:cli.bench-order`: бенчмарк движка порядка.

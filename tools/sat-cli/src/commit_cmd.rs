@@ -173,6 +173,22 @@ pub fn commit(args: &[String]) -> Result<(), String> {
             }
         }
     }
+    let plugins = plugin_files(&layout, &project, &p);
+    if let Some(w) = &plugins {
+        println!(
+            "  plugins.txt / loadorder.txt: {}{}",
+            if w.edited {
+                "written from the project (its order, marks and hidden plugins)"
+            } else {
+                "kept"
+            },
+            if w.packed.is_empty() {
+                String::new()
+            } else {
+                format!(", plus {} enabled at the end", w.packed.join(", "))
+            }
+        );
+    }
     println!(
         "  modlist.txt: written from the project canon ({} entries); {} record(s) settled, {} ignored",
         p.canon_after.entries.len(),
@@ -195,6 +211,13 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         .unwrap_or_default();
     let mut after = project.clone();
     after.apply_plan(&p);
+    if let Some(w) = &plugins {
+        // the files are now what the project says: the next analysis finds no edits of its own
+        let mut seen = w.written.clone();
+        seen.blacklist.clear();
+        after.plugins = w.written.clone();
+        after.plugins_seen = Some(seen);
+    }
     for (i, fp) in built {
         after.factories[i].built = Some(fp);
     }
@@ -222,7 +245,7 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         plan: &p,
         modlist: profile::serialize_modlist(&p.canon_after, &style),
         project_after: prepared.clone(),
-        plugin_files: packed_plugins(&layout, &p),
+        plugin_files: plugins.map(|w| (w.plugins, w.loadorder)),
     };
     let stamp = flag_value(args, "--stamp").map_or_else(stamp_now, str::to_string);
     let report = execute(&layout, &stamp, &payload, Faults::default());
@@ -255,9 +278,24 @@ pub fn commit(args: &[String]) -> Result<(), String> {
 }
 
 // @sat:cli.commit.plugins
-/// `plugins.txt` and `loadorder.txt` with the plugins of packed outputs added (enabled, last), or `None` when
-/// the commit packs nothing — then both files stay as they are.
-fn packed_plugins(layout: &Layout, p: &sat_core::sync::plan::Plan) -> Option<(Vec<u8>, Vec<u8>)> {
+/// What a commit writes to `plugins.txt` / `loadorder.txt`.
+struct PluginWrite {
+    plugins: Vec<u8>,
+    loadorder: Vec<u8>,
+    /// The lists as written: the project's canon and its `plugins_seen` after the commit.
+    written: sat_core::plugins::PluginCanon,
+    /// The project's own edits are in it (order, marks, hidden plugins).
+    edited: bool,
+    /// Plugins of packed factory outputs, added enabled at the end.
+    packed: Vec<String>,
+}
+
+/// The plugin files a commit writes, or `None` when both stay as they are: the project's plugin canon when it
+/// differs from the manager's files (`@sat:plugins.edit.canon-files`), plus the plugins of packed outputs. The
+/// canon is reconciled with the files first (`@sat:plugins.edit.reconcile`): a change made in the manager after
+/// the last analysis is not overwritten by the project's older lists.
+fn plugin_files(layout: &Layout, project: &Project, p: &sat_core::sync::plan::Plan) -> Option<PluginWrite> {
+    use sat_core::plugin_edit::canon_files;
     let packed: Vec<String> = p
         .disk_ops
         .iter()
@@ -266,16 +304,33 @@ fn packed_plugins(layout: &Layout, p: &sat_core::sync::plan::Plan) -> Option<(Ve
             _ => None,
         })
         .collect();
-    if packed.is_empty() {
-        return None;
-    }
     let read = |f: &str| std::fs::read(layout.profile_dir.join(f)).unwrap_or_default();
     let (pt, lo) = (read("plugins.txt"), read("loadorder.txt"));
-    let mut lines: Vec<(String, bool)> = profile::parse_plugins(&pt)
-        .into_iter()
-        .map(|l| (l.name, l.enabled))
-        .collect();
-    let mut order = profile::parse_loadorder(&lo);
+    let disk = sat_core::plugins::PluginCanon {
+        load_order: profile::parse_loadorder(&lo),
+        checked: profile::parse_plugins(&pt)
+            .into_iter()
+            .map(|l| (l.name, l.enabled))
+            .collect(),
+        blacklist: Vec::new(),
+    };
+    let (canon, r) = sat_core::plugin_edit::reconcile(&project.plugins, project.plugins_seen.as_ref(), &disk);
+    if r.conflict {
+        eprintln!(
+            "plugins: the manager changed the same lists since the last analysis — the project's edit is written"
+        );
+    }
+    let canon = &canon;
+    let (mut lines, mut order) = canon_files(canon);
+    let edited = (lines.clone(), order.clone()) != canon_files(&disk);
+    if !edited && packed.is_empty() {
+        return None;
+    }
+    if !edited {
+        // only the packed plugins: the files keep their own lines
+        lines = disk.checked.clone();
+        order = disk.load_order.clone();
+    }
     for e in &packed {
         match lines.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(e)) {
             Some(l) => l.1 = true,
@@ -285,10 +340,17 @@ fn packed_plugins(layout: &Layout, p: &sat_core::sync::plan::Plan) -> Option<(Ve
             order.push(e.clone());
         }
     }
-    Some((
-        profile::serialize_plugins(&lines, &pt),
-        profile::serialize_loadorder(&order, &lo),
-    ))
+    Some(PluginWrite {
+        plugins: profile::serialize_plugins(&lines, &pt),
+        loadorder: profile::serialize_loadorder(&order, &lo),
+        written: sat_core::plugins::PluginCanon {
+            load_order: order,
+            checked: lines,
+            blacklist: canon.blacklist.clone(),
+        },
+        edited,
+        packed,
+    })
 }
 
 // @sat:cli.commit.patches

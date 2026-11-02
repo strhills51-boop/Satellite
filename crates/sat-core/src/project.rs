@@ -52,6 +52,10 @@ pub struct Project {
     /// manager's files, and the plugins the user hid — so the plugin list works without the build.
     #[serde(default)]
     pub plugins: crate::plugins::PluginCanon,
+    /// The manager's plugin lists as last read (`@sat:plugins.edit.reconcile`): what tells the user's edits from the
+    /// manager's. Absent in older files — then the manager's lists are taken as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugins_seen: Option<crate::plugins::PluginCanon>,
     /// Read from early schema-2 files only; folded into `plugins.blacklist` on load.
     #[serde(default, skip_serializing)]
     pub plugin_blacklist: Vec<String>,
@@ -135,6 +139,7 @@ impl Project {
             decor: Decor::default(),
             decisions: ChainDecisions::default(),
             plugins: Default::default(),
+            plugins_seen: None,
             plugin_blacklist: Vec::new(),
             conflict_ignore: Default::default(),
             tags: Default::default(),
