@@ -83,6 +83,9 @@ pub struct Project {
     /// User-made counters on mod cards (`@sat:counters`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub counters: Vec<crate::counters::CounterDef>,
+    /// Names, icons and colours the user gave chains (`@sat:naming.manual`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chain_identities: Vec<crate::naming::ManualIdentity>,
     /// Conditional stickers (`@sat:sticker-rules`): a sticker on every mod an expression holds for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sticker_rules: Vec<crate::sticker_rules::StickerRule>,
@@ -147,6 +150,7 @@ impl Project {
             sticker_rules: Vec::new(),
             new_mods: Vec::new(),
             counters: Vec::new(),
+            chain_identities: Vec::new(),
             sources: BTreeMap::new(),
             factories: Vec::new(),
             patches: Vec::new(),

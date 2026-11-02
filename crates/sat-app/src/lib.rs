@@ -123,6 +123,17 @@ pub enum Command {
     },
     /// Check plugins in layers by masters from the base game up; uncheck the rest of the present ones.
     CascadePlugins,
+    /// Name, icon or colour a normalized chain (by signature); `None` everywhere takes the generated identity back.
+    /// The identity follows the chain when it is recomputed (`@sat:naming.inherit`).
+    SetChainIdentity {
+        signature: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        emoji: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hue: Option<u16>,
+    },
     /// Move plugins (in their current order) to just before `before`, or to the end; refused when the move breaks
     /// the game's order rules (`@sat:plugins.edit.order`).
     MovePlugins {
@@ -352,10 +363,13 @@ pub struct ChainView {
     pub done: bool,
     pub emoji: String,
     pub hue: u16,
-    /// Generated from the paths: top folder and the most common extension.
+    /// What the chain is about (`@sat:naming.title`: strongest folders, separators, extensions), or the user's name.
     pub title: String,
-    /// Generated name: title · first mod → last mod (monolith chain names).
+    /// `title · lowest → winner` (monolith chain names), unique; or the user's name.
     pub name: String,
+    /// The user named, iconed or coloured it.
+    #[serde(default)]
+    pub custom: bool,
     pub files: u32,
     pub bytes: u64,
     /// Stack, winner first.
@@ -598,6 +612,9 @@ pub struct App {
     heads: Option<chains::Cached>,
     /// Conditional stickers of the project (`@sat:sticker-rules`).
     sticker_rules: sat_core::sticker_rules::StickerRules,
+    /// Chain identities the user set (`@sat:naming.manual`), and their revision (heads are rebuilt on a change).
+    chain_identities: Vec<sat_core::naming::ManualIdentity>,
+    chain_identities_rev: u64,
     /// The project's counters (`@sat:counters`).
     counters: sat_core::counters::Counters,
     /// Where mods come from, by folded name (`@sat:source`).
@@ -618,6 +635,8 @@ impl App {
             sync: Default::default(),
             tags: Default::default(),
             sticker_rules: Default::default(),
+            chain_identities: Vec::new(),
+            chain_identities_rev: 0,
             system_stickers: Default::default(),
             counters: Default::default(),
             sources: Default::default(),
@@ -751,6 +770,46 @@ impl App {
                     return Ok(Event::Nothing);
                 }
                 self.session.set_plugin_canon(canon);
+                self.revision += 1;
+                return Ok(Event::Changed {
+                    revision: self.revision,
+                    views: Vec::new(),
+                    canon: true,
+                });
+            }
+            // @sat:app.chain-identity
+            C::SetChainIdentity {
+                signature,
+                name,
+                emoji,
+                hue,
+            } => {
+                let heads = self.heads();
+                let h = heads
+                    .iter()
+                    .find(|h| h.hex() == signature)
+                    .ok_or_else(|| AppError::Signature(signature.clone()))?;
+                let id = sat_core::naming::ManualIdentity {
+                    sources: h.sources.clone(),
+                    name: name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()),
+                    emoji,
+                    hue,
+                };
+                // the identity this chain wears now (inherited or its own) is replaced
+                let srcs = [h.sources.as_slice()];
+                let worn = sat_core::naming::inherit(&srcs, &self.chain_identities)[0];
+                let mut list = self.chain_identities.clone();
+                if let Some(i) = worn {
+                    list.remove(i);
+                }
+                if !id.is_empty() {
+                    list.push(id);
+                }
+                if list == self.chain_identities {
+                    return Ok(Event::Nothing);
+                }
+                self.chain_identities = list;
+                self.chain_identities_rev += 1;
                 self.revision += 1;
                 return Ok(Event::Changed {
                     revision: self.revision,
@@ -1232,28 +1291,6 @@ fn mod_badges(
 const CHAIN_LIMIT: usize = 60;
 const SAMPLE_LIMIT: usize = 6;
 
-/// Title of a chain from its paths: the most common top folder and extension (`textures · dds`).
-fn chain_title(paths: &[String]) -> String {
-    let mut top: std::collections::BTreeMap<&str, usize> = Default::default();
-    let mut ext: std::collections::BTreeMap<&str, usize> = Default::default();
-    for p in paths {
-        *top.entry(p.split('/').next().unwrap_or("")).or_default() += 1;
-        if let Some((_, e)) = p.rsplit_once('.') {
-            *ext.entry(e).or_default() += 1;
-        }
-    }
-    let best = |m: &std::collections::BTreeMap<&str, usize>| {
-        m.iter()
-            .max_by_key(|(k, n)| (**n, std::cmp::Reverse(**k)))
-            .map(|(k, _)| k.to_string())
-    };
-    match (best(&top), best(&ext)) {
-        (Some(t), Some(e)) if !t.contains('.') => format!("{t} · {e}"),
-        (Some(t), _) => t,
-        _ => String::new(),
-    }
-}
-
 impl App {
     fn mod_detail(&mut self, key: Key) -> ModDetail {
         let ow = self.session.overwrite();
@@ -1331,6 +1368,7 @@ impl App {
                     hue: h.hue,
                     title: h.title.clone(),
                     name: h.name.clone(),
+                    custom: h.custom,
                     files: h.files,
                     bytes: h.bytes,
                     stack: h
@@ -1654,6 +1692,38 @@ mod tests {
     }
 
     #[test]
+    fn a_chain_wears_the_identity_the_user_gave_it() {
+        let mut a = app_of(["A", "B"]);
+        let head = a.heads()[0].clone();
+        let set = |a: &mut App, name: Option<&str>, emoji: Option<&str>, hue: Option<u16>| {
+            a.command(Command::SetChainIdentity {
+                signature: head.hex(),
+                name: name.map(String::from),
+                emoji: emoji.map(String::from),
+                hue,
+            })
+            .unwrap()
+        };
+        set(&mut a, Some("My chain"), Some("🧪"), Some(400));
+        let h = a.heads()[0].clone();
+        assert_eq!(
+            (h.name.as_str(), h.emoji.as_str(), h.hue, h.custom),
+            ("My chain", "🧪", 40, true)
+        );
+        // another edit replaces the identity, it does not stack
+        set(&mut a, Some("Other"), None, None);
+        let h = a.heads()[0].clone();
+        assert_eq!((h.name.as_str(), &h.emoji), ("Other", &head.emoji));
+        assert_eq!(a.chain_identities().len(), 1);
+        // nothing given: the generated identity is back
+        assert!(matches!(set(&mut a, None, None, None), Event::Changed { .. }));
+        let h = a.heads()[0].clone();
+        assert_eq!((h.name, h.custom), (head.name.clone(), false));
+        assert!(a.chain_identities().is_empty());
+        assert!(matches!(set(&mut a, None, None, None), Event::Nothing));
+    }
+
+    #[test]
     fn a_settled_chain_stays_settled_when_its_mod_is_renamed() {
         let keyed = |mods: [&str; 2], ids: [&str; 2]| {
             let mut a = app_of(mods);
@@ -1674,7 +1744,7 @@ mod tests {
         let mut after = keyed(["A v2", "B"], ["e1", "e2"]);
         after.session.set_decisions(settled.clone());
         let h = after.heads()[0].clone();
-        assert_eq!((h.signature, h.emoji), (head.signature, head.emoji));
+        assert_eq!((h.signature, &h.emoji), (head.signature, &head.emoji));
         assert!(h.done(after.session.decisions()));
         // without entity ids the folder name is the key: the renamed chain is a new one
         let mut unkeyed = app_of(["A v2", "B"]);

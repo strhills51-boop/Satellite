@@ -98,6 +98,7 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     let mut app = App::new(session, Registry::with_builtins());
     app.set_sync(p.sync.clone(), Vec::new());
     app.set_tag_catalog(p.tags.clone());
+    app.set_chain_identities(p.chain_identities.clone());
     for e in app.set_sticker_rules(&p.sticker_rules) {
         eprintln!("{e}");
     }
@@ -136,6 +137,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut system_stickers = Vec::new();
     let mut sources = Vec::new();
     let mut counters = Vec::new();
+    let mut chain_identities = Vec::new();
     // the project file; the early layout is read as it is (the sandbox converts nothing)
     let opened = if project_file.exists() {
         sat_stll::Stll::open(&project_file)
@@ -164,6 +166,7 @@ fn load(args: &[String]) -> Result<App, String> {
             system_stickers = p.system_stickers();
             sources = p.sources_by_name();
             counters = p.counters.clone();
+            chain_identities = p.chain_identities.clone();
             p.book().0
         }
         _ => {
@@ -245,6 +248,7 @@ fn load(args: &[String]) -> Result<App, String> {
     eprintln!("sync: {} record(s) from the project", records.len());
     app.set_sync(records, disk);
     app.set_tag_catalog(tags);
+    app.set_chain_identities(chain_identities);
     for e in app.set_sticker_rules(&sticker_rules) {
         eprintln!("{e}");
     }

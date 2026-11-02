@@ -15,7 +15,7 @@ use sat_core::ids::{ChainId, ModId};
 use sat_core::overwrite::OverwriteProjection;
 use sat_core::session::Session;
 
-use crate::{App, chain_title};
+use crate::App;
 
 /// Heading of one normalized chain.
 #[derive(Debug, Clone)]
@@ -23,9 +23,12 @@ pub(crate) struct Head {
     pub signature: u64,
     /// Content signatures of its exact chains, sorted.
     pub sources: Vec<u64>,
-    pub emoji: &'static str,
+    pub emoji: String,
     pub hue: u16,
+    /// What the chain is about (`@sat:naming.title`), or the user's name for it.
     pub title: String,
+    /// The user named, iconed or coloured it (`@sat:naming.manual`).
+    pub custom: bool,
     /// `title · lowest → winner` (monolith chain names).
     pub name: String,
     pub files: u32,
@@ -49,9 +52,12 @@ pub(crate) fn exact_signature(ow: &OverwriteProjection, s: &Session, c: ChainId)
     sat_core::identity::identity(ow.chain_mods(c).iter().map(|&x| s.member_key(x))).signature
 }
 
-fn build(ow: &OverwriteProjection, s: &Session) -> Vec<Head> {
+fn build(ow: &OverwriteProjection, s: &Session, manual: &[sat_core::naming::ManualIdentity]) -> Vec<Head> {
+    use sat_core::naming::{ChainFeatures, STRENGTH_DEFAULT};
     let table = s.table();
-    ow.routes()
+    let book = s.book();
+    let mut heads: Vec<Head> = ow
+        .routes()
         .groups()
         .iter()
         .map(|g| {
@@ -77,13 +83,30 @@ fn build(ow: &OverwriteProjection, s: &Session) -> Vec<Head> {
                         .map(|&p| table.path_string(p)),
                 );
             }
-            let title = chain_title(&paths);
-            let low = s.unit_label(g.route[g.route.len() - 1]);
-            let win = s.unit_label(g.route[0]);
+            let labels: Vec<&str> = g.route.iter().map(|&m| s.unit_label(m)).collect();
+            let seps: Vec<String> = g
+                .route
+                .iter()
+                .filter_map(|&m| book.key_of(table.mod_name(m)))
+                .filter_map(|k| book.separator_of(k))
+                .map(|k| book.name(k).trim_end_matches("_separator").to_string())
+                .collect();
+            let seps: Vec<&str> = seps.iter().map(String::as_str).collect();
+            let title = sat_core::naming::title(
+                &ChainFeatures {
+                    mods: &labels,
+                    separators: &seps,
+                    paths: &paths,
+                    files: g.files,
+                },
+                STRENGTH_DEFAULT,
+            );
+            let low = labels[labels.len() - 1];
+            let win = labels[0];
             Head {
                 signature: h,
                 sources,
-                emoji: id.emoji,
+                emoji: id.emoji.to_string(),
                 hue: id.hue,
                 name: if title.is_empty() {
                     format!("{low} → {win}")
@@ -91,17 +114,42 @@ fn build(ow: &OverwriteProjection, s: &Session) -> Vec<Head> {
                     format!("{title} · {low} → {win}")
                 },
                 title,
+                custom: false,
                 files: g.files,
                 bytes: g.bytes,
                 route: g.route.clone(),
                 chains: g.chains.clone(),
             }
         })
-        .collect()
+        .collect();
+    // equal generated names told apart; then the user's identities, carried over by overlap
+    let mut names: Vec<String> = heads.iter().map(|h| h.name.clone()).collect();
+    let sigs: Vec<u64> = heads.iter().map(|h| h.signature).collect();
+    sat_core::naming::make_unique(&mut names, &sigs);
+    for (h, n) in heads.iter_mut().zip(names) {
+        h.name = n;
+    }
+    let srcs: Vec<&[u64]> = heads.iter().map(|h| h.sources.as_slice()).collect();
+    let given = sat_core::naming::inherit(&srcs, manual);
+    for (h, m) in heads.iter_mut().zip(given) {
+        let Some(m) = m.map(|i| &manual[i]) else { continue };
+        h.custom = true;
+        if let Some(n) = &m.name {
+            h.title = n.clone();
+            h.name = n.clone();
+        }
+        if let Some(e) = &m.emoji {
+            h.emoji = e.clone();
+        }
+        if let Some(hue) = m.hue {
+            h.hue = hue % 360;
+        }
+    }
+    heads
 }
 
-/// Headings with what they were built from: (overwrite computation, member-keys revision).
-pub(crate) type Cached = ((u64, u64), Arc<Vec<Head>>);
+/// Headings with what they were built from: (overwrite computation, member-keys revision, user identities revision).
+pub(crate) type Cached = ((u64, u64, u64), Arc<Vec<Head>>);
 
 /// A mod's part in one normalized chain.
 #[derive(Debug, Clone, Copy)]
@@ -119,13 +167,17 @@ impl App {
     /// decisions do not rebuild them (settled-or-not is read at use).
     pub(crate) fn heads(&mut self) -> Arc<Vec<Head>> {
         let ow = self.session.overwrite();
-        let version = (self.session.computed("overwrite"), self.session.member_keys_rev());
+        let version = (
+            self.session.computed("overwrite"),
+            self.session.member_keys_rev(),
+            self.chain_identities_rev,
+        );
         if let Some((v, h)) = &self.heads
             && *v == version
         {
             return h.clone();
         }
-        let h = Arc::new(build(&ow, &self.session));
+        let h = Arc::new(build(&ow, &self.session, &self.chain_identities));
         self.heads = Some((version, h.clone()));
         h
     }

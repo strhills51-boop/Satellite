@@ -52,6 +52,17 @@ pub struct Found {
 }
 
 impl App {
+    /// The project's chain identities (`@sat:naming.manual`).
+    pub fn set_chain_identities(&mut self, ids: Vec<sat_core::naming::ManualIdentity>) {
+        self.chain_identities = ids;
+        self.chain_identities_rev += 1;
+    }
+
+    /// Chain identities as edited (the shell keeps them in the project).
+    pub fn chain_identities(&self) -> &[sat_core::naming::ManualIdentity] {
+        &self.chain_identities
+    }
+
     /// The project's sticker rules (`@sat:sticker-rules`); returns the rules that did not compile.
     pub fn set_sticker_rules(&mut self, rules: &[sat_core::sticker_rules::StickerRule]) -> Vec<String> {
         let (r, errors) = sat_core::sticker_rules::StickerRules::compile(rules);

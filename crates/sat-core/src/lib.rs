@@ -33,6 +33,7 @@ pub mod intent;
 pub mod interner;
 pub mod jobs;
 pub mod metrics;
+pub mod naming;
 pub mod order;
 pub mod overwrite;
 pub mod patch;
