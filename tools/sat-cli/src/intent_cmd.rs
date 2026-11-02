@@ -119,14 +119,41 @@ fn show_fomod(f: &sat_mo2::install::FomodChoice) {
 // @sat:cli.intent.source
 /// Whether a source is here and is what the intent saw (a different file of the same name is not taken).
 pub fn source_ok(inst: &Instance, s: &Source) -> Result<(), String> {
-    let Source::Downloads { file, size } = s;
-    let path = inst.downloads_dir.join(file);
-    let md = std::fs::metadata(&path).map_err(|_| format!("{} is not in the downloads folder", file))?;
-    match size {
-        Some(n) if *n != md.len() => Err(format!(
-            "downloads/{file} is {} bytes, the intent saw {n} — another file of that name",
-            md.len()
-        )),
-        _ => Ok(()),
+    match s {
+        Source::Downloads { file, size } => {
+            let path = inst.downloads_dir.join(file);
+            let md =
+                std::fs::metadata(&path).map_err(|_| format!("{} is not in the downloads folder", file))?;
+            match size {
+                Some(n) if *n != md.len() => Err(format!(
+                    "downloads/{file} is {} bytes, the intent saw {n} — another file of that name",
+                    md.len()
+                )),
+                _ => Ok(()),
+            }
+        }
+        Source::Donor {
+            donor,
+            folder,
+            files,
+            bytes,
+            ..
+        } => {
+            let root = sat_mo2::donors::load(&inst.profile_dir())
+                .remove(donor)
+                .ok_or_else(|| {
+                    format!("donor {donor:?} is not bound on this machine (sat-cli donor … --as {donor:?})")
+                })?;
+            let path = root.join(folder);
+            let (f, b) =
+                sat_mo2::donors::count(&path).map_err(|_| format!("{} is not there", path.display()))?;
+            match (files, bytes) {
+                (Some(nf), Some(nb)) if (*nf, *nb) != (f, b) => Err(format!(
+                    "{} has {f} files / {b} bytes, the intent saw {nf} / {nb} — it changed since",
+                    path.display()
+                )),
+                _ => Ok(()),
+            }
+        }
     }
 }

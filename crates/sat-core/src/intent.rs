@@ -1,6 +1,7 @@
 //! Intents: what the user wants done to the build, recorded anywhere, fulfilled by a commit (ADR 0007). @sat:intent
 //!
-//! Owns: intent records of a project (install a mod from a source), what makes a mod *planned* (in the canon, with
+//! Owns: intent records of a project (install a mod from a source: an archive of the downloads folder or a donor's
+//! folder), what makes a mod *planned* (in the canon, with
 //! a pending install, no folder yet), and the commit operations they produce (`@sat:sync.plan`).
 //! Not here: running an install (`@sat:mo2.install`), sync records — mismatches the disk shows
 //! (`@sat:sync.records`).
@@ -25,6 +26,35 @@ pub enum Source {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         size: Option<u64>,
     },
+    /// A mod folder of an external donor build (ADR 0006): the donor by the name this machine knows it under
+    /// (its path is bound to the machine, outside the project), the folder by name.
+    Donor {
+        donor: String,
+        folder: String,
+        /// Files and bytes of the folder when the intent was made: a folder that changed since is not taken silently.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        files: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bytes: Option<u64>,
+        /// Move the folder out of the donor (draining it) instead of copying.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        moved: bool,
+    },
+}
+
+impl Source {
+    /// A short human form: `downloads/x.7z`, `donor Old/Folder`.
+    pub fn describe(&self) -> String {
+        match self {
+            Source::Downloads { file, .. } => format!("downloads/{file}"),
+            Source::Donor {
+                donor, folder, moved, ..
+            } => format!(
+                "donor {donor}/{folder}{}",
+                if *moved { " (moved out)" } else { "" }
+            ),
+        }
+    }
 }
 
 /// What to do.

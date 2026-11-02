@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR] [--content] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
-//! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]
+//! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
 //! ```
@@ -19,7 +19,6 @@ use sat_core::ids::ModId;
 use sat_core::overwrite::{ConflictIndex, OverwriteProjection, Priorities};
 use sat_core::plugins::{PluginCanon, PluginList, PluginVersions};
 use sat_core::project::{ManagerDiff, Project};
-use sat_core::sync::donor;
 use sat_core::table::{ProviderTable, TableBuilder};
 use sat_mo2::{Instance, profile};
 use sat_scan::{ScanJob, ScanOptions, ScanProgress};
@@ -52,6 +51,7 @@ struct Seen {
 /// Windows is markedly slower at that than mimalloc.
 mod bench_order;
 mod commit_cmd;
+mod donor_cmd;
 mod factory_cmd;
 mod ignore_cmd;
 mod intent_cmd;
@@ -68,7 +68,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let res = match args.first().map(String::as_str) {
         Some("analyze") => analyze(&args[1..]),
-        Some("donor") => donor(&args[1..]),
+        Some("donor") => donor_cmd::donor(&args[1..]),
         Some("sync") => commit_cmd::sync(&args[1..]),
         Some("commit") => commit_cmd::commit(&args[1..]),
         Some("ignore") => ignore_cmd::ignore(&args[1..]),
@@ -1092,94 +1092,6 @@ fn open_instance(args: &[String]) -> Result<Instance, String> {
 fn read_modlist(path: &std::path::Path) -> Result<Modlist, String> {
     let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(profile::parse_modlist(&data).0)
-}
-
-#[derive(Serialize)]
-struct DonorReport {
-    target_profile: String,
-    target_mods: usize,
-    donor_mods_dir: String,
-    donor_modlist: Option<String>,
-    validation: Option<donor::Validation>,
-    counts: BTreeMap<String, usize>,
-    candidates: Vec<donor::Candidate>,
-}
-
-/// External donor (monolith `ExternalDonorSession`): matches another mods folder (and optionally its
-/// `modlist.txt`) against the instance's profile, which stands in for the project until NG-D002.
-fn donor(args: &[String]) -> Result<(), String> {
-    let inst = open_instance(args)?;
-    let mods_dir = PathBuf::from(flag_value(args, "--donor-mods").ok_or("missing --donor-mods DIR")?);
-    if !mods_dir.is_dir() {
-        return Err(format!("not a folder: {}", mods_dir.display()));
-    }
-    let target_list = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
-    let mut sep = String::new();
-    let mut targets = Vec::new();
-    for e in &target_list.entries {
-        match e.kind {
-            EntryKind::Separator => sep = e.name.trim_end_matches(profile::SEPARATOR_SUFFIX).to_string(),
-            EntryKind::Mod => targets.push(donor::TargetMod {
-                name: e.name.clone(),
-                separator: sep.clone(),
-            }),
-            EntryKind::Foreign => {}
-        }
-    }
-    let target = donor::TargetIndex::new(targets);
-
-    let t = Instant::now();
-    let folders = subfolders(&mods_dir);
-    let donor_list = match flag_value(args, "--donor-modlist") {
-        Some(p) => read_modlist(std::path::Path::new(p))?,
-        None => Modlist::default(),
-    };
-    let validation = flag_value(args, "--donor-modlist").map(|_| donor::validate(&donor_list, &folders));
-    let candidates = donor::candidates(&donor_list, &folders, &target);
-    let elapsed = t.elapsed();
-
-    let mut counts = BTreeMap::new();
-    for c in &candidates {
-        *counts.entry(format!("{:?}", c.kind).to_lowercase()).or_insert(0) += 1;
-    }
-    eprintln!(
-        "target profile={:?} mods={}; donor folder {} : folders={} (separators {})",
-        inst.profile,
-        target.targets.len(),
-        mods_dir.display(),
-        folders.len(),
-        folders.iter().filter(|f| is_separator_folder(f)).count()
-    );
-    if let Some(v) = &validation {
-        eprintln!(
-            "donor modlist fit: {}% ({}) matched={}/{} folders={} modlist_only={} folder_only={}",
-            v.score,
-            v.tone(),
-            v.matched,
-            v.modlist_total,
-            v.folder_total,
-            v.modlist_only.len(),
-            v.folder_only.len()
-        );
-    }
-    eprintln!("candidates: {counts:?} in {} ms", elapsed.as_millis());
-    if let Some(out) = flag_value(args, "--report") {
-        let report = DonorReport {
-            target_profile: inst.profile.clone(),
-            target_mods: target.targets.len(),
-            donor_mods_dir: mods_dir.display().to_string(),
-            donor_modlist: flag_value(args, "--donor-modlist").map(str::to_string),
-            validation,
-            counts,
-            candidates,
-        };
-        std::fs::write(
-            out,
-            serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    Ok(())
 }
 
 /// Prints what the format parsers see in real files (archives, plugins, textures). For checking parsers on samples.

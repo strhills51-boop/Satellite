@@ -41,6 +41,8 @@ pub struct Layout {
     pub project_file: PathBuf,
     /// Archives for installs (MO2 `download_directory`).
     pub downloads_dir: PathBuf,
+    /// Donor builds this machine knows (`@sat:mo2.donors`): name → mods folder.
+    pub donors: std::collections::BTreeMap<String, PathBuf>,
 }
 
 impl Layout {
@@ -53,6 +55,7 @@ impl Layout {
             deleted_dir: inst.base_dir.join("satellite").join("deleted"),
             project_file: sat.join("project.stll"),
             downloads_dir: inst.downloads_dir.clone(),
+            donors: crate::donors::load(&inst.profile_dir()),
         }
     }
 }
@@ -297,10 +300,30 @@ fn run(
             }
             // @sat:mo2.commit.install
             DiskOp::Install { name, source, fomod } => {
-                let sat_core::intent::Source::Downloads { file, .. } = source;
                 let path = layout.mods_dir.join(name);
-                crate::install::install(&layout.downloads_dir.join(file), &path, fomod.as_deref())?;
-                steps.push(Step::Installed { path });
+                match source {
+                    sat_core::intent::Source::Downloads { file, .. } => {
+                        crate::install::install(&layout.downloads_dir.join(file), &path, fomod.as_deref())?;
+                        steps.push(Step::Installed { path });
+                    }
+                    // @sat:mo2.commit.donor
+                    sat_core::intent::Source::Donor {
+                        donor, folder, moved, ..
+                    } => {
+                        let root = layout
+                            .donors
+                            .get(donor)
+                            .ok_or_else(|| format!("donor {donor:?} is not bound on this machine"))?;
+                        let from = root.join(folder);
+                        crate::donors::take(&from, &path, *moved)?;
+                        // a moved folder goes back to the donor on undo; a copy is removed
+                        steps.push(if *moved {
+                            Step::Moved { from, to: path }
+                        } else {
+                            Step::Installed { path }
+                        });
+                    }
+                }
             }
         }
         journal(version_dir, steps)?;
@@ -423,6 +446,7 @@ mod tests {
                 deleted_dir: base.join("satellite").join("deleted"),
                 project_file: sat.join("project.stll"),
                 downloads_dir: base.join("downloads"),
+                donors: [("Old".to_string(), base.join("old-mods"))].into(),
             },
             _dir: dir,
         }
@@ -657,5 +681,47 @@ mod tests {
         let r = execute(&b.layout, "t", &payload(&p, &b), Faults::default());
         assert_eq!(r.outcome, Outcome::Committed);
         assert!(b.layout.mods_dir.join("New/textures/a.dds").exists());
+    }
+
+    #[test]
+    fn donor_folders_are_copied_or_moved_and_go_back_on_rollback() {
+        let b = build();
+        let old = b.layout.donors["Old"].clone();
+        for m in ["Kept", "Drained"] {
+            std::fs::create_dir_all(old.join(m).join("meshes")).unwrap();
+            std::fs::write(old.join(m).join("meshes").join("x.nif"), b"nif").unwrap();
+        }
+        let donor = |folder: &str, moved: bool| DiskOp::Install {
+            name: folder.into(),
+            source: sat_core::intent::Source::Donor {
+                donor: "Old".into(),
+                folder: folder.into(),
+                files: None,
+                bytes: None,
+                moved,
+            },
+            fomod: None,
+        };
+        let mut p = the_plan();
+        p.disk_ops.push(donor("Kept", false));
+        p.disk_ops.push(donor("Drained", true));
+        // 5 disk ops (0..4), then modlist (5): fail there — the copy is removed, the moved folder goes back
+        let r = execute(
+            &b.layout,
+            "s",
+            &payload(&p, &b),
+            Faults {
+                fail_before_step: Some(5),
+            },
+        );
+        assert!(matches!(r.outcome, Outcome::RolledBack { .. }), "{:?}", r.outcome);
+        assert_eq!(folders(&b.layout.mods_dir), ["A", "Junk", "Renamed"]);
+        assert!(old.join("Drained/meshes/x.nif").exists() && old.join("Kept/meshes/x.nif").exists());
+        let r = execute(&b.layout, "t", &payload(&p, &b), Faults::default());
+        assert_eq!(r.outcome, Outcome::Committed);
+        assert!(b.layout.mods_dir.join("Kept/meshes/x.nif").exists());
+        assert!(b.layout.mods_dir.join("Drained/meshes/x.nif").exists());
+        assert!(old.join("Kept").exists(), "a copy leaves the donor");
+        assert!(!old.join("Drained").exists(), "a move drains it");
     }
 }

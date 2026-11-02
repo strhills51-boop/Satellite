@@ -114,6 +114,7 @@
 | Скан пачками в таблицу | `@sat:scan.batched` | — |
 | Перезапуск анализаторов по кешированному индексу | `@sat:scan.walk.reanalyze` | — |
 | Донор: соответствие, категории, оценка | `@sat:sync.donor` | — |
+| Перенос из донора: сессия против проекта, привязка донора к машине (путь вне проекта), взятие кандидатов в план (запланированные моды с намерением `Source::Donor`, факты — сканом папки донора), копия со сверкой или перенос (`--move`) при фиксации с откатом, исчерпанные разделители донора | команда — `@sat:cli.donor` (`sat-cli donor`), взятие — `@sat:cli.donor.take`, исчерпание — `@sat:cli.donor.drained`; привязка и копия — `@sat:mo2.donors` (`donors.json`), `@sat:mo2.donors.count`, `@sat:mo2.donors.take`; в фиксации — `@sat:mo2.commit.donor`; источник — `Source::Donor` (`@sat:intent`), проверка перед фиксацией — `@sat:cli.intent.source` | перенос между дисками — только копией |
 | Устойчивые id сущностей (ADR 0007): имя — атрибут; переименование не теряет декорацию, метки, подпись | `@sat:entity` (`EntityId`, `@sat:entity.mint`), `@sat:entity.registry` (`Entities`: id ↔ имя, `follow`), `@sat:entity.rename`; проект — схема 2, разделы по id: `@sat:project.load` (миграция 1 → 2), `@sat:project.apply-plan`; перекладка ключей декорации — `@sat:order.decor.rekey` | книга порядка внутри сессии — по именам и `Key`; перевод на границе проекта |
 | Факты модов в проекте (холодный ярус, ADR 0007 шаг 2): проект работает без сборки | `@sat:stll`, формат факта мода — `@sat:stll.facts.format` (`encode`/`decode`); в файле — `@sat:stll.file.facts` (чтение по id лениво), `@sat:stll.file.put` (неизменившиеся копируются как есть); ранняя раскладка-папка (`FactsStore`, `@sat:stll.facts`, `@sat:stll.facts.put`, `@sat:stll.facts.get`) — только для перевода; запись после скана и `--offline` — `@sat:cli.facts`; окно без сборки — `@sat:devserver.offline` (`--project`) | кеш скана машины — `@sat:scan.cache` |
 | Файл проекта `.stll` (ADR 0007 шаг 3): один zip — манифест, разделы NDJSON, факты; атомарное сохранение, чужое сохраняется | `@sat:stll.file` (`Stll`), `@sat:stll.file.version`, `@sat:stll.file.open`, `@sat:stll.file.save` (`Writer`: `put_facts`, `finish`, `finish_to`); разрезание дерева проекта — `@sat:stll.sections`, `@sat:stll.sections.split`, `@sat:stll.sections.join`; неизвестные поля проекта — `Project::extra` (`@sat:project`); перевод ранней раскладки — `@sat:stll.migrate`; команды — `@sat:cli.project` | замена проекта в фиксации — `@sat:mo2.commit.project` |
@@ -170,6 +171,8 @@
 - `crates/sat-core/src/sync/mod.rs` — `@sat:sync`: оглавление синхронизации (ADR 0006).
 - `crates/sat-core/src/sync/names.rs` — `@sat:sync.names`: правила имён монолита.
 - `crates/sat-core/src/sync/donor.rs` — `@sat:sync.donor`: внешний донор.
+- `crates/sat-mo2/src/donors.rs` — `@sat:mo2.donors`: доноры на этой машине (привязка), подсчёт папки, копия со сверкой и перенос.
+- `tools/sat-cli/src/donor_cmd.rs` — `@sat:cli.donor`: сессия донора, привязка, взятие модов в план, исчерпанные разделители.
 - `crates/sat-core/src/sync/records.rs` — `@sat:sync.records`: записи SYNC, сверка.
 - `crates/sat-core/src/sync/plan.rs` — `@sat:sync.plan`: план фиксации — изменения канона и упорядоченные, проверенные операции на диске.
 

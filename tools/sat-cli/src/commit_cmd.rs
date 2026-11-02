@@ -165,8 +165,7 @@ pub fn commit(args: &[String]) -> Result<(), String> {
                 }
             ),
             DiskOp::Install { name, source, fomod } => {
-                let sat_core::intent::Source::Downloads { file, .. } = source;
-                println!("  disk: install {name} from downloads/{file}");
+                println!("  disk: install {name} from {}", source.describe());
                 for c in fomod.iter().flatten() {
                     println!("        FOMOD: {c}");
                 }
