@@ -62,6 +62,9 @@ pub struct Project {
     /// Mods the last commit brought in (adopted folders, installs): the system sticker `new` until the next commit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub new_mods: Vec<EntityId>,
+    /// User-made counters on mod cards (`@sat:counters`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counters: Vec<crate::counters::CounterDef>,
     /// Conditional stickers (`@sat:sticker-rules`): a sticker on every mod an expression holds for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sticker_rules: Vec<crate::sticker_rules::StickerRule>,
@@ -124,6 +127,7 @@ impl Project {
             intents: Vec::new(),
             sticker_rules: Vec::new(),
             new_mods: Vec::new(),
+            counters: Vec::new(),
             extra: BTreeMap::new(),
         }
     }

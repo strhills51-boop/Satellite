@@ -70,10 +70,11 @@ fn main() {
         Some("ignore") => ignore_cmd::ignore(&args[1..]),
         Some("plan-install") => intent_cmd::plan_install(&args[1..]),
         Some("stickers") => stickers_cmd::stickers(&args[1..]),
+        Some("counters") => stickers_cmd::counters(&args[1..]),
         Some("inspect") => inspect(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply]\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
+        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply]\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
     };
     if let Err(e) = res {
         eprintln!("{e}");
@@ -285,6 +286,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
             p.tags = old.tags;
             p.intents = old.intents;
             p.sticker_rules = old.sticker_rules;
+            p.counters = old.counters;
+            p.new_mods = old.new_mods;
             p.extra = old.extra;
             eprintln!(
                 "project: re-imported canon from modlist.txt into {}",

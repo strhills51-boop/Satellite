@@ -85,6 +85,13 @@ impl App {
         }
     }
 
+    /// The project's counters (`@sat:counters`); returns the definitions that did not compile.
+    pub fn set_counters(&mut self, defs: &[sat_core::counters::CounterDef]) -> Vec<String> {
+        let (c, errors) = sat_core::counters::Counters::compile(defs);
+        self.counters = c;
+        errors
+    }
+
     /// System stickers by mod name (`Project::system_stickers`: `planned`, `new`), handed over by the shell.
     pub fn set_system_stickers(&mut self, stickers: Vec<(String, &'static str)>) {
         self.system_stickers.clear();

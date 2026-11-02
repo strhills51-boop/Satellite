@@ -19,6 +19,7 @@
 //! Owns: the crate layout (which module is which layer); nothing else.
 
 pub mod canon;
+pub mod counters;
 pub mod decisions;
 pub mod engine;
 pub mod entity;

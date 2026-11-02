@@ -375,6 +375,9 @@ pub struct RowView {
     pub selected: bool,
     /// Overwrite counters of a mod: wins, losses, middle, unique; X = fully overridden.
     pub counters: Option<Counters>,
+    /// The project's own counters (`@sat:counters`), rendered for this mod.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom: Vec<sat_core::counters::CounterValue>,
     /// Card style (ADR 0012).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<CardStyle>,
@@ -567,6 +570,8 @@ pub struct App {
     heads: Option<chains::Cached>,
     /// Conditional stickers of the project (`@sat:sticker-rules`).
     sticker_rules: sat_core::sticker_rules::StickerRules,
+    /// The project's counters (`@sat:counters`).
+    counters: sat_core::counters::Counters,
     /// The project's own stickers by folded mod name (`planned`, `new`).
     system_stickers: std::collections::HashMap<String, Vec<String>>,
 }
@@ -584,6 +589,7 @@ impl App {
             tags: Default::default(),
             sticker_rules: Default::default(),
             system_stickers: Default::default(),
+            counters: Default::default(),
         }
     }
 
@@ -860,9 +866,10 @@ impl App {
                         _ => Vec::new(),
                     },
                     counters,
+                    custom: Vec::new(),
                 }
             })
-            .collect()
+            .collect::<Vec<_>>()
     }
 
     /// Answers a query (projections are brought up to date lazily, only what the query needs).
@@ -874,7 +881,14 @@ impl App {
                 count,
                 badges,
             } => {
-                let rows = self.row_views(view, start, count, badges);
+                let mut rows = self.row_views(view, start, count, badges);
+                // @sat:app.counters
+                if !self.counters.is_empty() {
+                    for r in rows.iter_mut().filter(|r| r.kind == RowKind::Mod) {
+                        let parts = self.view_parts(r.key);
+                        r.custom = self.counters.render(&parts.view());
+                    }
+                }
                 let book = self.session.book();
                 let len = book.row_count(view);
                 Reply::Rows {
@@ -1417,6 +1431,33 @@ mod tests {
         else {
             panic!()
         };
+        // the counter constructor: rows carry the project's counters
+        assert!(
+            a.set_counters(&[sat_core::counters::CounterDef {
+                id: "wl".into(),
+                template: "{wins}/{loses}".into(),
+                cases: vec![sat_core::counters::Case {
+                    when: "loses > 0".into(),
+                    tone: "bad".into(),
+                }],
+                show_if: String::new(),
+            }])
+            .is_empty()
+        );
+        let Reply::Rows { rows, .. } = a
+            .query(Query::Rows {
+                view: 0,
+                start: 0,
+                count: 10,
+                badges: 0,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        let a_row = rows.iter().find(|r| r.name == "A").unwrap();
+        assert_eq!(a_row.custom[0].text, "0/1");
+        assert_eq!(a_row.custom[0].tone.as_deref(), Some("bad"));
         let rules = sheet.sections.iter().find(|s| s.id == "rules").unwrap();
         assert_eq!(
             rules.fields[0].value,
