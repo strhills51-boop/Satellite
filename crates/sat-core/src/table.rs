@@ -41,6 +41,9 @@ pub struct ModSummary {
     pub missing: bool,
     /// The scan could not read the mod.
     pub error: Option<String>,
+    /// Tags a rule set found in the facts (`@sat:tag-rules`), with scores; empty without a rule set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub found_tags: Vec<(String, u32)>,
 }
 
 // @sat:table.provider-table
@@ -88,6 +91,8 @@ pub struct TableBuilder {
     interner: PathInterner,
     mod_names: Vec<String>,
     summaries: Vec<ModSummary>,
+    /// Tag rules applied to each mod's facts as it is added (found tags in [`ModSummary`]).
+    rules: Option<std::sync::Arc<crate::tag_rules::Compiled>>,
     archives: Vec<ArchiveRef>,
     key: Vec<FileKey>,
     owner: Vec<ModId>,
@@ -99,6 +104,12 @@ pub struct TableBuilder {
 impl TableBuilder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Finds tags by `rules` in every mod added from now on.
+    pub fn with_tag_rules(mut self, rules: std::sync::Arc<crate::tag_rules::Compiled>) -> Self {
+        self.rules = Some(rules);
+        self
     }
 
     /// Reserves column space for `providers` more entries (optional).
@@ -118,6 +129,7 @@ impl TableBuilder {
             metrics: m.metrics.clone(),
             missing: m.missing,
             error: m.error.clone(),
+            found_tags: self.rules.as_ref().map_or_else(Vec::new, |r| r.tags(m)),
         });
         for d in &m.dirs {
             let dir = self.interner.dir(&d.rel);
@@ -158,6 +170,7 @@ impl TableBuilder {
             interner,
             mod_names,
             summaries,
+            rules: _,
             archives,
             key,
             owner,

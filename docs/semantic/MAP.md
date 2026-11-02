@@ -30,6 +30,7 @@
 | Каталог тегов: коллекции («Системные теги», «Стикеры», свои), цвет тега — явный, иначе по смысловой группе | `@sat:tags`, `@sat:tags.catalog`, `@sat:tags.color` (`group_color`); в проекте — `tags`; окно — `Query::Tags` (`TagView`: имя, записей, цвет) | какие теги у записи — `@sat:order.decor.marks` |
 | Правила как данные (ADR 0013): метрики мода и язык выражений — для поиска, условных стикеров, кейсов счётчиков, правил тегов | метрики — `@sat:metrics`, `@sat:metrics.catalog`, `@sat:metrics.value` (`ModView`), синонимы — `@sat:metrics.aliases` (`resolve`); язык — `@sat:expr`, `@sat:expr.compile`, `@sat:expr.eval`; поиск в строке — `@sat:cli.find` (`analyze --find`) | откуда факты — скан (`ModMetrics`), перезапись (`ModStat`), канон |
 | Теги по наборам правил (найденные анализом; детекторы монолита — файлом `rules/tags/monolith-builtin.json`) | `@sat:tag-rules` (формат, сопоставление монолита), `@sat:tag-rules.set` (`RuleSet`, `BUILTIN`), `@sat:tag-rules.apply` (`Compiled::tags`, Aho-Corasick по полям); в строке — `@sat:cli.tags` (`analyze --tags`, `--tag-rules FILE`), метрика `tags` для `--find` | ручные теги — `@sat:order.decor.marks`; цвета — `@sat:tags` |
+| Найденные теги в сессии, условные стикеры, поиск в окне (ADR 0013 шаг 3) | найденные — `ModSummary::found_tags` (`@sat:table.summary`, `TableBuilder::with_tag_rules`); стикеры — `@sat:sticker-rules`, `@sat:sticker-rules.compile`, раздел проекта `sticker_rules`, команда — `@sat:cli.stickers`; вид мода и поиск — `@sat:app.find`, `@sat:app.find.view`, `@sat:app.find.query` (`Query::Find`); в карточке — раздел `rules` (`@sat:app.sheet`) | показ в окне — с владельцем |
 | Раскладка потоком (ADR 0012 §2): блоки разделителей, ряды карточек, окно рядов по высоте, ряд фокуса | `@sat:order.flow` (`FlowParams`, `flow_lines`), `@sat:order.flow.index` (`flow_index`), `@sat:order.flow.row-y` (`flow_row_y`), охват блоков (`@sat:order.flow.scope`, `flow_index_in`: классический вид монолита — текущий разделитель или выбранные стопкой), запрос страницы `@sat:app.lines` (`Query::Lines`) | стиль как данные — `@sat:order.decor.style` |
 | Внешний вид цепочки и контекста: эмодзи и оттенок из состава (не из порядка) | `@sat:identity` (`@sat:identity.of`) | сами цепочки — `@sat:overwrite.projection` |
 | Игнор-лист конфликтов (монолит `conflictIgnorePaths`): `meta.ini` — файл где угодно, `docs/` — папка где угодно, `a/b.dds` — один путь | `@sat:ignore`, `@sat:ignore.matches`; применение — `ConflictIndex::build_with` (`@sat:overwrite.conflicts`); в сессии — `@sat:session.ignore` (истина Settings); в проекте — `conflict_ignore`; команда окна `SetConflictIgnore`; строка — `@sat:cli.ignore` | проверяются только оспариваемые пути |
@@ -126,6 +127,7 @@
 - `crates/sat-core/src/facts.rs` — `@sat:facts`: факты сканера.
 - `crates/sat-core/src/table.rs` — `@sat:table`: колонки провайдеров, CSR по путям и модам.
 - `crates/sat-core/src/tag_rules.rs` — `@sat:tag-rules`: наборы правил тегов и их применение к фактам мода.
+- `crates/sat-core/src/sticker_rules.rs` — `@sat:sticker-rules`: условные стикеры — стикер по выражению над метриками мода.
 - `crates/sat-core/src/tags.rs` — `@sat:tags`: каталог тегов и их цвета.
 - `crates/sat-core/src/overwrite.rs` — `@sat:overwrite`: проекция перезаписи (параллельно по путям), статистика.
 - `crates/sat-core/src/canon.rs` — `@sat:canon`: снимок канона, блоки, приоритеты.
@@ -159,6 +161,7 @@
 - `crates/sat-app/src/context.rs` — `@sat:app.context-table`: таблица конфликтов контекста, окно строк × столбцов.
 - `crates/sat-app/src/sync.rs` — `@sat:app.sync`: записи SYNC в приложении — решения командой, план запросом.
 - `crates/sat-app/src/sheet.rs` — `@sat:app.sheet`: карточка мода — схема, уровни, слои наблюдённого и пользователя.
+- `crates/sat-app/src/find.rs` — `@sat:app.find`: вид мода для выражений, поиск модов по условию, стикеры правил.
 
 ### `apps/devserver` — оболочка разработки (ADR 0004)
 
@@ -200,6 +203,7 @@
 - `tools/sat-cli/src/commit_cmd.rs` — `@sat:cli.commit`: `sync` (записи и решения) и `commit` (план, `--apply`).
 - `tools/sat-cli/src/ignore_cmd.rs` — `@sat:cli.ignore`: игнор-лист конфликтов в проекте.
 - `tools/sat-cli/src/intent_cmd.rs` — `@sat:cli.intent`: `plan-install` — запланированный мод из архива загрузок.
+- `tools/sat-cli/src/stickers_cmd.rs` — `@sat:cli.stickers`: условные стикеры проекта — список, добавить, убрать.
 - `tools/sat-cli/src/project_io.rs` — `@sat:cli.project`: файл проекта сборки для команд — открыть, перевести раз, сохранить.
 - `tools/sat-cli/src/bench_order.rs` — `@sat:cli.bench-order`: бенчмарк движка порядка.
 

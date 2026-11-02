@@ -59,6 +59,9 @@ pub struct Project {
     /// Tag collections with colours (`@sat:tags`); the built-in ones when absent.
     #[serde(default, skip_serializing_if = "is_default_catalog")]
     pub tags: crate::tags::TagCatalog,
+    /// Conditional stickers (`@sat:sticker-rules`): a sticker on every mod an expression holds for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sticker_rules: Vec<crate::sticker_rules::StickerRule>,
     /// What the user wants done to the build, fulfilled by a commit (`@sat:intent`): planned mods.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub intents: Vec<crate::intent::Intent>,
@@ -116,6 +119,7 @@ impl Project {
             conflict_ignore: Default::default(),
             tags: Default::default(),
             intents: Vec::new(),
+            sticker_rules: Vec::new(),
             extra: BTreeMap::new(),
         }
     }

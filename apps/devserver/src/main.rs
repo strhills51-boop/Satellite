@@ -30,6 +30,11 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
+/// The built-in tag rules (the monolith's detectors): found tags show in the mod sheet and in `Find`.
+fn builtin_rules() -> Arc<sat_core::tag_rules::Compiled> {
+    Arc::new(sat_core::tag_rules::Compiled::builtin())
+}
+
 // @sat:devserver.load
 /// Opens the build: the project's canon and decorations if `sat-cli` saved one, else `modlist.txt`; scans (cached)
 /// every listed mod and Overwrite; reads the plugin lists.
@@ -51,7 +56,7 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     let (mut store, p) = sat_stll::Stll::open(&file).map_err(|e| e.to_string())?;
     let dir = file.as_path(); // for the log line
     let t = Instant::now();
-    let mut builder = TableBuilder::new();
+    let mut builder = TableBuilder::new().with_tag_rules(builtin_rules());
     let mut versions = PluginVersions::default();
     let (mut found, mut absent) = (0, 0);
     let names = p
@@ -93,6 +98,9 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     let mut app = App::new(session, Registry::with_builtins());
     app.set_sync(p.sync.clone(), Vec::new());
     app.set_tag_catalog(p.tags.clone());
+    for e in app.set_sticker_rules(&p.sticker_rules) {
+        eprintln!("{e}");
+    }
     Ok(app)
 }
 
@@ -119,6 +127,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut blacklist = Vec::new();
     let mut ignore = Default::default();
     let mut tags = sat_core::tags::TagCatalog::default();
+    let mut sticker_rules = Vec::new();
     // the project file; the early layout is read as it is (the sandbox converts nothing)
     let opened = if project_file.exists() {
         sat_stll::Stll::open(&project_file)
@@ -143,6 +152,7 @@ fn load(args: &[String]) -> Result<App, String> {
             blacklist = p.plugins.blacklist.clone();
             ignore = p.conflict_ignore.clone();
             tags = p.tags.clone();
+            sticker_rules = p.sticker_rules.clone();
             p.book().0
         }
         _ => {
@@ -170,7 +180,7 @@ fn load(args: &[String]) -> Result<App, String> {
     };
     let t = Instant::now();
     let progress = ScanProgress::default();
-    let mut builder = TableBuilder::new();
+    let mut builder = TableBuilder::new().with_tag_rules(builtin_rules());
     let mut versions = PluginVersions::default();
     sat_scan::scan_batched(&jobs, &opts, &progress, 256, |_, o| {
         let id = builder.add(&o.facts);
@@ -218,6 +228,9 @@ fn load(args: &[String]) -> Result<App, String> {
     eprintln!("sync: {} record(s) from the project", records.len());
     app.set_sync(records, disk);
     app.set_tag_catalog(tags);
+    for e in app.set_sticker_rules(&sticker_rules) {
+        eprintln!("{e}");
+    }
     Ok(app)
 }
 

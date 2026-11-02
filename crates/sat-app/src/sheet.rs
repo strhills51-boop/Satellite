@@ -44,6 +44,8 @@ pub enum Origin {
     Author,
     /// Seen across many builds (later).
     Community,
+    /// Computed by a rule set: found tags (`@sat:tag-rules`), conditional stickers (`@sat:sticker-rules`).
+    Rules,
 }
 
 /// How much a field asks for attention.
@@ -280,6 +282,21 @@ impl App {
             fields.push(names("hidden", hidden));
             sections.push(("plugins", Origin::Observed, fields));
         }
+        // what the rules say
+        let mut rules = Vec::new();
+        if let Some(m) = self.session.mod_id(&name) {
+            let found: Vec<String> = self
+                .session
+                .table()
+                .summary(m)
+                .found_tags
+                .iter()
+                .map(|(t, _)| t.clone())
+                .collect();
+            rules.push(names("found_tags", found));
+        }
+        rules.push(names("rule_stickers", self.rule_stickers(key)));
+        sections.push(("rules", Origin::Rules, rules));
         // the user's layer
         let mut user = vec![Field {
             id: "enabled".into(),
@@ -333,6 +350,7 @@ impl App {
                         more,
                     }
                 })
+                .filter(|s: &Section| !s.fields.is_empty())
                 .collect(),
         };
         ModSheet {

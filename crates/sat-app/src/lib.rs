@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 mod chains;
 mod context;
+pub mod find;
 pub mod sheet;
 mod sync;
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
@@ -171,6 +172,11 @@ pub enum Query {
     /// Everything the summary shows about one mod: with whom and in what it conflicts, its plugins.
     ModDetail {
         key: Key,
+    },
+    /// Mods an expression holds for (`@sat:app.find`): `size > 1 GB && plugins > 0`.
+    Find {
+        expr: String,
+        limit: usize,
     },
     /// The standard quick look at a mod (`@sat:app.sheet`): a badge, a mini sheet or the full one.
     ModSheet {
@@ -461,6 +467,9 @@ pub enum Reply {
     ModSheet {
         sheet: Box<sheet::ModSheet>,
     },
+    Found {
+        found: find::Found,
+    },
     Separators {
         tiles: Vec<SeparatorTile>,
     },
@@ -535,6 +544,8 @@ pub enum AppError {
     Plugin(String),
     #[error("bad style patch: {0}")]
     Style(String),
+    #[error("{0}")]
+    Expr(String),
 }
 
 // @sat:app.dispatch
@@ -554,6 +565,8 @@ pub struct App {
     tags: sat_core::tags::TagCatalog,
     /// Headings of the normalized chains, per overwrite computation.
     heads: Option<chains::Cached>,
+    /// Conditional stickers of the project (`@sat:sticker-rules`).
+    sticker_rules: sat_core::sticker_rules::StickerRules,
 }
 
 impl App {
@@ -567,6 +580,7 @@ impl App {
             heads: None,
             sync: Default::default(),
             tags: Default::default(),
+            sticker_rules: Default::default(),
         }
     }
 
@@ -897,6 +911,9 @@ impl App {
             }
             Query::ModDetail { key } => Reply::ModDetail {
                 detail: Box::new(self.mod_detail(key)),
+            },
+            Query::Find { expr, limit } => Reply::Found {
+                found: self.find(&expr, limit)?,
             },
             Query::ModSheet { key, level } => Reply::ModSheet {
                 sheet: Box::new(self.mod_sheet(key, level)),
@@ -1350,6 +1367,63 @@ mod tests {
     }
 
     #[test]
+    fn find_and_rule_stickers_read_the_same_metrics() {
+        let mut a = app();
+        let find = |a: &mut App, e: &str| match a
+            .query(Query::Find {
+                expr: e.into(),
+                limit: 10,
+            })
+            .unwrap()
+        {
+            Reply::Found { found } => found
+                .keys
+                .iter()
+                .map(|&k| a.session.book().name(k).to_string())
+                .collect::<Vec<_>>(),
+            _ => panic!(),
+        };
+        assert_eq!(find(&mut a, "weight >= 10"), ["A", "B"]);
+        // B is lower in the list: it wins the shared file
+        assert_eq!(find(&mut a, "wins > 0"), ["B"]);
+        assert!(matches!(
+            a.query(Query::Find {
+                expr: "size >".into(),
+                limit: 1
+            }),
+            Err(AppError::Expr(_))
+        ));
+        let bad = a.set_sticker_rules(&[
+            sat_core::sticker_rules::StickerRule {
+                sticker: "hidden".into(),
+                when: "loses > 0".into(),
+            },
+            sat_core::sticker_rules::StickerRule {
+                sticker: "x".into(),
+                when: "nonsense_metric > 1".into(),
+            },
+        ]);
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        let key = a.session.book().key_of("A").unwrap();
+        let Reply::ModSheet { sheet } = a
+            .query(Query::ModSheet {
+                key,
+                level: sheet::SheetLevel::Full,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        let rules = sheet.sections.iter().find(|s| s.id == "rules").unwrap();
+        assert_eq!(
+            rules.fields[0].value,
+            sheet::Value::Names {
+                items: vec!["hidden".into()]
+            }
+        );
+    }
+
+    #[test]
     fn a_mod_sheet_has_three_depths_and_signals_first() {
         use sheet::{Origin, SheetLevel, Signal, Value};
         let mut a = app();
@@ -1371,13 +1445,13 @@ mod tests {
         );
         assert_eq!(full.signals[0].id, "fully_overridden");
         assert_eq!(full.signals[0].signal, Some(Signal::Warn));
+        // a mod without plugins, found tags or rule stickers: those sections say nothing and are left out
         let ids: Vec<(&str, Origin)> = full.sections.iter().map(|s| (s.id.as_str(), s.origin)).collect();
         assert_eq!(
             ids,
             [
                 ("content", Origin::Observed),
                 ("conflicts", Origin::Observed),
-                ("plugins", Origin::Observed),
                 ("user", Origin::User)
             ]
         );
