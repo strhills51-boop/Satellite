@@ -9,7 +9,8 @@
 //! Built from facts when the table is built (`@sat:table.summary`), so facts saved before this module get a
 //! profile without a rescan. Thresholds and word lists are the monolith's (S01 §4) and live here as tables.
 //! Differences from the monolith, on purpose: `.rar` counts as a nested archive and `.bik` (the game's video) as
-//! video; no 128-key cap on extensions, so there are no overflow labels; a logical group's profile keeps the
+//! video; `.psc` (Papyrus sources) is not an authoring source — Skyrim mods ship them in `scripts/source` by
+//! convention, and on the owner's build it made a large part of all mods "cargo"; no 128-key cap on extensions, so there are no overflow labels; a logical group's profile keeps the
 //! origins of its members (the monolith's group aggregate lost them).
 
 use std::collections::BTreeMap;
@@ -45,7 +46,6 @@ pub const FAMILIES: [(&str, &[&str]); 9] = [
             "pas",
             "py",
             "pyw",
-            "psc",
             "hlsl",
             "hlsli",
             "frag",
