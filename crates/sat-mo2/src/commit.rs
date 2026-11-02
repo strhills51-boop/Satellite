@@ -274,6 +274,11 @@ fn run(
                 std::fs::create_dir(&path).map_err(|e| io(&path, e))?;
                 steps.push(Step::Created { path });
             }
+            DiskOp::Bake { name, members, link } => {
+                let path = layout.mods_dir.join(name);
+                crate::bake::bake(&layout.mods_dir, members, &path, *link)?;
+                steps.push(Step::Installed { path });
+            }
             // @sat:mo2.commit.install
             DiskOp::Install { name, source, fomod } => {
                 let sat_core::intent::Source::Downloads { file, .. } = source;

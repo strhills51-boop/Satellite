@@ -832,6 +832,13 @@ impl OrderBook {
             .collect()
     }
 
+    /// Ids of the live logical groups, in the order `decor().groups` lists them.
+    pub fn group_ids(&self) -> Vec<GroupId> {
+        (0..self.groups.len() as GroupId)
+            .filter(|&g| self.groups[g as usize].is_some())
+            .collect()
+    }
+
     /// The nesting level of an entry (0 unless a nested separator).
     pub fn level(&self, k: Key) -> u8 {
         self.items[k as usize].level
@@ -1800,10 +1807,6 @@ impl OrderBook {
 
     pub(super) fn check(&self) {
         self.seq.check();
-    }
-    /// Ids of the live logical groups.
-    pub fn group_ids(&self) -> Vec<GroupId> {
-        self.groups_of_test()
     }
     pub(super) fn groups_of_test(&self) -> Vec<GroupId> {
         (0..self.groups.len() as GroupId)

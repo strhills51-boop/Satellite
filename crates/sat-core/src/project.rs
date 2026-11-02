@@ -67,6 +67,9 @@ pub struct Project {
     /// Where each mod comes from (`@sat:source`), by entity id: as the manager recorded it at the last analysis.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sources: BTreeMap<String, crate::source::ModSource>,
+    /// Factories: groups a commit turns into one output mod (`@sat:factory`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub factories: Vec<crate::factory::Factory>,
     /// User-made counters on mod cards (`@sat:counters`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub counters: Vec<crate::counters::CounterDef>,
@@ -134,6 +137,7 @@ impl Project {
             new_mods: Vec::new(),
             counters: Vec::new(),
             sources: BTreeMap::new(),
+            factories: Vec::new(),
             extra: BTreeMap::new(),
         }
     }
@@ -254,7 +258,8 @@ impl Project {
                 _ => None,
             })
             .chain(plan.disk_ops.iter().filter_map(|op| match op {
-                crate::sync::plan::DiskOp::Install { name, .. } => Some(name),
+                crate::sync::plan::DiskOp::Install { name, .. }
+                | crate::sync::plan::DiskOp::Bake { name, .. } => Some(name),
                 _ => None,
             }))
             .filter_map(|n| self.entities.id_of(n).cloned())

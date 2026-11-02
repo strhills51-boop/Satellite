@@ -24,6 +24,7 @@ pub mod decisions;
 pub mod engine;
 pub mod entity;
 pub mod expr;
+pub mod factory;
 pub mod facts;
 pub mod identity;
 pub mod ids;

@@ -54,6 +54,13 @@ pub enum DiskOp {
         name: String,
         kind: EntityKind,
     },
+    /// A factory's output mod built from its group's members, in canon order (`@sat:factory`).
+    Bake {
+        name: String,
+        members: Vec<String>,
+        #[serde(default)]
+        link: bool,
+    },
     /// A planned mod's folder made from its source (`@sat:intent`).
     Install {
         name: String,
@@ -308,7 +315,9 @@ fn order_disk(ops: Vec<DiskOp>, disk: &[String], blockers: &mut Vec<Blocker>) ->
     for op in &ops {
         let target = match op {
             DiskOp::Rename { to, .. } => Some(to),
-            DiskOp::Create { name, .. } | DiskOp::Install { name, .. } => Some(name),
+            DiskOp::Create { name, .. } | DiskOp::Install { name, .. } | DiskOp::Bake { name, .. } => {
+                Some(name)
+            }
             DiskOp::ToDeleted { .. } => None,
         };
         if let Some(t) = target {

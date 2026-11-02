@@ -10,6 +10,7 @@
 //!
 //! Owns: MO2 adapter layout, errors, atomic file writes.
 
+pub mod bake;
 pub mod commit;
 pub mod ini;
 pub mod install;

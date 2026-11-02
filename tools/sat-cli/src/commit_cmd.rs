@@ -121,9 +121,10 @@ pub fn commit(args: &[String]) -> Result<(), String> {
     let (inst, layout, mut stll, project) = load(args)?;
     let disk = subfolders(&inst.mods_dir);
     let planned = project.planned();
-    let p = plan_with(&project.canon, &project.sync, &planned, &disk, &|s| {
+    let mut p = plan_with(&project.canon, &project.sync, &planned, &disk, &|s| {
         crate::intent_cmd::source_ok(&inst, s)
     });
+    let built = factories(&project, &disk, &mut p);
     println!("commit plan for {}:", inst.profile_dir().display());
     for op in &p.project_ops {
         match op {
@@ -137,6 +138,11 @@ pub fn commit(args: &[String]) -> Result<(), String> {
             DiskOp::ToDeleted { name } => println!("  disk: move {name} → satellite/deleted/<stamp>/"),
             DiskOp::Rename { from, to } => println!("  disk: rename folder {from} → {to}"),
             DiskOp::Create { name, .. } => println!("  disk: create empty folder {name}"),
+            DiskOp::Bake { name, members, link } => println!(
+                "  disk: build {name} from {} member(s){} — the members are switched off unless kept",
+                members.len(),
+                if *link { " (hard links)" } else { "" }
+            ),
             DiskOp::Install { name, source, fomod } => {
                 let sat_core::intent::Source::Downloads { file, .. } = source;
                 println!("  disk: install {name} from downloads/{file}");
@@ -168,6 +174,9 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         .unwrap_or_default();
     let mut after = project.clone();
     after.apply_plan(&p);
+    for (i, fp) in built {
+        after.factories[i].built = Some(fp);
+    }
     // the new project file is prepared beside the old one; the commit swaps them inside its transaction
     let prepared = layout.project_file.with_extension("stll-next");
     stll.begin()
@@ -208,6 +217,55 @@ pub fn commit(args: &[String]) -> Result<(), String> {
         )),
         Outcome::Refused { error } => Err(format!("refused: {error}")),
     }
+}
+
+// @sat:cli.commit.factories
+/// Adds the work of dirty factories to the plan (`@sat:factory`): an output whose inputs changed (or that is not
+/// on disk) is rebuilt — the old output goes to `deleted/` — and placed after its group. Returns (factory index,
+/// fingerprint) of the ones built, recorded in the project after the commit.
+fn factories(project: &Project, disk: &[String], p: &mut sat_core::sync::plan::Plan) -> Vec<(usize, String)> {
+    use sat_core::factory::{fingerprint, place_output};
+    let groups = project.book().0.decor().groups;
+    let on_disk = |n: &str| disk.iter().any(|d| d.eq_ignore_ascii_case(n));
+    let mut out = Vec::new();
+    for (i, f) in project.factories.iter().enumerate() {
+        let Some(g) = groups.iter().find(|g| g.id == f.group) else {
+            println!("  factory {}: its group is gone — skipped", f.output);
+            continue;
+        };
+        let sigs: Vec<(String, Option<u64>)> = g
+            .members
+            .iter()
+            .map(|m| {
+                let sig = project
+                    .entities
+                    .id_of(m)
+                    .and_then(|id| project.signatures.get(&id.0))
+                    .copied();
+                (m.clone(), sig)
+            })
+            .collect();
+        let fp = fingerprint(f, &sigs);
+        if f.built.as_deref() == Some(fp.as_str()) && on_disk(&f.output) {
+            continue;
+        }
+        for m in g.members.iter().filter(|m| !on_disk(m)) {
+            p.blockers.push(Blocker::MissingFolder { name: m.clone() });
+        }
+        if on_disk(&f.output) {
+            p.disk_ops.push(DiskOp::ToDeleted {
+                name: f.output.clone(),
+            });
+        }
+        p.disk_ops.push(DiskOp::Bake {
+            name: f.output.clone(),
+            members: g.members.clone(),
+            link: f.link,
+        });
+        p.canon_after = place_output(&p.canon_after, f, &g.members);
+        out.push((i, fp));
+    }
+    out
 }
 
 fn blocker(b: &Blocker, records: &[SyncRecord]) -> String {
