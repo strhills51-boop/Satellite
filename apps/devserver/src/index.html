@@ -225,7 +225,7 @@ footer b { color: var(--accent2); font-weight: 500; }
 const $ = id => document.getElementById(id);
 const list = $("list"), layer = $("layer"), spacer = $("spacer");
 const ROW = 44, GAP = 4, VIEW = 0, MAXPX = 8_000_000, CHAINS_SHOWN = 6;
-let len = 0, total = 0, busy = false, again = false, shownKey = null, detailSeq = 0, shownChains = [];
+let len = 0, total = 0, busy = false, again = false, fetched = { y0: 0, y1: -1 }, frame = 0, shownKey = null, detailSeq = 0, shownChains = [];
 /** Cards on screen by entry key (ADR 0012: the page keeps what is visible; a card is rewritten only when it changed). */
 const cards = new Map(), spare = [];
 let badgeModel = "classic", density = 6, cols = 340;
@@ -348,8 +348,10 @@ async function sync(follow) {
   if (busy) { again = true; return; }
   busy = true;
   try {
-    const h = list.clientHeight, vt0 = vtop();
-    const rep = await query({ type: "lines", view: VIEW, y: Math.floor(vt0), height: h + ROW, flow: flow(), badges: density });
+    // overscan: a screen and a half above and two below, so scrolling moves cards already here (no wait)
+    const h = list.clientHeight, vt0 = vtop(), y0 = Math.max(0, Math.floor(vt0 - h * 1.5));
+    const rep = await query({ type: "lines", view: VIEW, y: y0, height: Math.ceil(h * 4.5), flow: flow(), badges: density });
+    fetched = { y0, y1: y0 + Math.ceil(h * 4.5) };
     len = rep.len; total = rep.total_height;
     spacer.style.height = Math.min(total, MAXPX) + "px";
     $("modcount").textContent = num(len) + " строк";
@@ -366,7 +368,8 @@ async function sync(follow) {
       const r = c.row, el = cardEl(r.key);
       seen.add(r.key);
       r.index = c.index;
-      const pos = [`translate(${c.x}px,${Math.round(l.y + (c.dy || 0) - vt)}px)`, c.width + "px", (l.header ? ROW : c.height) + "px"];
+      el._lx = c.x; el._ly = l.y + (c.dy || 0);
+      const pos = [`translate(${c.x}px,${Math.round(el._ly - vt)}px)`, c.width + "px", (l.header ? ROW : c.height) + "px"];
       if (!el._pos || el._pos.join() !== pos.join()) { el._pos = pos; place(el); }
       paint(el, r);
       if (r.focused) focused = r;
@@ -753,7 +756,18 @@ list.addEventListener("click", ev => {
   const select = ev.shiftKey ? "extend" : (ev.ctrlKey || ev.metaKey) ? "toggle" : "replace";
   run({ type: "navigate", view: VIEW, nav: { row }, select });
 });
-list.addEventListener("scroll", () => sync(false), { passive: true });
+/** Scrolling: cards already fetched move this frame; lines are fetched again only near the edge of what is here. */
+function reposition() {
+  frame = 0;
+  const vt = vtop(), h = list.clientHeight;
+  for (const el of cards.values()) {
+    if (el._ly === undefined || !el._pos) continue;
+    const t = `translate(${el._lx}px,${Math.round(el._ly - vt)}px)`;
+    if (el._pos[0] !== t) { el._pos[0] = t; el.style.transform = t; }
+  }
+  if (vt < fetched.y0 + h * 0.5 && fetched.y0 > 0 || vt + h > fetched.y1 - h * 0.5) sync(false);
+}
+list.addEventListener("scroll", () => { if (!frame) frame = requestAnimationFrame(reposition); }, { passive: true });
 window.addEventListener("resize", () => sync(false));
 $("tiles").addEventListener("click", ev => {
   const t = ev.target.closest(".tile"); if (!t) return;
