@@ -284,9 +284,15 @@ fn run(
                 members,
                 link,
                 pack,
+                downscale,
             } => {
                 let path = layout.mods_dir.join(name);
-                crate::bake::bake_with(&layout.mods_dir, members, &path, *link, *pack)?;
+                let opt = crate::bake::BakeOptions {
+                    link: *link,
+                    pack: *pack,
+                    downscale: *downscale,
+                };
+                crate::bake::bake_with(&layout.mods_dir, members, &path, opt)?;
                 steps.push(Step::Installed { path });
             }
             // @sat:mo2.commit.install

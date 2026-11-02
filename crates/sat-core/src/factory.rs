@@ -59,6 +59,10 @@ pub struct Factory {
     /// ` - Textures.bsa`): thousands of loose files become a few (`@sat:formats.bsa-write`).
     #[serde(default)]
     pub pack: bool,
+    /// Mip levels to drop from every texture (1 = half the size, a quarter of the bytes), never below 512 px:
+    /// the owner's costume factory — light items read rarely, so smaller is better.
+    #[serde(default)]
+    pub downscale: u8,
     /// Keep the members enabled next to the output (by default they are switched off: the output replaces them).
     #[serde(default)]
     pub keep_members: bool,
@@ -80,7 +84,7 @@ pub fn fingerprint(f: &Factory, members: &[(String, Option<u64>)]) -> String {
         }
         h = (h ^ 0xff).wrapping_mul(0x0100_0000_01b3);
     };
-    eat(&[f.kind as u8, u8::from(f.link), u8::from(f.pack)]);
+    eat(&[f.kind as u8, u8::from(f.link), u8::from(f.pack), f.downscale]);
     for (name, sig) in members {
         eat(name.to_lowercase().as_bytes());
         eat(&sig.unwrap_or(0).to_le_bytes());
@@ -141,6 +145,7 @@ mod tests {
             kind: FactoryKind::Bake,
             link: false,
             pack: false,
+            downscale: 0,
             keep_members: false,
             mode: FactoryMode::Live,
             built: None,

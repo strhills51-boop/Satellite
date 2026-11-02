@@ -69,6 +69,9 @@ pub enum DiskOp {
         /// Pack into archives with an empty light plugin (`@sat:formats.bsa-write`).
         #[serde(default)]
         pack: bool,
+        /// Mip levels to drop from textures (`@sat:formats.dds.downscale`).
+        #[serde(default)]
+        downscale: u8,
     },
     /// A planned mod's folder made from its source (`@sat:intent`).
     Install {

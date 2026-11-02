@@ -27,8 +27,28 @@ fn walk(root: &Path, rel: &mut PathBuf, out: &mut Vec<PathBuf>) -> std::io::Resu
 /// Builds `target` (which must not exist) from the folders of `members` (canon order) in `mods_dir`. Returns the
 /// number of files. Members' `meta.ini` stay theirs; the output gets its own.
 pub fn bake(mods_dir: &Path, members: &[String], target: &Path, link: bool) -> Result<usize, String> {
-    bake_with(mods_dir, members, target, link, false)
+    bake_with(
+        mods_dir,
+        members,
+        target,
+        BakeOptions {
+            link,
+            ..BakeOptions::default()
+        },
+    )
 }
+
+/// How a bake builds its output.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BakeOptions {
+    pub link: bool,
+    pub pack: bool,
+    /// Mip levels to drop from every texture (each halves it), never below [`DOWNSCALE_FLOOR`].
+    pub downscale: u8,
+}
+
+/// Textures are never made smaller than this on their larger side.
+pub const DOWNSCALE_FLOOR: u32 = 512;
 
 /// Top folders the game reads from archives (packed by `bake_with(.., pack)`); the rest stays loose (SKSE plugins,
 /// configs, anything a program reads from disk).
@@ -57,9 +77,13 @@ pub fn bake_with(
     mods_dir: &Path,
     members: &[String],
     target: &Path,
-    link: bool,
-    pack: bool,
+    opt: BakeOptions,
 ) -> Result<usize, String> {
+    let BakeOptions {
+        link,
+        pack,
+        downscale,
+    } = opt;
     if target.exists() {
         return Err(format!("{} already exists", target.display()));
     }
@@ -83,7 +107,9 @@ pub fn bake_with(
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let tmp = target.with_file_name(format!(".{name}.baking"));
+    let staging = target.with_file_name(format!(".{name}.staging"));
     let _ = std::fs::remove_dir_all(&tmp);
+    let _ = std::fs::remove_dir_all(&staging);
     let r = (|| {
         std::fs::create_dir_all(&tmp).map_err(|e| io(&tmp, e))?;
         let plugin = sat_core::factory::pack_plugin(&name);
@@ -92,7 +118,37 @@ pub fn bake_with(
         for (dir, rel) in winner.values() {
             let rel_s = rel.to_string_lossy().replace('\\', "/");
             let top = rel_s.split('/').next().unwrap_or("").to_lowercase();
-            if pack && rel_s.contains('/') && PACKED.contains(&top.as_str()) {
+            let packed = pack && rel_s.contains('/') && PACKED.contains(&top.as_str());
+            // @sat:mo2.bake.downscale
+            // a smaller texture without re-encoding: its top mip levels dropped (`@sat:formats.dds.downscale`)
+            let small = if downscale > 0 && rel_s.to_lowercase().ends_with(".dds") {
+                let src = dir.join(rel);
+                let b = std::fs::read(&src).map_err(|e| io(&src, e))?;
+                sat_formats::dds::drop_top_mips(&b, u32::from(downscale), DOWNSCALE_FLOOR)
+            } else {
+                None
+            };
+            if let Some(bytes) = small {
+                let at = if packed { staging.join(rel) } else { tmp.join(rel) };
+                if let Some(p) = at.parent() {
+                    std::fs::create_dir_all(p).map_err(|e| io(p, e))?;
+                }
+                std::fs::write(&at, bytes).map_err(|e| io(&at, e))?;
+                if !packed {
+                    continue;
+                }
+                let f = sat_formats::bsa_write::PackFile {
+                    path: rel_s,
+                    source: at,
+                };
+                if top == "textures" {
+                    tex.push(f)
+                } else {
+                    other.push(f)
+                }
+                continue;
+            }
+            if packed {
                 let f = sat_formats::bsa_write::PackFile {
                     path: rel_s,
                     source: dir.join(rel),
@@ -143,6 +199,7 @@ pub fn bake_with(
         std::fs::rename(&tmp, target).map_err(|e| io(target, e))?;
         Ok(winner.len())
     })();
+    let _ = std::fs::remove_dir_all(&staging);
     if r.is_err() {
         let _ = std::fs::remove_dir_all(&tmp);
     }

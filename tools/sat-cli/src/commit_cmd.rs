@@ -148,9 +148,15 @@ pub fn commit(args: &[String]) -> Result<(), String> {
                 members,
                 link,
                 pack,
+                downscale,
             } => println!(
-                "  disk: build {name} from {} member(s){}{} — the members are switched off unless kept",
+                "  disk: build {name} from {} member(s){}{}{} — the members are switched off unless kept",
                 members.len(),
+                if *downscale > 0 {
+                    format!(", textures smaller by {downscale} mip level(s)")
+                } else {
+                    String::new()
+                },
                 if *link { " (hard links)" } else { "" },
                 if *pack {
                     " packed into archives with an empty light plugin (enabled in plugins.txt)"
@@ -423,6 +429,7 @@ fn factories(
             members: g.members.clone(),
             link: f.link,
             pack: f.pack,
+            downscale: f.downscale,
         });
         p.canon_after = place_output(&p.canon_after, f, &g.members);
         if seal {

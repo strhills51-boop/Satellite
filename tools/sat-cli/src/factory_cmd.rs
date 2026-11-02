@@ -60,10 +60,10 @@ pub fn group(args: &[String]) -> Result<(), String> {
 }
 
 // @sat:cli.factory.run
-/// `sat-cli factory <instance> [--add "GROUP=OUTPUT" [--link] [--keep-members] [--seal] [--pack]] [--remove OUTPUT]`:
+/// `sat-cli factory <instance> [--add "GROUP=OUTPUT" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]`:
 /// the
 /// next `sat-cli commit --apply` builds what is new or changed. `--seal` — bake once and take the members out of the
-/// build (the commit asks for `--confirm "OUTPUT"`); `--pack` — archives and an empty light plugin.
+/// build (the commit asks for `--confirm "OUTPUT"`); `--pack` — archives and an empty light plugin; `--downscale N` — textures N mip levels smaller.
 pub fn factory(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
@@ -103,6 +103,13 @@ pub fn factory(args: &[String]) -> Result<(), String> {
             kind: FactoryKind::Bake,
             link: has(args, "--link"),
             pack: has(args, "--pack"),
+            downscale: flag_value(args, "--downscale")
+                .map(|v| {
+                    v.parse()
+                        .map_err(|_| format!("--downscale {v}: a number of mip levels (1 = half)"))
+                })
+                .transpose()?
+                .unwrap_or(0),
             keep_members: has(args, "--keep-members"),
             mode: if has(args, "--seal") {
                 FactoryMode::Seal
