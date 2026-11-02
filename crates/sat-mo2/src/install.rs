@@ -5,7 +5,7 @@
 //! folder safely (no path leaves the folder).
 //! Not here: when to install (`@sat:intent`, `@sat:sync.plan.installs`), the commit around it (`@sat:mo2.commit`).
 //!
-//! Formats: zip. 7z and rar — next (most Nexus archives are 7z). FOMOD installers: recognised and refused for now
+//! Formats: zip and 7z (told by their first bytes); rar — not yet. FOMOD installers: recognised and refused for now
 //! (the installer's choices will be part of the intent).
 
 use std::collections::BTreeMap;
@@ -109,33 +109,74 @@ fn find_root(paths: &[String]) -> String {
     prefix
 }
 
-fn open(path: &Path) -> Result<zip::ZipArchive<BufReader<File>>, String> {
+/// Archive formats, told by their first bytes (the extension can lie).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    Zip,
+    SevenZ,
+}
+
+fn format_of(path: &Path) -> Result<Format, String> {
+    let mut head = [0u8; 6];
+    let mut f = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let n = std::io::Read::read(&mut f, &mut head).map_err(|e| format!("{}: {e}", path.display()))?;
+    match &head[..n] {
+        [b'P', b'K', ..] => Ok(Format::Zip),
+        [b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C] => Ok(Format::SevenZ),
+        [b'R', b'a', b'r', b'!', ..] => Err(format!("{}: rar is not supported yet", path.display())),
+        _ => Err(format!("{}: not a zip or 7z archive", path.display())),
+    }
+}
+
+fn open_zip(path: &Path) -> Result<zip::ZipArchive<BufReader<File>>, String> {
     let f = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    zip::ZipArchive::new(BufReader::new(f)).map_err(|e| {
-        format!(
-            "{}: not a zip archive ({e}); 7z and rar come next",
-            path.display()
-        )
-    })
+    zip::ZipArchive::new(BufReader::new(f)).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn open_7z(path: &Path) -> Result<sevenz_rust2::ArchiveReader<File>, String> {
+    sevenz_rust2::ArchiveReader::open(path, sevenz_rust2::Password::empty())
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Files of an archive: raw name and size.
+fn listing(path: &Path) -> Result<Vec<(String, u64)>, String> {
+    let mut out = Vec::new();
+    match format_of(path)? {
+        Format::Zip => {
+            let mut z = open_zip(path)?;
+            for i in 0..z.len() {
+                let e = z
+                    .by_index_raw(i)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                if e.is_dir() {
+                    continue;
+                }
+                let raw = e
+                    .name()
+                    .map_err(|x| format!("{}: {x}", path.display()))?
+                    .into_owned();
+                out.push((raw, e.size()));
+            }
+        }
+        Format::SevenZ => {
+            let a = sevenz_rust2::Archive::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            out.extend(
+                a.files
+                    .iter()
+                    .filter(|e| !e.is_directory())
+                    .map(|e| (e.name().to_string(), e.size())),
+            );
+        }
+    }
+    Ok(out)
 }
 
 /// Reads an archive's layout without extracting it.
 pub fn inspect(path: &Path) -> Result<ArchiveLayout, String> {
-    let mut z = open(path)?;
-    let mut entries = Vec::with_capacity(z.len());
-    for i in 0..z.len() {
-        let e = z
-            .by_index_raw(i)
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-        if e.is_dir() {
-            continue;
-        }
-        let raw = e
-            .name()
-            .map_err(|x| format!("{}: {x}", path.display()))?
-            .into_owned();
+    let mut entries = Vec::new();
+    for (raw, size) in listing(path)? {
         let name = norm(&raw).ok_or_else(|| format!("{}: unsafe path {raw:?}", path.display()))?;
-        entries.push((name, e.size()));
+        entries.push((name, size));
     }
     let paths: Vec<String> = entries.iter().map(|(n, _)| n.clone()).collect();
     let fomod = paths.iter().any(|p| {
@@ -231,41 +272,89 @@ pub fn install(archive: &Path, target: &Path) -> Result<usize, String> {
     r
 }
 
+/// Where an archive entry goes in `into`; `Ok(None)` for what is not installed (outside the root, the installer).
+fn destination(
+    archive: &Path,
+    layout: &ArchiveLayout,
+    into: &Path,
+    raw: &str,
+) -> Result<Option<PathBuf>, String> {
+    let Some(name) = norm(raw) else {
+        return Err(format!("{}: unsafe path {raw:?}", archive.display()));
+    };
+    let Some(rel) = name.strip_prefix(layout.root.as_str()) else {
+        return Ok(None);
+    };
+    if rel.is_empty() || rel.to_lowercase().starts_with("fomod/") {
+        return Ok(None);
+    }
+    let out = into.join(rel);
+    // `norm` refused `..` and roots; check what the joined path is made of anyway
+    if out.strip_prefix(into).map_or(true, |r| {
+        r.components().any(|c| !matches!(c, Component::Normal(_)))
+    }) {
+        return Err(format!("{}: unsafe path {rel:?}", archive.display()));
+    }
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
+    Ok(Some(out))
+}
+
 fn extract(archive: &Path, layout: &ArchiveLayout, into: &Path) -> Result<usize, String> {
-    let mut z = open(archive)?;
     std::fs::create_dir_all(into).map_err(|e| format!("{}: {e}", into.display()))?;
     let mut n = 0;
-    for i in 0..z.len() {
-        let mut e = z.by_index(i).map_err(|e| format!("{}: {e}", archive.display()))?;
-        if e.is_dir() {
-            continue;
+    match format_of(archive)? {
+        Format::Zip => {
+            let mut z = open_zip(archive)?;
+            for i in 0..z.len() {
+                let mut e = z.by_index(i).map_err(|e| format!("{}: {e}", archive.display()))?;
+                if e.is_dir() {
+                    continue;
+                }
+                let raw = e
+                    .name()
+                    .map_err(|x| format!("{}: {x}", archive.display()))?
+                    .into_owned();
+                if let Some(out) = destination(archive, layout, into, &raw)? {
+                    let mut f = File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+                    std::io::copy(&mut e, &mut f).map_err(|e| format!("{}: {e}", out.display()))?;
+                    n += 1;
+                }
+            }
         }
-        let raw = e
-            .name()
-            .map_err(|x| format!("{}: {x}", archive.display()))?
-            .into_owned();
-        let Some(name) = norm(&raw) else {
-            return Err(format!("{}: unsafe path {raw:?}", archive.display()));
-        };
-        let Some(rel) = name.strip_prefix(layout.root.as_str()) else {
-            continue;
-        };
-        if rel.is_empty() || rel.to_lowercase().starts_with("fomod/") {
-            continue;
+        Format::SevenZ => {
+            // 7z streams are solid: entries are read in archive order, one pass
+            let mut failure = None;
+            open_7z(archive)?
+                .for_each_entries(|e, reader| {
+                    if e.is_directory() {
+                        return Ok(true);
+                    }
+                    let res = destination(archive, layout, into, e.name()).and_then(|out| match out {
+                        Some(out) => {
+                            let mut f = File::create(&out).map_err(|x| format!("{}: {x}", out.display()))?;
+                            std::io::copy(reader, &mut f).map_err(|x| format!("{}: {x}", out.display()))?;
+                            n += 1;
+                            Ok(())
+                        }
+                        None => std::io::copy(reader, &mut std::io::sink())
+                            .map(|_| ())
+                            .map_err(|x| x.to_string()),
+                    });
+                    match res {
+                        Ok(()) => Ok(true),
+                        Err(m) => {
+                            failure = Some(m);
+                            Ok(false)
+                        }
+                    }
+                })
+                .map_err(|e| format!("{}: {e}", archive.display()))?;
+            if let Some(m) = failure {
+                return Err(m);
+            }
         }
-        let out = into.join(rel);
-        // `norm` refused `..` and roots; check what the joined path is made of anyway
-        if out.strip_prefix(into).map_or(true, |r| {
-            r.components().any(|c| !matches!(c, Component::Normal(_)))
-        }) {
-            return Err(format!("{}: unsafe path {rel:?}", archive.display()));
-        }
-        if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        }
-        let mut f = File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-        std::io::copy(&mut e, &mut f).map_err(|e| format!("{}: {e}", out.display()))?;
-        n += 1;
     }
     Ok(n)
 }
@@ -312,6 +401,29 @@ mod tests {
                 .contains("Mod-123.zip")
         );
         assert!(install(&a, &target).is_err(), "never over an existing folder");
+    }
+
+    #[test]
+    fn a_7z_archive_installs_like_a_zip() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("Seven-1.7z");
+        let mut w = sevenz_rust2::ArchiveWriter::create(&a).unwrap();
+        for (n, d) in [
+            ("Seven/textures/a.dds", &b"aa"[..]),
+            ("Seven/Seven.esp", &b"p"[..]),
+        ] {
+            w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(n), Some(d))
+                .unwrap();
+        }
+        w.finish().unwrap();
+        let l = inspect(&a).unwrap();
+        assert_eq!(l.root, "Seven/");
+        let target = dir.path().join("Seven");
+        assert_eq!(install(&a, &target).unwrap(), 2);
+        assert_eq!(std::fs::read(target.join("textures/a.dds")).unwrap(), b"aa");
+        let r = dir.path().join("x.rar");
+        std::fs::write(&r, b"Rar!\x1a\x07\x00").unwrap();
+        assert!(inspect(&r).unwrap_err().contains("rar"));
     }
 
     #[test]
