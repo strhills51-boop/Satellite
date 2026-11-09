@@ -33,7 +33,7 @@ impl Report {
     fn problem(&mut self, kind: &str, path: &Path, detail: String) {
         let e = self.problems.entry(kind.to_string()).or_default();
         e.0 += 1;
-        if e.1.len() < 8 {
+        if e.1.len() < 200 {
             e.1.push(format!("{}  {detail}", path.display()));
         }
     }
@@ -176,8 +176,12 @@ fn dds(p: &Path, r: &mut Report) {
 pub fn verify(args: &[String]) -> Result<(), String> {
     let dir = args
         .iter()
-        .find(|a| !a.starts_with("--") && Some(a.as_str()) != flag_value(args, "--dds"))
-        .ok_or("usage: sat-cli verify-formats <dir> [--dds N]")?;
+        .find(|a| {
+            !a.starts_with("--")
+                && Some(a.as_str()) != flag_value(args, "--dds")
+                && Some(a.as_str()) != flag_value(args, "--out")
+        })
+        .ok_or("usage: sat-cli verify-formats <dir> [--dds N] [--out FILE]")?;
     let t = std::time::Instant::now();
     let mut files = Vec::new();
     walk(Path::new(dir), &mut files);
@@ -214,7 +218,7 @@ pub fn verify(args: &[String]) -> Result<(), String> {
             let e = all.problems.entry(k).or_default();
             e.0 += n;
             for x in paths {
-                if e.1.len() < 8 {
+                if e.1.len() < 200 {
                     e.1.push(x);
                 }
             }
@@ -235,12 +239,24 @@ pub fn verify(args: &[String]) -> Result<(), String> {
         println!("no problems");
         return Ok(());
     }
+    // on screen: kinds and a few paths; `--out FILE` keeps up to 200 paths of each kind
     println!("problems:");
     for (k, (n, paths)) in &r.problems {
         println!("  {n:>8}  {k}");
-        for p in paths {
+        for p in paths.iter().take(3) {
             println!("            {p}");
         }
+    }
+    if let Some(out) = flag_value(args, "--out") {
+        let mut text = String::new();
+        for (k, (n, paths)) in &r.problems {
+            text.push_str(&format!("{n}  {k}\n"));
+            for p in paths {
+                text.push_str(&format!("    {p}\n"));
+            }
+        }
+        std::fs::write(out, text).map_err(|e| format!("{out}: {e}"))?;
+        println!("full list → {out}");
     }
     let unread: usize = r
         .problems

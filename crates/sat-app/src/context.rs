@@ -118,6 +118,58 @@ enum RowItem {
 }
 
 impl App {
+    // @sat:app.context-name
+    /// A context's name: what it is about (`@sat:naming.title` over its mods, their separators and sample paths) and
+    /// its lowest and highest mods — `title · first → last`, like a chain's.
+    fn context_name(
+        &self,
+        ow: &sat_core::overwrite::OverwriteProjection,
+        cx: &sat_core::overwrite::Context,
+    ) -> String {
+        let table = self.session.table();
+        let book = self.session.book();
+        let labels: Vec<&str> = cx.mods.iter().map(|&m| self.session.unit_label(m)).collect();
+        let seps: Vec<String> = cx
+            .mods
+            .iter()
+            .filter_map(|&m| book.key_of(table.mod_name(m)))
+            .filter_map(|k| book.separator_of(k))
+            .map(|k| book.name(k).trim_end_matches("_separator").to_string())
+            .collect();
+        let seps: Vec<&str> = seps.iter().map(String::as_str).collect();
+        let mut paths: Vec<String> = Vec::new();
+        for &c in &cx.chains {
+            if paths.len() >= 64 {
+                break;
+            }
+            paths.extend(
+                ow.chain_paths(c)
+                    .iter()
+                    .take(64 - paths.len())
+                    .map(|&p| table.path_string(p)),
+            );
+        }
+        let title = sat_core::naming::title(
+            &sat_core::naming::ChainFeatures {
+                mods: &labels,
+                separators: &seps,
+                paths: &paths,
+                files: cx.files,
+            },
+            sat_core::naming::STRENGTH_DEFAULT,
+        );
+        let ends = format!(
+            "{} → {}",
+            labels.first().copied().unwrap_or(""),
+            labels.last().copied().unwrap_or("")
+        );
+        if title.is_empty() {
+            ends
+        } else {
+            format!("{title} · {ends}")
+        }
+    }
+
     /// Contexts, largest first.
     pub(crate) fn contexts(&mut self) -> Vec<ContextItem> {
         let ow = self.session.overwrite();
@@ -128,11 +180,9 @@ impl App {
             .iter()
             .map(|cx| {
                 let id = sat_core::identity::identity(cx.mods.iter().map(|&m| self.session.member_key(m)));
-                let first = cx.mods.first().map(|&m| self.session.unit_label(m)).unwrap_or("");
-                let last = cx.mods.last().map(|&m| self.session.unit_label(m)).unwrap_or("");
                 ContextItem {
                     key: cx.mods.first().and_then(|&m| book.key_of(table.mod_name(m))),
-                    name: format!("{first} → {last}"),
+                    name: self.context_name(&ow, cx),
                     hue: id.hue,
                     mods: cx.mods.len(),
                     chains: {
@@ -252,18 +302,8 @@ impl App {
             })
             .collect();
         let id = sat_core::identity::identity(context.mods.iter().map(|&x| self.session.member_key(x)));
-        let first = context
-            .mods
-            .first()
-            .map(|&x| self.session.unit_label(x))
-            .unwrap_or("");
-        let last = context
-            .mods
-            .last()
-            .map(|&x| self.session.unit_label(x))
-            .unwrap_or("");
         Some(ContextTable {
-            name: format!("{first} → {last}"),
+            name: self.context_name(&ow, context),
             hue: id.hue,
             rows_total: oc.rows.len(),
             cols_total: oc.cols.len(),
@@ -465,6 +505,8 @@ mod tests {
             (1, 3, 1),
             "x and y are both won by C: one normalized chain"
         );
+        // named by what it is about (folder, extension), then its ends
+        assert_eq!(contexts[0].name, "meshes · nif · A → C");
         let t = window(&mut a, ColumnOrder::Strength, (0, 10));
         // a separator heading, then the three mods
         assert_eq!((t.rows_total, t.cols_total), (4, 2));
