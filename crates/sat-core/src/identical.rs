@@ -1,5 +1,7 @@
-//! Identical overrides: a losing file whose content is the winner's — the conflict changes nothing in the game,
-//! the losing copy is only disk. @sat:identical
+//! Identical overrides: losing files with the winner's bytes. @sat:identical
+//!
+//! A losing file whose content is the winner's changes nothing in the game: the conflict is harmless and the copy is
+//! only disk.
 //!
 //! Owns: which files to compare (`candidates`: loose providers of a contested path with the winner's size) and
 //! what equal contents add up to (`tally`: per mod, files and bytes the game never gets anything from).
