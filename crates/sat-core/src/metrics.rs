@@ -79,6 +79,24 @@ pub const MOD_METRICS: &[MetricDef] = &[
     m("wins", "Конфликтных путей выигрывает", "conflicts", Unit::Count),
     m("loses", "Конфликтных путей проигрывает", "conflicts", Unit::Count),
     m("mid", "В середине стека", "conflicts", Unit::Count),
+    m(
+        "equal_copies",
+        "Проигравших копий, байт в байт равных победителю",
+        "conflicts",
+        Unit::Count,
+    ),
+    m(
+        "equal_bytes",
+        "Объём копий, равных победителю",
+        "conflicts",
+        Unit::Bytes,
+    ),
+    m(
+        "unknown_copies",
+        "Проигравших копий, не сравнённых (архивы, не прочитано)",
+        "conflicts",
+        Unit::Count,
+    ),
     m("unique", "Уникальных путей", "conflicts", Unit::Count),
     m("overridden", "Не виден в игре (X)", "conflicts", Unit::Flag),
     m("kind", "Основной вид содержимого", "profile", Unit::Text),
@@ -161,6 +179,8 @@ pub struct ModView<'a> {
     pub metrics: Option<&'a ModMetrics>,
     /// What the mod is made of; `None` like `metrics`.
     pub profile: Option<&'a crate::profile::ContentProfile>,
+    /// Losing copies against the winner's bytes (`@sat:identical.mods`); `None` — not compared.
+    pub content: Option<&'a crate::identical::ModContent>,
     pub stat: Option<&'a ModStat>,
     pub name: &'a str,
     pub separator: Option<&'a str>,
@@ -194,6 +214,14 @@ impl ModView<'_> {
                 "mid" => return n(u64::from(s.mid)),
                 "unique" => return n(u64::from(s.unique)),
                 "overridden" => return Value::Bool(s.fully_overridden),
+                _ => {}
+            }
+        }
+        if let Some(c) = self.content {
+            match id {
+                "equal_copies" => return n(u64::from(c.equal_files)),
+                "equal_bytes" => return n(c.equal_bytes),
+                "unknown_copies" => return n(u64::from(c.unknown_files)),
                 _ => {}
             }
         }
@@ -282,6 +310,7 @@ mod tests {
         let v = ModView {
             metrics: Some(&f.metrics),
             profile: None,
+            content: None,
             stat: Some(&stat),
             name: &f.name,
             separator: Some("Textures"),

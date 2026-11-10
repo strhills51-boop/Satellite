@@ -18,6 +18,7 @@ use crate::{App, AppError};
 pub(crate) struct ViewParts {
     metrics: Option<ModMetrics>,
     profile: Option<sat_core::profile::ContentProfile>,
+    content: Option<sat_core::identical::ModContent>,
     stat: Option<ModStat>,
     name: String,
     separator: Option<String>,
@@ -32,6 +33,7 @@ impl ViewParts {
         ModView {
             metrics: self.metrics.as_ref(),
             profile: self.profile.as_ref(),
+            content: self.content.as_ref(),
             stat: self.stat.as_ref(),
             name: &self.name,
             separator: self.separator.as_deref(),
@@ -94,10 +96,15 @@ impl App {
             None => (None, None, None),
         };
         let source = self.sources.get(&name.to_lowercase()).cloned();
+        let content = match (self.session.mod_id(&name), self.mod_content()) {
+            (Some(m), Some(c)) => c.get(m.idx()).copied(),
+            _ => None,
+        };
         ViewParts {
             source,
             metrics,
             profile,
+            content,
             stat,
             name,
             separator,

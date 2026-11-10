@@ -108,6 +108,32 @@ impl HashCache {
     }
 }
 
+// @sat:scan.content-hash.table
+/// Content hashes for a provider table (`@sat:identical.needs` decides which loose copies are read; the rest stay
+/// unknown): `folder(mod name)` — where the mod's files are. Hashes are taken from and kept in `cache_file`.
+/// Returns the hashes and how many files were read now.
+pub fn hashes_for(
+    table: &sat_core::table::ProviderTable,
+    folder: impl Fn(&str) -> PathBuf,
+    cache_file: &Path,
+    min_size: u64,
+) -> (sat_core::identical::ContentHashes, usize) {
+    let need = sat_core::identical::needs_hash(table, min_size);
+    let names = table.mod_names();
+    let paths: Vec<PathBuf> = need
+        .iter()
+        .map(|&i| folder(&names[table.owner(i).idx()]).join(table.path_string(table.path_of_provider(i))))
+        .collect();
+    let mut cache = HashCache::load(cache_file);
+    let (hashes, read) = cache.hash_all(&paths);
+    let _ = cache.save(cache_file);
+    let mut out = vec![None; table.provider_count()];
+    for (i, h) in need.into_iter().zip(hashes) {
+        out[i] = h;
+    }
+    (sat_core::identical::ContentHashes(out), read)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

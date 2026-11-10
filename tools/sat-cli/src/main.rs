@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical [--min-size SIZE]] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -759,6 +759,60 @@ fn analyze(args: &[String]) -> Result<(), String> {
         .map(|(n, s)| (n.to_lowercase(), s))
         .collect();
 
+    // @sat:cli.identical
+    // content of contested copies (`@sat:identical`): read where sizes match, hashes cached in the profile; every
+    // conflict stays counted — this only says what the losing copies are
+    let content: Option<Vec<sat_core::identical::ModContent>> = if offline || has(args, "--no-hashes") {
+        None
+    } else {
+        let min = flag_value(args, "--min-size").map_or(Ok(0), parse_size)?;
+        let t = Instant::now();
+        let cache_file = inst.profile_dir().join("satellite").join("content-hashes.txt");
+        let (hashes, read) = sat_scan::content::hashes_for(
+            &table,
+            |m| {
+                if m == OVERWRITE {
+                    inst.overwrite_dir.clone()
+                } else {
+                    inst.mods_dir.join(m)
+                }
+            },
+            &cache_file,
+            min,
+        );
+        let mc = sat_core::identical::mod_content(&table, &hashes, &prio);
+        let (files, bytes, unknown) = mc.iter().fold((0u64, 0u64, 0u64), |a, c| {
+            (
+                a.0 + u64::from(c.equal_files),
+                a.1 + c.equal_bytes,
+                a.2 + u64::from(c.unknown_files),
+            )
+        });
+        timings.insert("content_hashes", t.elapsed().as_millis());
+        println!(
+            "losing copies equal to the winner: {files} file(s), {}; not compared: {unknown} (archive entries, unread); {read} file(s) read now",
+            human_bytes(bytes)
+        );
+        if has(args, "--identical") {
+            let names = table.mod_names();
+            for (m, c) in sat_core::identical::top(&mc).into_iter().take(20) {
+                let full = table.summary(m).metrics.bytes;
+                println!(
+                    "  {:>10}  {:>6} file(s){}  {}",
+                    human_bytes(c.equal_bytes),
+                    c.equal_files,
+                    if full > 0 && c.equal_bytes * 10 >= full * 9 {
+                        "  (nearly the whole mod)"
+                    } else {
+                        ""
+                    },
+                    names[m.idx()]
+                );
+            }
+        }
+        Some(mc)
+    };
+
     // @sat:cli.find
     if let Some(expr) = &find {
         let by_name: std::collections::HashMap<String, &Seen> =
@@ -789,6 +843,10 @@ fn analyze(args: &[String]) -> Result<(), String> {
                     .map(|&m| table.summary(m))
                     .filter(|s| !s.missing)
                     .map(|s| &s.profile),
+                content: content
+                    .as_ref()
+                    .zip(index.get(&e.name.to_lowercase()))
+                    .map(|(c, &m)| &c[m.idx()]),
                 stat: index.get(&e.name.to_lowercase()).map(|&m| proj.stat(m)),
                 name: &e.name,
                 separator: sep,
@@ -815,72 +873,6 @@ fn analyze(args: &[String]) -> Result<(), String> {
             );
         }
         eprintln!("find: {hits} mod(s) match `{}`", expr.source());
-    }
-
-    // @sat:cli.identical
-    // identical overrides: losing loose files whose bytes are the winner's (`@sat:identical`) — read only where the
-    // sizes match, hashes cached in the profile
-    if has(args, "--identical") {
-        if offline {
-            eprintln!("--identical reads the files: not with --offline");
-        } else {
-            let min = flag_value(args, "--min-size").map_or(Ok(64 * 1024), parse_size)?;
-            let t = Instant::now();
-            let cands = sat_core::identical::candidates(&table, &prio, min);
-            let names = table.mod_names();
-            let disk = |i: usize| {
-                let owner = &names[table.owner(i).idx()];
-                let root = if owner == OVERWRITE {
-                    inst.overwrite_dir.clone()
-                } else {
-                    inst.mods_dir.join(owner)
-                };
-                root.join(table.path_string(table.path_of_provider(i)))
-            };
-            let providers: Vec<usize> = cands
-                .iter()
-                .flat_map(|c| std::iter::once(c.winner).chain(c.losers.iter().copied()))
-                .collect();
-            let paths: Vec<std::path::PathBuf> = providers.iter().map(|&i| disk(i)).collect();
-            let cache_file = inst.profile_dir().join("satellite").join("content-hashes.txt");
-            let mut cache = sat_scan::content::HashCache::load(&cache_file);
-            let (hashes, read) = cache.hash_all(&paths);
-            if let Err(e) = cache.save(&cache_file) {
-                eprintln!("hash cache not saved: {e}");
-            }
-            let by: std::collections::HashMap<usize, Option<u64>> =
-                providers.into_iter().zip(hashes).collect();
-            let tally = sat_core::identical::tally(&table, &cands, |i| by.get(&i).copied().flatten());
-            let total = tally.total();
-            println!(
-                "identical overrides: {} file(s), {} — losing copies equal to the winner (files ≥ {}; {} compared, {} read, {} unreadable, {:.1} s)",
-                total.files,
-                human_bytes(total.bytes),
-                human_bytes(min),
-                tally.compared,
-                read,
-                tally.unread,
-                t.elapsed().as_secs_f64()
-            );
-            println!(
-                "contested paths where every copy is the same: {}",
-                tally.harmless_paths
-            );
-            for (m, r) in tally.top().into_iter().take(20) {
-                let full = table.summary(m).metrics.bytes;
-                println!(
-                    "  {:>10}  {:>6} file(s){}  {}",
-                    human_bytes(r.bytes),
-                    r.files,
-                    if full > 0 && r.bytes * 10 >= full * 9 {
-                        "  (nearly the whole mod)"
-                    } else {
-                        ""
-                    },
-                    names[m.idx()]
-                );
-            }
-        }
     }
 
     // @sat:cli.content

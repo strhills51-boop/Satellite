@@ -150,6 +150,8 @@ fn build(ow: &OverwriteProjection, s: &Session, manual: &[sat_core::naming::Manu
 
 /// Headings with what they were built from: (overwrite computation, member-keys revision, user identities revision).
 pub(crate) type Cached = ((u64, u64, u64), Arc<Vec<Head>>);
+/// What mods lose as equal copies, with what it was built from: (overwrite computation, hashes revision).
+pub(crate) type CachedContent = ((u64, u64), Arc<Vec<sat_core::identical::ModContent>>);
 
 /// A mod's part in one normalized chain.
 #[derive(Debug, Clone, Copy)]
@@ -181,6 +183,36 @@ impl App {
         self.heads = Some((version, h.clone()));
         h
     }
+
+    // @sat:app.content
+    /// Content hashes of the current table's providers (`@sat:scan.content-hash.table`); hashes of another table
+    /// are dropped.
+    pub fn set_content_hashes(&mut self, hashes: sat_core::identical::ContentHashes) {
+        self.content_hashes = Arc::new(hashes.for_table(self.session.table()));
+        self.content_rev += 1;
+    }
+
+    /// What each mod loses as copies equal to the winner, once per overwrite computation and hashes revision;
+    /// `None` without hashes (nothing was compared — not "nothing is equal").
+    pub(crate) fn mod_content(&mut self) -> Option<Arc<Vec<sat_core::identical::ModContent>>> {
+        if self.content_hashes.0.is_empty() {
+            return None;
+        }
+        let ow = self.session.overwrite();
+        let version = (self.session.computed("overwrite"), self.content_rev);
+        if let Some((v, c)) = &self.mod_content
+            && *v == version
+        {
+            return Some(c.clone());
+        }
+        let c = Arc::new(sat_core::identical::mod_content(
+            self.session.table(),
+            &self.content_hashes,
+            ow.priorities(),
+        ));
+        self.mod_content = Some((version, c.clone()));
+        Some(c)
+    }
 }
 
 /// Normalized chains of mod `m`, larger first (by the mod's own files in them).
@@ -201,4 +233,37 @@ pub(crate) fn parts(ow: &OverwriteProjection, heads: &[Head], m: ModId) -> Vec<P
     }
     out.sort_by_key(|p| (std::cmp::Reverse(p.files), p.group));
     out
+}
+
+/// The content verdict of a normalized chain over its exact chains (`@sat:identical.chain`); `None` without hashes.
+pub(crate) fn chain_content(
+    table: &sat_core::table::ProviderTable,
+    hashes: &sat_core::identical::ContentHashes,
+    ow: &OverwriteProjection,
+    chains: &[sat_core::ids::ChainId],
+) -> Option<sat_core::identical::ChainContent> {
+    use sat_core::identical::{ChainContent, Verdict};
+    if hashes.0.is_empty() {
+        return None;
+    }
+    let parts: Vec<ChainContent> = chains
+        .iter()
+        .map(|&c| sat_core::identical::chain_content(table, hashes, ow, c))
+        .collect();
+    let has = |v: Verdict| parts.iter().any(|p| p.verdict == v);
+    let verdict = if has(Verdict::Unknown) && !has(Verdict::Different) && !has(Verdict::Partly) {
+        Verdict::Unknown
+    } else if parts.iter().all(|p| p.verdict == Verdict::Identical) {
+        Verdict::Identical
+    } else if parts.iter().all(|p| p.verdict == Verdict::Different) {
+        Verdict::Different
+    } else {
+        Verdict::Partly
+    };
+    Some(ChainContent {
+        verdict,
+        equal_files: parts.iter().map(|p| p.equal_files).sum(),
+        equal_bytes: parts.iter().map(|p| p.equal_bytes).sum(),
+        unknown_paths: parts.iter().map(|p| p.unknown_paths).sum(),
+    })
 }

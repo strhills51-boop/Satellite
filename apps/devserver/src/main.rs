@@ -249,6 +249,25 @@ fn load(args: &[String]) -> Result<App, String> {
     app.set_sync(records, disk);
     app.set_tag_catalog(tags);
     app.set_chain_identities(chain_identities);
+    // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps (reads what is missing)
+    let t = std::time::Instant::now();
+    let (hashes, read) = sat_scan::content::hashes_for(
+        app.session().table(),
+        |m| {
+            if m == sat_core::session::OVERWRITE {
+                inst.overwrite_dir.clone()
+            } else {
+                inst.mods_dir.join(m)
+            }
+        },
+        &inst.profile_dir().join("satellite").join("content-hashes.txt"),
+        0,
+    );
+    app.set_content_hashes(hashes);
+    eprintln!(
+        "content hashes: {read} file(s) read in {:.1} s",
+        t.elapsed().as_secs_f64()
+    );
     for e in app.set_sticker_rules(&sticker_rules) {
         eprintln!("{e}");
     }

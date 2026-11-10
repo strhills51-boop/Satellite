@@ -289,6 +289,16 @@ impl App {
             }
             conflicts.push(chains);
             conflicts.push(count("chains_settled", settled as u64));
+            // losing copies against the winner's bytes (`@sat:identical.mods`): still conflicts, still disk
+            if let Some(c) = self.mod_content().and_then(|c| c.get(m.idx()).copied()) {
+                if c.equal_files > 0 {
+                    conflicts.push(signal(count("equal_copies", c.equal_files), Signal::Note));
+                    conflicts.push(bytes("equal_bytes", c.equal_bytes));
+                }
+                if c.unknown_files > 0 {
+                    conflicts.push(count("unknown_copies", c.unknown_files));
+                }
+            }
             sections.push(("conflicts", Origin::Observed, conflicts));
 
             // its plugins

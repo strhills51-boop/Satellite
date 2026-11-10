@@ -80,6 +80,7 @@ mod tests {
         let view = |m| ModView {
             metrics: Some(m),
             profile: None,
+            content: None,
             stat: None,
             name: "A",
             separator: None,

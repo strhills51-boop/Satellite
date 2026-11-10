@@ -370,6 +370,9 @@ pub struct ChainView {
     /// The user named, iconed or coloured it.
     #[serde(default)]
     pub custom: bool,
+    /// Losing copies against the winner's bytes (`@sat:identical.chain`); `None` — not compared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<sat_core::identical::ChainContent>,
     pub files: u32,
     pub bytes: u64,
     /// Stack, winner first.
@@ -610,6 +613,11 @@ pub struct App {
     tags: sat_core::tags::TagCatalog,
     /// Headings of the normalized chains, per overwrite computation.
     heads: Option<chains::Cached>,
+    /// Content hashes of the table's providers (`@sat:identical`) and what each mod loses as equal copies, per
+    /// (overwrite computation, hashes revision).
+    content_hashes: Arc<sat_core::identical::ContentHashes>,
+    content_rev: u64,
+    mod_content: Option<chains::CachedContent>,
     /// Conditional stickers of the project (`@sat:sticker-rules`).
     sticker_rules: sat_core::sticker_rules::StickerRules,
     /// Chain identities the user set (`@sat:naming.manual`), and their revision (heads are rebuilt on a change).
@@ -637,6 +645,9 @@ impl App {
             sticker_rules: Default::default(),
             chain_identities: Vec::new(),
             chain_identities_rev: 0,
+            content_hashes: Arc::default(),
+            content_rev: 0,
+            mod_content: None,
             system_stickers: Default::default(),
             counters: Default::default(),
             sources: Default::default(),
@@ -1369,6 +1380,7 @@ impl App {
                     title: h.title.clone(),
                     name: h.name.clone(),
                     custom: h.custom,
+                    content: chains::chain_content(&table, &self.content_hashes, &ow, &h.chains),
                     files: h.files,
                     bytes: h.bytes,
                     stack: h
@@ -1689,6 +1701,43 @@ mod tests {
         assert!(mini.signals.iter().all(|f| f.id != "chains"));
         let json = serde_json::to_string(&mini).unwrap();
         assert!(json.contains("\"origin\":\"observed\""), "{json}");
+    }
+
+    #[test]
+    fn chains_and_mods_tell_what_the_losing_copies_are() {
+        use sheet::SheetLevel;
+        let mut a = app_of(["A", "B"]);
+        let key = a.session.book().key_of("A").unwrap();
+        let detail = |a: &mut App| match a.query(Query::ModDetail { key }).unwrap() {
+            Reply::ModDetail { detail } => detail,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(detail(&mut a).chains[0].content, None, "no hashes: not compared");
+        let n = a.session().table().provider_count();
+        a.set_content_hashes(sat_core::identical::ContentHashes(vec![Some(7); n]));
+        let c = detail(&mut a).chains[0].content.unwrap();
+        assert_eq!(
+            (c.verdict, c.equal_files, c.equal_bytes),
+            (sat_core::identical::Verdict::Identical, 1, 10)
+        );
+        // still a conflict: counted and shown, with what the copy is
+        let Reply::ModSheet { sheet } = a
+            .query(Query::ModSheet {
+                key,
+                level: SheetLevel::Full,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        let conflicts = &sheet
+            .sections
+            .iter()
+            .find(|s| s.id == "conflicts")
+            .unwrap()
+            .fields;
+        assert!(conflicts.iter().any(|f| f.id == "loses"));
+        assert!(conflicts.iter().any(|f| f.id == "equal_copies"), "{conflicts:?}");
     }
 
     #[test]

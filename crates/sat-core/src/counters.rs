@@ -223,6 +223,7 @@ mod tests {
         let v = ModView {
             metrics: Some(&m),
             profile: None,
+            content: None,
             stat: Some(&s),
             name: "A",
             separator: None,
