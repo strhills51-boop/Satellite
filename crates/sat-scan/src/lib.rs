@@ -13,6 +13,7 @@
 
 pub mod analyzer;
 mod cache;
+pub mod content;
 mod signature;
 mod walk;
 

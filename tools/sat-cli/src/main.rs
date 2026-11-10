@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical [--min-size SIZE]] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -714,7 +714,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let proj = OverwriteProjection::compute_units(conflict_index, &table, prio.clone(), units);
     timings.insert("overwrite_compute", t.elapsed().as_millis());
     let t = Instant::now();
-    let _again = OverwriteProjection::compute(&table, prio);
+    let _again = OverwriteProjection::compute(&table, prio.clone());
     timings.insert("overwrite_recompute", t.elapsed().as_millis());
 
     // @sat:cli.sources
@@ -815,6 +815,72 @@ fn analyze(args: &[String]) -> Result<(), String> {
             );
         }
         eprintln!("find: {hits} mod(s) match `{}`", expr.source());
+    }
+
+    // @sat:cli.identical
+    // identical overrides: losing loose files whose bytes are the winner's (`@sat:identical`) — read only where the
+    // sizes match, hashes cached in the profile
+    if has(args, "--identical") {
+        if offline {
+            eprintln!("--identical reads the files: not with --offline");
+        } else {
+            let min = flag_value(args, "--min-size").map_or(Ok(64 * 1024), parse_size)?;
+            let t = Instant::now();
+            let cands = sat_core::identical::candidates(&table, &prio, min);
+            let names = table.mod_names();
+            let disk = |i: usize| {
+                let owner = &names[table.owner(i).idx()];
+                let root = if owner == OVERWRITE {
+                    inst.overwrite_dir.clone()
+                } else {
+                    inst.mods_dir.join(owner)
+                };
+                root.join(table.path_string(table.path_of_provider(i)))
+            };
+            let providers: Vec<usize> = cands
+                .iter()
+                .flat_map(|c| std::iter::once(c.winner).chain(c.losers.iter().copied()))
+                .collect();
+            let paths: Vec<std::path::PathBuf> = providers.iter().map(|&i| disk(i)).collect();
+            let cache_file = inst.profile_dir().join("satellite").join("content-hashes.txt");
+            let mut cache = sat_scan::content::HashCache::load(&cache_file);
+            let (hashes, read) = cache.hash_all(&paths);
+            if let Err(e) = cache.save(&cache_file) {
+                eprintln!("hash cache not saved: {e}");
+            }
+            let by: std::collections::HashMap<usize, Option<u64>> =
+                providers.into_iter().zip(hashes).collect();
+            let tally = sat_core::identical::tally(&table, &cands, |i| by.get(&i).copied().flatten());
+            let total = tally.total();
+            println!(
+                "identical overrides: {} file(s), {} — losing copies equal to the winner (files ≥ {}; {} compared, {} read, {} unreadable, {:.1} s)",
+                total.files,
+                human_bytes(total.bytes),
+                human_bytes(min),
+                tally.compared,
+                read,
+                tally.unread,
+                t.elapsed().as_secs_f64()
+            );
+            println!(
+                "contested paths where every copy is the same: {}",
+                tally.harmless_paths
+            );
+            for (m, r) in tally.top().into_iter().take(20) {
+                let full = table.summary(m).metrics.bytes;
+                println!(
+                    "  {:>10}  {:>6} file(s){}  {}",
+                    human_bytes(r.bytes),
+                    r.files,
+                    if full > 0 && r.bytes * 10 >= full * 9 {
+                        "  (nearly the whole mod)"
+                    } else {
+                        ""
+                    },
+                    names[m.idx()]
+                );
+            }
+        }
     }
 
     // @sat:cli.content
@@ -1387,4 +1453,36 @@ fn bench_synth(args: &[String]) -> Result<(), String> {
         rayon::current_num_threads()
     );
     Ok(())
+}
+
+/// `64K`, `1MB`, `2 GB`, `4096` → bytes (binary units).
+fn parse_size(s: &str) -> Result<u64, String> {
+    let t = s.trim().to_ascii_uppercase();
+    let t = t.trim_end_matches('B').trim();
+    let (num, mul) = match t.chars().last() {
+        Some('K') => (&t[..t.len() - 1], 1u64 << 10),
+        Some('M') => (&t[..t.len() - 1], 1 << 20),
+        Some('G') => (&t[..t.len() - 1], 1 << 30),
+        _ => (t, 1),
+    };
+    num.trim()
+        .parse::<f64>()
+        .map(|n| (n * mul as f64) as u64)
+        .map_err(|_| format!("not a size: {s}"))
+}
+
+/// Bytes for people: `1.4 GB`.
+fn human_bytes(b: u64) -> String {
+    let units = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = b as f64;
+    let mut u = 0;
+    while v >= 1024.0 && u + 1 < units.len() {
+        v /= 1024.0;
+        u += 1;
+    }
+    if u == 0 {
+        format!("{b} B")
+    } else {
+        format!("{v:.1} {}", units[u])
+    }
 }

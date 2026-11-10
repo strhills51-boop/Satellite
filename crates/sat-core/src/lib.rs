@@ -26,6 +26,7 @@ pub mod entity;
 pub mod expr;
 pub mod factory;
 pub mod facts;
+pub mod identical;
 pub mod identity;
 pub mod ids;
 pub mod ignore;

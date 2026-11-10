@@ -11,6 +11,7 @@ sat-formats.workspace = true
 rayon.workspace = true
 serde.workspace = true
 bincode.workspace = true
+xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 
 [dev-dependencies]
 tempfile.workspace = true
