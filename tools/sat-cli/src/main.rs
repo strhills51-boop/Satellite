@@ -1089,6 +1089,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
                         String::new()
                     }
                 );
+                // records to look up in xEdit: origin plugin and FormID within it
+                println!("           e.g. {}", c.samples.join(", "));
             }
             let mut by: Vec<(usize, &sat_core::records::PluginRecordStat)> =
                 stats.iter().enumerate().collect();
