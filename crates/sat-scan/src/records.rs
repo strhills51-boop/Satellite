@@ -11,7 +11,8 @@ use std::time::UNIX_EPOCH;
 use rayon::prelude::*;
 use sat_core::records::{PluginRecords, RecordFact};
 
-const MAGIC: &[u8; 4] = b"SRC1";
+/// v2: the hash covers the record flags too (a flag change, e.g. persistent or disabled, is a change).
+const MAGIC: &[u8; 4] = b"SRC2";
 
 fn stamp(path: &Path) -> Option<(u64, u128)> {
     let md = std::fs::metadata(path).ok()?;
@@ -31,7 +32,13 @@ pub fn read(path: &Path) -> Result<PluginRecords, String> {
         records.push(RecordFact {
             form_id: r.form_id,
             signature: r.signature,
-            hash: r.data.map(xxhash_rust::xxh3::xxh3_64),
+            // the data and the record flags (not "compressed": the same record packed or not is the same)
+            hash: r.data.map(|d| {
+                let mut h = xxhash_rust::xxh3::Xxh3::new();
+                h.update(&(r.flags & !0x0004_0000).to_le_bytes());
+                h.update(d);
+                h.digest()
+            }),
         });
     })
     .map_err(|e| format!("{}: {e}", path.display()))?;

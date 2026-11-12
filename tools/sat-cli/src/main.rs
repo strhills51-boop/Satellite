@@ -1024,12 +1024,14 @@ fn analyze(args: &[String]) -> Result<(), String> {
             let stats = sat_core::records::plugin_stats(&ix);
             timings.insert("records", t.elapsed().as_millis());
             println!(
-                "records: {} in {} plugin(s), {} read now; conflicts: {} record(s) in {} chain(s); not read: {}",
+                "records: {} in {} plugin(s), {} read now; overridden: {} (by one plugin: {}); conflicts (two or more plugins over a record): {} in {} chain(s); not read: {}",
                 ix.records(),
                 ix.plugins.len(),
                 read,
+                ix.overridden(),
+                ix.overridden() - ix.conflicts(),
                 ix.conflicts(),
-                chains.len(),
+                chains.iter().filter(|c| c.conflict).count(),
                 unread.len()
             );
             for u in unread.iter().take(5) {
@@ -1037,10 +1039,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
             }
             let stack = |v: &[String]| {
                 if v.len() <= 4 {
-                    v.join(" → ")
+                    // ASCII arrows: PowerShell 5.1 garbles UTF-8 written to a file
+                    v.join(" -> ")
                 } else {
                     format!(
-                        "{} → {} → … → {} ({} plugins)",
+                        "{} -> {} -> ... -> {} ({} plugins)",
                         v[0],
                         v[1],
                         v[v.len() - 1],
@@ -1053,29 +1056,40 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 Some(Ok(n)) => n,
                 _ => 15,
             };
-            println!("record chains, largest first:");
-            for c in chains.iter().take(limit) {
-                let mut sigs: Vec<_> = c.by_signature.iter().collect();
-                sigs.sort_by_key(|x| std::cmp::Reverse(*x.1));
-                let sigs: Vec<String> = sigs.iter().take(4).map(|(k, n)| format!("{k} {n}")).collect();
-                println!(
-                    "  {:>7}  {}   [{}]{}",
-                    c.records,
-                    stack(&c.stack),
-                    sigs.join(", "),
-                    if c.equal_to_winner > 0 {
-                        format!("  equal to the winner: {}", c.equal_to_winner)
-                    } else {
-                        String::new()
-                    }
-                );
-                // records to look up in xEdit: origin plugin and FormID within it
-                println!("           e.g. {}", c.samples.join(", "));
+            for (title, conflict) in [
+                (
+                    "conflicts: two or more plugins over the same records, the last takes them whole",
+                    true,
+                ),
+                (
+                    "overrides: one plugin over the records of the plugin they come from",
+                    false,
+                ),
+            ] {
+                println!("{title}:");
+                for c in chains.iter().filter(|c| c.conflict == conflict).take(limit) {
+                    let mut sigs: Vec<_> = c.by_signature.iter().collect();
+                    sigs.sort_by_key(|x| std::cmp::Reverse(*x.1));
+                    let sigs: Vec<String> = sigs.iter().take(4).map(|(k, n)| format!("{k} {n}")).collect();
+                    println!(
+                        "  {:>7}  {}   [{}]{}",
+                        c.records,
+                        stack(&c.stack),
+                        sigs.join(", "),
+                        if c.equal_to_winner > 0 {
+                            format!("  equal to the winner: {}", c.equal_to_winner)
+                        } else {
+                            String::new()
+                        }
+                    );
+                    // records to look up in xEdit: origin plugin and FormID within it
+                    println!("           e.g. {}", c.samples.join(", "));
+                }
             }
             let mut by: Vec<(usize, &sat_core::records::PluginRecordStat)> =
                 stats.iter().enumerate().collect();
             by.sort_by_key(|x| std::cmp::Reverse(x.1.loses));
-            println!("plugins losing the most records (a later plugin takes them whole):");
+            println!("plugins losing the most overrides to a later plugin (conflicts):");
             for (i, s) in by.iter().take(10).filter(|x| x.1.loses > 0) {
                 println!(
                     "  {:>7}  {}   (overrides {}, wins {})",

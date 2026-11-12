@@ -223,6 +223,9 @@ pub enum Query {
     RecordChains {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plugin: Option<String>,
+        /// Only conflicts (two or more plugins over a record), no single overrides.
+        #[serde(default)]
+        conflicts_only: bool,
         #[serde(default)]
         offset: usize,
         limit: usize,
@@ -1065,10 +1068,11 @@ impl App {
             }
             Query::RecordChains {
                 plugin,
+                conflicts_only,
                 offset,
                 limit,
             } => Reply::RecordChains {
-                page: Box::new(self.record_page(plugin.as_deref(), offset, limit.min(1000))),
+                page: Box::new(self.record_page(plugin.as_deref(), conflicts_only, offset, limit.min(1000))),
             },
             Query::ModDetail { key } => Reply::ModDetail {
                 detail: Box::new(self.mod_detail(key)),

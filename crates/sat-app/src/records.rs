@@ -18,6 +18,8 @@ use crate::App;
 #[derive(Debug, Clone, Default)]
 pub struct RecordReport {
     pub records: usize,
+    /// Records some plugin overrides, and those two or more override (conflicts).
+    pub overridden: usize,
     pub conflicts: usize,
     pub plugins: usize,
     pub chains: Vec<RecordChain>,
@@ -32,6 +34,7 @@ impl RecordReport {
         let stats = sat_core::records::plugin_stats(ix);
         Self {
             records: ix.records(),
+            overridden: ix.overridden(),
             conflicts: ix.conflicts(),
             plugins: ix.plugins.len(),
             chains: sat_core::records::chains(ix),
@@ -64,6 +67,7 @@ pub enum RecordState {
 pub struct RecordPage {
     pub state: RecordState,
     pub records: usize,
+    pub overridden: usize,
     pub conflicts: usize,
     pub plugins: usize,
     /// Chains matching the filter, and the page of them.
@@ -84,17 +88,27 @@ impl App {
         self.record_state = RecordState::Ready;
     }
 
-    /// Record chains, largest first; with `plugin` only those it is in.
-    pub(crate) fn record_page(&self, plugin: Option<&str>, offset: usize, limit: usize) -> RecordPage {
+    /// Record chains, conflicts first, largest first; with `plugin` only those it is in, with `conflicts_only` no
+    /// single overrides.
+    pub(crate) fn record_page(
+        &self,
+        plugin: Option<&str>,
+        conflicts_only: bool,
+        offset: usize,
+        limit: usize,
+    ) -> RecordPage {
         let r = &self.records;
         let want = plugin.map(str::to_lowercase);
         let hit = |c: &&RecordChain| {
-            want.as_ref()
-                .is_none_or(|w| c.stack.iter().any(|p| p.to_lowercase() == *w))
+            (c.conflict || !conflicts_only)
+                && want
+                    .as_ref()
+                    .is_none_or(|w| c.stack.iter().any(|p| p.to_lowercase() == *w))
         };
         RecordPage {
             state: self.record_state,
             records: r.records,
+            overridden: r.overridden,
             conflicts: r.conflicts,
             plugins: r.plugins,
             total: r.chains.iter().filter(hit).count(),
@@ -124,9 +138,9 @@ mod tests {
     #[test]
     fn the_window_gets_chains_by_plugin_and_stats_per_plugin() {
         let mut a = crate::tests::app_of(["A", "B"]);
-        assert_eq!(a.record_page(None, 0, 10).state, RecordState::Off);
+        assert_eq!(a.record_page(None, false, 0, 10).state, RecordState::Off);
         a.records_pending();
-        assert_eq!(a.record_page(None, 0, 10).state, RecordState::Pending);
+        assert_eq!(a.record_page(None, false, 0, 10).state, RecordState::Pending);
         let rec = |id: u32, h: u64| RecordFact {
             form_id: id,
             signature: *b"NPC_",
@@ -142,14 +156,14 @@ mod tests {
         };
         let ix = RecordIndex::build(&[("X.esp".into(), &x), ("Y.esp".into(), &y)]);
         a.set_records(RecordReport::from_index(&ix, vec!["Z.esp: not found".into()]));
-        let p = a.record_page(None, 0, 10);
+        let p = a.record_page(None, false, 0, 10);
         assert_eq!(
             (p.state, p.records, p.conflicts, p.total),
             (RecordState::Ready, 3, 1, 1)
         );
         assert_eq!(p.chains[0].stack, ["X.esp", "Y.esp"]);
-        assert_eq!(a.record_page(Some("y.esp"), 0, 10).total, 1);
-        assert_eq!(a.record_page(Some("Other.esp"), 0, 10).total, 0);
+        assert_eq!(a.record_page(Some("y.esp"), false, 0, 10).total, 1);
+        assert_eq!(a.record_page(Some("Other.esp"), false, 0, 10).total, 0);
         assert_eq!(a.plugin_records("X.ESP").map(|s| s.loses), Some(1));
     }
 }

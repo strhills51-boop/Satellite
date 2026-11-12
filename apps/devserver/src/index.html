@@ -178,6 +178,9 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .rc .st b { color: var(--w-txt); font-weight: 600; }
 .rc .meta { grid-column: 2; color: var(--muted); font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
 .rc .eq { color: var(--m-txt); }
+.rc .kind { font-size: 10px; padding: 1px 6px; border-radius: 6px; margin-right: 8px; border: 1px solid var(--line); }
+.rc .k-c { color: var(--l-txt); border-color: var(--l-txt); }
+.rc .k-o { color: var(--muted); }
 .plug .rs { grid-column: 2; font-size: 11px; color: var(--muted); }
 .plug .rs a { color: var(--accent); cursor: pointer; }
 /* conflict context table (monolith modal with the colour-types flag): rows = mods by separator, columns = paths */
@@ -232,7 +235,8 @@ footer b { color: var(--accent2); font-weight: 500; }
 <div id="rec" hidden role="dialog" aria-label="Конфликты записей">
   <div class="top">
     <div class="t1"><b>Записи плагинов</b><button id="recClose">Закрыть</button></div>
-    <div class="t2"><input id="recPlugin" type="search" placeholder="Плагин (пусто — все)" aria-label="Плагин"><span id="recStats"></span></div>
+    <div class="t2"><input id="recPlugin" type="search" placeholder="Плагин (пусто — все)" aria-label="Плагин">
+      <label><input id="recOnly" type="checkbox" checked> только конфликты (запись правят два плагина и больше)</label><span id="recStats"></span></div>
   </div>
   <div id="recList"></div>
 </div>
@@ -467,10 +471,10 @@ async function detail(key) {
     `<span><span class="dotc" style="background:var(--${p.colour})"></span>${esc(p.name)}` +
     `${p.versions > 1 ? ` <span class="muted">· ${p.versions} версии, грузится из ${esc(p.owner ?? "")}</span>` : ""}` +
     `${p.missing_masters.length ? ` <span style="color:var(--l-txt)">· нет: ${esc(p.missing_masters.join(", "))}</span>` : ""}</span>` +
-    (p.records ? `<span class="rs">записей ${num(p.records.records)} · новых ${num(p.records.new_records)} · правит ${num(p.records.overrides)} · ` +
+    (p.records ? `<span class="rs">записей ${num(p.records.records)} · новых ${num(p.records.new_records)}${p.records.overridden ? ` (перекрыто ${num(p.records.overridden)})` : ""} · правит ${num(p.records.overrides)} · ` +
       `<span style="color:var(--w-txt)">выигрывает ${num(p.records.wins)}</span> · <span style="color:var(--l-txt)">теряет ${num(p.records.loses)}</span>` +
       `${p.records.unchanged ? ` · без изменений (ITM) ${num(p.records.unchanged)}` : ""}` +
-      `${p.records.wins + p.records.loses ? ` · <a data-recplug="${esc(p.name)}">цепочки</a>` : ""}</span>` : "") + `</div>`).join("")
+      `${p.records.wins + p.records.loses + p.records.overridden ? ` · <a data-recplug="${esc(p.name)}">цепочки</a>` : ""}</span>` : "") + `</div>`).join("")
     : `<div class="muted">Нет плагинов.</div>`);
 }
 
@@ -849,7 +853,8 @@ try { const t = localStorage.getItem("sat-theme"); if (t) document.documentEleme
 let recSeq = 0, recTimer = 0;
 async function recLoad() {
   const seq = ++recSeq, plugin = $("recPlugin").value.trim() || undefined;
-  const { page: p } = await query({ type: "record-chains", plugin, offset: 0, limit: 300 });
+  const conflicts_only = $("recOnly").checked;
+  const { page: p } = await query({ type: "record-chains", plugin, conflicts_only, offset: 0, limit: 300 });
   if (seq !== recSeq) return;
   clearTimeout(recTimer);
   if (p.state === "pending") {
@@ -859,22 +864,23 @@ async function recLoad() {
     return;
   }
   if (p.state === "off") { $("recStats").textContent = "слой записей не считается (окно открыто без сборки)"; $("recList").innerHTML = ""; return; }
-  $("recStats").textContent = `записей ${num(p.records)} в ${num(p.plugins)} плагинах · в конфликте ${num(p.conflicts)} · цепочек ${num(p.total)}` +
+  $("recStats").textContent = `записей ${num(p.records)} в ${num(p.plugins)} плагинах · правится ${num(p.overridden)}, из них в конфликте ${num(p.conflicts)} · цепочек ${num(p.total)}` +
     (plugin ? ` с ${plugin}` : "") + (p.unread.length ? ` · не прочитано ${p.unread.length}: ${p.unread.slice(0, 5).map(u => u.split(":")[0]).join(", ")}${p.unread.length > 5 ? "…" : ""}` : "");
   $("recStats").title = p.unread.join("\n");
   $("recList").innerHTML = p.chains.map(c => {
     const sigs = Object.entries(c.by_signature).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${k} ${num(n)}`).join(" · ");
     const stack = c.stack.map((s, i) => i === c.stack.length - 1 ? `<b>${esc(s)}</b>` : esc(s)).join("<i>→</i>");
-    return `<div class="rc"><span class="n">${num(c.records)}</span><span class="st">${stack}</span>` +
+    return `<div class="rc"><span class="n">${num(c.records)}</span><span class="st"><span class="kind ${c.conflict ? "k-c" : "k-o"}">${c.conflict ? "конфликт" : "правка"}</span>${stack}</span>` +
       `<span class="meta">${sigs}${c.equal_to_winner ? ` · <span class="eq">равны победителю: ${num(c.equal_to_winner)}</span>` : ""}` +
       `${c.unknown ? ` · содержимое не прочитано: ${num(c.unknown)}` : ""}</span>` +
       `<span class="meta">напр. ${esc(c.samples.join(", "))}</span></div>`;
   }).join("") + (p.total > p.chains.length ? `<div class="muted" style="padding:8px">ещё ${num(p.total - p.chains.length)} — уточни фильтр по плагину</div>` : "");
 }
-function recOpen(plugin) { $("recPlugin").value = plugin || ""; $("rec").hidden = false; recLoad(); }
+function recOpen(plugin) { $("recPlugin").value = plugin || ""; if (plugin) $("recOnly").checked = false; $("rec").hidden = false; recLoad(); }
 $("recBtn").onclick = () => recOpen($("recPlugin").value);
 $("recClose").onclick = () => { $("rec").hidden = true; clearTimeout(recTimer); list.focus({ preventScroll: true }); };
 $("recPlugin").oninput = () => { clearTimeout(recTimer); recTimer = setTimeout(recLoad, 250); };
+$("recOnly").onchange = () => recLoad();
 $("bPlug").addEventListener("click", ev => { const a = ev.target.closest("[data-recplug]"); if (a) recOpen(a.dataset.recplug); });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("rec").hidden) { ev.stopPropagation(); $("recClose").onclick(); } }, true);
 

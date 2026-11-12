@@ -13,7 +13,8 @@
 //! same record has the same key in every plugin that touches it. The game takes a record whole from the last plugin
 //! that has it: what earlier plugins changed in it is lost unless the last one carries it too — the conflicts xEdit
 //! shows. A record equal to the one it overrides (an "ITM", identical to master) is still an override: it is
-//! counted and shown, and named for what it is. Base masters are read from the game's `Data` when they are there;
+//! counted and shown, and named for what it is. One plugin over a record's own plugin is an override (what a mod
+//! is for); two or more over it are a conflict — one's changes are lost. Both are shown, conflicts first. Base masters are read from the game's `Data` when they are there;
 //! without them, overrides of vanilla records by a single plugin are not conflicts and their content is not known.
 
 use std::collections::{BTreeMap, HashMap};
@@ -61,6 +62,8 @@ pub struct RecordIndex {
     entries: Vec<Entry>,
     /// Records with more than one provider: (first entry, count).
     contested: Vec<(u32, u32)>,
+    /// Each loaded plugin's own origin id (its new records carry it).
+    plugin_origin: Vec<u32>,
 }
 
 impl RecordIndex {
@@ -76,8 +79,10 @@ impl RecordIndex {
             })
         };
         let mut entries = Vec::with_capacity(plugins.iter().map(|p| p.1.records.len()).sum());
+        let mut plugin_origin = Vec::with_capacity(plugins.len());
         for (i, (name, recs)) in plugins.iter().enumerate() {
             let own = id(name);
+            plugin_origin.push(own);
             let masters: Vec<u32> = recs.masters.iter().map(|m| id(m)).collect();
             for r in &recs.records {
                 let at = (r.form_id >> 24) as usize;
@@ -110,6 +115,7 @@ impl RecordIndex {
             origins,
             entries,
             contested,
+            plugin_origin,
         }
     }
 
@@ -117,9 +123,26 @@ impl RecordIndex {
         self.entries.len()
     }
 
-    /// Records more than one plugin has.
-    pub fn conflicts(&self) -> usize {
+    /// Records more than one plugin has (an override at least).
+    pub fn overridden(&self) -> usize {
         self.contested.len()
+    }
+
+    /// Records two or more plugins override (beyond the plugin they come from): one's changes are lost.
+    pub fn conflicts(&self) -> usize {
+        self.contested
+            .iter()
+            .filter(|&&g| self.overriders(self.group(g)) >= 2)
+            .count()
+    }
+
+    /// Whether an entry is the record's own plugin (not an override).
+    fn is_origin(&self, e: &Entry) -> bool {
+        self.plugin_origin[e.plugin as usize] == (e.key >> 32) as u32
+    }
+
+    fn overriders(&self, es: &[Entry]) -> usize {
+        es.iter().filter(|e| !self.is_origin(e)).count()
     }
 
     fn group(&self, g: (u32, u32)) -> &[Entry] {
@@ -141,9 +164,11 @@ pub struct PluginRecordStat {
     pub new_records: u32,
     /// Records of other plugins it overrides.
     pub overrides: u32,
-    /// Contested records it is the last to have (the game takes them from it).
+    /// Its own records that a later plugin overrides (what the override is for, not a loss between mods).
+    pub overridden: u32,
+    /// Overrides it is the last to have (the game takes them from it).
     pub wins: u32,
-    /// Contested records a later plugin takes over.
+    /// Overrides a later plugin takes over whole: a conflict, its changes there are lost unless carried on.
     pub loses: u32,
     /// Overrides equal to the record they override (ITM): still overrides, carrying no change.
     pub unchanged: u32,
@@ -152,20 +177,10 @@ pub struct PluginRecordStat {
 /// Per plugin (load order), over the whole index.
 pub fn plugin_stats(ix: &RecordIndex) -> Vec<PluginRecordStat> {
     let mut out = vec![PluginRecordStat::default(); ix.plugins.len()];
-    let own_origin: Vec<Option<u32>> = ix
-        .plugins
-        .iter()
-        .map(|p| {
-            ix.origins
-                .iter()
-                .position(|o| *o == p.to_lowercase())
-                .map(|x| x as u32)
-        })
-        .collect();
     for e in &ix.entries {
         let s = &mut out[e.plugin as usize];
         s.records += 1;
-        if own_origin[e.plugin as usize] == Some((e.key >> 32) as u32) {
+        if ix.is_origin(e) {
             s.new_records += 1;
         } else {
             s.overrides += 1;
@@ -176,6 +191,10 @@ pub fn plugin_stats(ix: &RecordIndex) -> Vec<PluginRecordStat> {
         let last = es.len() - 1;
         for (k, e) in es.iter().enumerate() {
             let s = &mut out[e.plugin as usize];
+            if ix.is_origin(e) {
+                s.overridden += 1;
+                continue;
+            }
             if k == last {
                 s.wins += 1;
             } else {
@@ -190,11 +209,13 @@ pub fn plugin_stats(ix: &RecordIndex) -> Vec<PluginRecordStat> {
 }
 
 // @sat:records.chains
-/// Record conflicts with the same plugin stack: one chain.
+/// Overridden records with the same plugin stack: one chain.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordChain {
     /// Plugins in load order, the winner last.
     pub stack: Vec<String>,
+    /// Two or more plugins override these records (a conflict); else one plugin overrides its source (an override).
+    pub conflict: bool,
     pub records: u32,
     /// Records by signature (`NPC_`, `LVLI`, …).
     pub by_signature: BTreeMap<String, u32>,
@@ -206,20 +227,24 @@ pub struct RecordChain {
     pub samples: Vec<String>,
 }
 
-/// Chains, largest first.
+/// Chains: conflicts first, then overrides, each largest first.
 pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
-    let mut by_stack: HashMap<Vec<u32>, RecordChain> = HashMap::new();
+    let mut by_stack: HashMap<(Vec<u32>, bool), RecordChain> = HashMap::new();
     for &g in &ix.contested {
         let es = ix.group(g);
         let stack: Vec<u32> = es.iter().map(|e| e.plugin).collect();
-        let c = by_stack.entry(stack.clone()).or_insert_with(|| RecordChain {
-            stack: stack.iter().map(|&p| ix.plugins[p as usize].clone()).collect(),
-            records: 0,
-            by_signature: BTreeMap::new(),
-            equal_to_winner: 0,
-            unknown: 0,
-            samples: Vec::new(),
-        });
+        let conflict = ix.overriders(es) >= 2;
+        let c = by_stack
+            .entry((stack.clone(), conflict))
+            .or_insert_with(|| RecordChain {
+                conflict,
+                stack: stack.iter().map(|&p| ix.plugins[p as usize].clone()).collect(),
+                records: 0,
+                by_signature: BTreeMap::new(),
+                equal_to_winner: 0,
+                unknown: 0,
+                samples: Vec::new(),
+            });
         let winner = es[es.len() - 1];
         c.records += 1;
         *c.by_signature.entry(sig(winner.signature)).or_default() += 1;
@@ -233,7 +258,12 @@ pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
         }
     }
     let mut v: Vec<RecordChain> = by_stack.into_values().collect();
-    v.sort_by(|a, b| b.records.cmp(&a.records).then_with(|| a.stack.cmp(&b.stack)));
+    v.sort_by(|a, b| {
+        b.conflict
+            .cmp(&a.conflict)
+            .then(b.records.cmp(&a.records))
+            .then_with(|| a.stack.cmp(&b.stack))
+    });
     v
 }
 
@@ -275,13 +305,19 @@ mod tests {
             ("B.esp".into(), &b),
         ]);
         assert_eq!(ix.records(), 7);
-        assert_eq!(ix.conflicts(), 3, "NPC (3 plugins), WEAP (2), A's LVLI (2)");
+        assert_eq!(ix.overridden(), 3, "NPC (3 plugins), WEAP (2), A's LVLI (2)");
+        assert_eq!(ix.conflicts(), 1, "only the NPC is overridden by two plugins");
         let st = plugin_stats(&ix);
-        assert_eq!((st[1].new_records, st[1].overrides), (1, 2));
+        assert_eq!(
+            (st[0].overridden, st[0].loses),
+            (2, 0),
+            "vanilla is overridden, it does not lose"
+        );
+        assert_eq!((st[1].new_records, st[1].overrides, st[1].overridden), (1, 2, 1));
         assert_eq!(
             (st[1].wins, st[1].loses, st[1].unchanged),
-            (1, 2, 1),
-            "A wins WEAP with an unchanged copy"
+            (1, 1, 1),
+            "A wins WEAP unchanged, loses the NPC"
         );
         assert_eq!(
             (st[2].wins, st[2].loses, st[2].unchanged),
@@ -290,6 +326,7 @@ mod tests {
         );
         let ch = chains(&ix);
         assert_eq!(ch.len(), 3);
+        assert!(ch[0].conflict && !ch[1].conflict, "conflicts first");
         let npc = ch.iter().find(|c| c.stack.len() == 3).unwrap();
         assert_eq!(npc.by_signature["NPC_"], 1);
         assert_eq!(npc.samples, ["skyrim.esm:012E49"]);
