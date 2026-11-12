@@ -249,25 +249,35 @@ fn load(args: &[String]) -> Result<App, String> {
     app.set_sync(records, disk);
     app.set_tag_catalog(tags);
     app.set_chain_identities(chain_identities);
-    // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps (reads what is missing)
-    let t = std::time::Instant::now();
-    let (hashes, read) = sat_scan::content::hashes_for(
-        app.session().table(),
-        |m| {
-            if m == sat_core::session::OVERWRITE {
-                inst.overwrite_dir.clone()
-            } else {
-                inst.mods_dir.join(m)
-            }
-        },
-        &inst.profile_dir().join("satellite").join("content-hashes.txt"),
-        0,
-    );
-    app.set_content_hashes(hashes);
-    eprintln!(
-        "content hashes: {read} file(s) read in {:.1} s",
-        t.elapsed().as_secs_f64()
-    );
+    // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps; what is missing is read
+    // off the request loop (a first run reads a lot) — until then copies are "not compared"
+    {
+        let table = app.session().table().clone();
+        let (mods_dir, overwrite_dir) = (inst.mods_dir.clone(), inst.overwrite_dir.clone());
+        let cache = inst.profile_dir().join("satellite").join("content-hashes.txt");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let t = std::time::Instant::now();
+            let (hashes, read) = sat_scan::content::hashes_for(
+                &table,
+                |m| {
+                    if m == sat_core::session::OVERWRITE {
+                        overwrite_dir.clone()
+                    } else {
+                        mods_dir.join(m)
+                    }
+                },
+                &cache,
+                0,
+            );
+            eprintln!(
+                "content hashes: {read} file(s) and archive(s) read in {:.1} s",
+                t.elapsed().as_secs_f64()
+            );
+            let _ = tx.send(hashes);
+        });
+        HASHES.with(|h| *h.borrow_mut() = Some(rx));
+    }
     for e in app.set_sticker_rules(&sticker_rules) {
         eprintln!("{e}");
     }
@@ -309,6 +319,9 @@ fn load(args: &[String]) -> Result<App, String> {
 }
 
 thread_local! {
+    /// Content hashes on their way from the reading thread.
+    static HASHES: std::cell::RefCell<Option<std::sync::mpsc::Receiver<sat_core::identical::ContentHashes>>> =
+        const { std::cell::RefCell::new(None) };
     /// The record report on its way from the reading thread.
     static RECORDS: std::cell::RefCell<Option<std::sync::mpsc::Receiver<sat_app::records::RecordReport>>> =
         const { std::cell::RefCell::new(None) };
@@ -345,6 +358,11 @@ fn main() {
         RECORDS.with(|r| {
             if let Some(report) = r.borrow().as_ref().and_then(|rx| rx.try_recv().ok()) {
                 app.set_records(report);
+            }
+        });
+        HASHES.with(|h| {
+            if let Some(hashes) = h.borrow().as_ref().and_then(|rx| rx.try_recv().ok()) {
+                app.set_content_hashes(hashes);
             }
         });
         let mut body = String::new();

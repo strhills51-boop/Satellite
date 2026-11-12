@@ -65,7 +65,20 @@ mod verify_cmd;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // invisible characters a copy from a phone or a chat brings along (no-break and zero-width spaces, BOM) are no
+    // part of a command
+    let args: Vec<String> = std::env::args()
+        .skip(1)
+        .map(|a| {
+            a.chars()
+                .filter(|c| !matches!(c, '\u{200B}'..='\u{200D}' | '\u{2060}' | '\u{FEFF}'))
+                .map(|c| if c == '\u{00A0}' { ' ' } else { c })
+                .collect::<String>()
+                .trim()
+                .to_string()
+        })
+        .filter(|a| !a.is_empty())
+        .collect();
     let res = match args.first().map(String::as_str) {
         Some("analyze") => analyze(&args[1..]),
         Some("donor") => donor_cmd::donor(&args[1..]),
@@ -83,7 +96,10 @@ fn main() {
         Some("inspect") => inspect(&args[1..]),
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
-        _ => Err("usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--profile NAME] [--report FILE]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]".into()),
+        other => Err(format!(
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
+        )),
     };
     if let Err(e) = res {
         eprintln!("{e}");
