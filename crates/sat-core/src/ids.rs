@@ -25,17 +25,31 @@ macro_rules! id_type {
     };
 }
 
-id_type!(/// A mod (or pseudo-mod such as Overwrite) inside one provider table.
-    ModId);
-id_type!(/// A distinct virtual path (one path group of the provider table).
-    PathId);
-id_type!(/// An interned directory.
-    DirId);
-id_type!(/// An interned path segment.
-    NameId);
-id_type!(/// An exact overwrite chain inside one projection.
-    ChainId);
-id_type!(/// A connected component of mods linked by chains inside one projection.
-    ContextId);
-id_type!(/// An archive (BSA/BA2) contributing virtual paths.
-    ArchiveId);
+id_type!(
+    /// A mod (or pseudo-mod such as Overwrite) inside one provider table.
+    ModId
+);
+id_type!(
+    /// A distinct virtual path (one path group of the provider table).
+    PathId
+);
+id_type!(
+    /// An interned directory.
+    DirId
+);
+id_type!(
+    /// An interned path segment.
+    NameId
+);
+id_type!(
+    /// An exact overwrite chain inside one projection.
+    ChainId
+);
+id_type!(
+    /// A connected component of mods linked by chains inside one projection.
+    ContextId
+);
+id_type!(
+    /// An archive (BSA/BA2) contributing virtual paths.
+    ArchiveId
+);
