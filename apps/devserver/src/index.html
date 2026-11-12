@@ -162,6 +162,24 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .emojis { grid-column: 1 / 3; display: flex; flex-wrap: wrap; gap: 2px; }
 .emojis button { width: 26px; height: 26px; padding: 0; font-size: 15px; border-radius: 6px; }
 .emojis button.cur { outline: 2px solid var(--accent); }
+/* record layer (@sat:app.records): chains of plugin records, like file chains */
+#rec { position: fixed; inset: 28px; z-index: 36; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+#rec[hidden] { display: none; }
+#rec .top { padding: 10px 14px 8px; display: grid; gap: 6px; border-bottom: 1px solid var(--line); }
+#rec .t1 { display: flex; gap: 10px; align-items: center; }
+#rec .t1 b { font-size: 15px; flex: 1; }
+#rec .t2 { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+#recList { overflow: auto; padding: 6px 14px 14px; flex: 1; }
+.rc { display: grid; grid-template-columns: 70px 1fr; gap: 2px 10px; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.rc .n { font-family: var(--mono); text-align: right; color: var(--accent); font-weight: 600; }
+.rc .st { overflow-wrap: anywhere; }
+.rc .st i { color: var(--muted); font-style: normal; padding: 0 4px; }
+.rc .st b { color: var(--w-txt); font-weight: 600; }
+.rc .meta { grid-column: 2; color: var(--muted); font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+.rc .eq { color: var(--m-txt); }
+.plug .rs { grid-column: 2; font-size: 11px; color: var(--muted); }
+.plug .rs a { color: var(--accent); cursor: pointer; }
 /* conflict context table (monolith modal with the colour-types flag): rows = mods by separator, columns = paths */
 #ct { position: fixed; inset: 28px; z-index: 35; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
   border-radius: 16px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
@@ -186,6 +204,7 @@ footer b { color: var(--accent2); font-weight: 500; }
 <header>
   <span class="brand">Satellite</span><span class="pill">NG</span>
   <div class="pipeline" aria-label="Конвейер"><span>Анализ mods</span><i>→</i><span>Конфликты</span><i>→</i><span>Sync</span></div>
+  <button id="recBtn" title="Конфликты записей плагинов: цепочки по стеку плагинов">Записи</button>
   <button id="theme" title="Светлая / тёмная">◐</button>
   <span class="sandbox">песочница: изменения живут в памяти и никуда не пишутся</span>
 </header>
@@ -210,6 +229,13 @@ footer b { color: var(--accent2); font-weight: 500; }
 <footer id="stats">загрузка…</footer>
 <div id="ctx" hidden></div>
 <div id="palette" hidden></div>
+<div id="rec" hidden role="dialog" aria-label="Конфликты записей">
+  <div class="top">
+    <div class="t1"><b>Записи плагинов</b><button id="recClose">Закрыть</button></div>
+    <div class="t2"><input id="recPlugin" type="search" placeholder="Плагин (пусто — все)" aria-label="Плагин"><span id="recStats"></span></div>
+  </div>
+  <div id="recList"></div>
+</div>
 <div id="ct" hidden role="dialog" aria-label="Таблица конфликтов">
   <div class="top">
     <div class="t1"><b id="ctTitle"></b><button id="ctClose">Закрыть</button></div>
@@ -440,7 +466,11 @@ async function detail(key) {
   pl.innerHTML = `<h3>Плагины</h3>` + (d.plugins.length ? d.plugins.map(p => `<div class="plug"><span class="idx">${p.index ?? "—"}</span>` +
     `<span><span class="dotc" style="background:var(--${p.colour})"></span>${esc(p.name)}` +
     `${p.versions > 1 ? ` <span class="muted">· ${p.versions} версии, грузится из ${esc(p.owner ?? "")}</span>` : ""}` +
-    `${p.missing_masters.length ? ` <span style="color:var(--l-txt)">· нет: ${esc(p.missing_masters.join(", "))}</span>` : ""}</span></div>`).join("")
+    `${p.missing_masters.length ? ` <span style="color:var(--l-txt)">· нет: ${esc(p.missing_masters.join(", "))}</span>` : ""}</span>` +
+    (p.records ? `<span class="rs">записей ${num(p.records.records)} · новых ${num(p.records.new_records)} · правит ${num(p.records.overrides)} · ` +
+      `<span style="color:var(--w-txt)">выигрывает ${num(p.records.wins)}</span> · <span style="color:var(--l-txt)">теряет ${num(p.records.loses)}</span>` +
+      `${p.records.unchanged ? ` · без изменений (ITM) ${num(p.records.unchanged)}` : ""}` +
+      `${p.records.wins + p.records.loses ? ` · <a data-recplug="${esc(p.name)}">цепочки</a>` : ""}</span>` : "") + `</div>`).join("")
     : `<div class="muted">Нет плагинов.</div>`);
 }
 
@@ -814,6 +844,39 @@ $("theme").onclick = () => {
   try { localStorage.setItem("sat-theme", r.dataset.theme); } catch (_) {}
 };
 try { const t = localStorage.getItem("sat-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+
+// ---------------------------------------------------------------- record layer (@sat:app.records)
+let recSeq = 0, recTimer = 0;
+async function recLoad() {
+  const seq = ++recSeq, plugin = $("recPlugin").value.trim() || undefined;
+  const { page: p } = await query({ type: "record-chains", plugin, offset: 0, limit: 300 });
+  if (seq !== recSeq) return;
+  clearTimeout(recTimer);
+  if (p.state === "pending") {
+    $("recStats").textContent = "плагины читаются… (первый раз — долго, потом из кэша)";
+    $("recList").innerHTML = "";
+    recTimer = setTimeout(() => { if (!$("rec").hidden) recLoad(); }, 2000);
+    return;
+  }
+  if (p.state === "off") { $("recStats").textContent = "слой записей не считается (окно открыто без сборки)"; $("recList").innerHTML = ""; return; }
+  $("recStats").textContent = `записей ${num(p.records)} в ${num(p.plugins)} плагинах · в конфликте ${num(p.conflicts)} · цепочек ${num(p.total)}` +
+    (plugin ? ` с ${plugin}` : "") + (p.unread.length ? ` · не прочитано ${p.unread.length}: ${p.unread.slice(0, 5).map(u => u.split(":")[0]).join(", ")}${p.unread.length > 5 ? "…" : ""}` : "");
+  $("recStats").title = p.unread.join("\n");
+  $("recList").innerHTML = p.chains.map(c => {
+    const sigs = Object.entries(c.by_signature).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${k} ${num(n)}`).join(" · ");
+    const stack = c.stack.map((s, i) => i === c.stack.length - 1 ? `<b>${esc(s)}</b>` : esc(s)).join("<i>→</i>");
+    return `<div class="rc"><span class="n">${num(c.records)}</span><span class="st">${stack}</span>` +
+      `<span class="meta">${sigs}${c.equal_to_winner ? ` · <span class="eq">равны победителю: ${num(c.equal_to_winner)}</span>` : ""}` +
+      `${c.unknown ? ` · содержимое не прочитано: ${num(c.unknown)}` : ""}</span>` +
+      `<span class="meta">напр. ${esc(c.samples.join(", "))}</span></div>`;
+  }).join("") + (p.total > p.chains.length ? `<div class="muted" style="padding:8px">ещё ${num(p.total - p.chains.length)} — уточни фильтр по плагину</div>` : "");
+}
+function recOpen(plugin) { $("recPlugin").value = plugin || ""; $("rec").hidden = false; recLoad(); }
+$("recBtn").onclick = () => recOpen($("recPlugin").value);
+$("recClose").onclick = () => { $("rec").hidden = true; clearTimeout(recTimer); list.focus({ preventScroll: true }); };
+$("recPlugin").oninput = () => { clearTimeout(recTimer); recTimer = setTimeout(recLoad, 250); };
+$("bPlug").addEventListener("click", ev => { const a = ev.target.closest("[data-recplug]"); if (a) recOpen(a.dataset.recplug); });
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("rec").hidden) { ev.stopPropagation(); $("recClose").onclick(); } }, true);
 
 (async () => { await sync(false); await Promise.all([totals(), tiles(), decor()]); list.focus({ preventScroll: true }); })();
 </script>

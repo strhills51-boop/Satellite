@@ -1006,40 +1006,14 @@ fn analyze(args: &[String]) -> Result<(), String> {
             eprintln!("--records reads the plugins: not with --offline");
         } else {
             let t = Instant::now();
-            let names = table.mod_names();
-            let loaded: Vec<(String, std::path::PathBuf)> = plugin_list
-                .plugins
-                .iter()
-                .filter(|p| p.active)
-                .filter_map(|p| {
-                    let path = match (p.origin, p.winner) {
-                        (sat_core::plugins::Origin::Base, _) => inst.game_path.join("Data").join(&p.name),
-                        (_, Some(w)) => {
-                            let owner = &names[p.versions[w].owner.idx()];
-                            let root = if owner == OVERWRITE {
-                                inst.overwrite_dir.clone()
-                            } else {
-                                inst.mods_dir.join(owner)
-                            };
-                            root.join(&p.name)
-                        }
-                        _ => return None,
-                    };
-                    Some((p.name.clone(), path))
-                })
-                .collect();
-            let paths: Vec<std::path::PathBuf> = loaded.iter().map(|x| x.1.clone()).collect();
-            let cache = inst.profile_dir().join("satellite").join("records");
-            let (recs, read) = sat_scan::records::load_all(&paths, &cache);
-            let mut ok: Vec<(String, &sat_core::records::PluginRecords)> = Vec::new();
-            let mut unread = Vec::new();
-            for ((name, _), r) in loaded.iter().zip(&recs) {
-                match r {
-                    Ok(r) => ok.push((name.clone(), r)),
-                    Err(e) => unread.push(format!("{name}: {e}")),
-                }
-            }
-            let ix = sat_core::records::RecordIndex::build(&ok);
+            let loaded = sat_scan::records::loaded_plugins(
+                &plugin_list,
+                &table,
+                |m| if m == OVERWRITE { inst.overwrite_dir.clone() } else { inst.mods_dir.join(m) },
+                &inst.game_path.join("Data"),
+            );
+            let (ix, unread, read) =
+                sat_scan::records::index(&loaded, &inst.profile_dir().join("satellite").join("records"));
             let chains = sat_core::records::chains(&ix);
             let stats = sat_core::records::plugin_stats(&ix);
             timings.insert("records", t.elapsed().as_millis());

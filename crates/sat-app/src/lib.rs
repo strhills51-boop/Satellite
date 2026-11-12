@@ -13,6 +13,7 @@ use std::sync::Arc;
 mod chains;
 mod context;
 pub mod find;
+pub mod records;
 pub mod sheet;
 mod sync;
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
@@ -218,6 +219,14 @@ pub enum Query {
     Sync,
     /// Conflict contexts for the table's selector, largest first.
     Contexts,
+    /// A page of record chains (`@sat:app.records.page`), largest first; with `plugin` only its chains.
+    RecordChains {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plugin: Option<String>,
+        #[serde(default)]
+        offset: usize,
+        limit: usize,
+    },
     /// A window of the conflict table of the context that mod `key` belongs to.
     ContextTable {
         key: Key,
@@ -480,6 +489,9 @@ pub struct PluginView {
     pub owner: Option<String>,
     pub versions: usize,
     pub missing_masters: Vec<String>,
+    /// What it does in the record layer (`@sat:records.plugin-stat`), once computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records: Option<sat_core::records::PluginRecordStat>,
 }
 
 /// Answer to a query.
@@ -506,6 +518,9 @@ pub enum Reply {
     },
     ModDetail {
         detail: Box<ModDetail>,
+    },
+    RecordChains {
+        page: Box<records::RecordPage>,
     },
     ModSheet {
         sheet: Box<sheet::ModSheet>,
@@ -615,6 +630,9 @@ pub struct App {
     heads: Option<chains::Cached>,
     /// Content hashes of the table's providers (`@sat:identical`) and what each mod loses as equal copies, per
     /// (overwrite computation, hashes revision).
+    /// The record layer as the shell computed it (`@sat:app.records`).
+    records: Arc<records::RecordReport>,
+    record_state: records::RecordState,
     content_hashes: Arc<sat_core::identical::ContentHashes>,
     content_rev: u64,
     mod_content: Option<chains::CachedContent>,
@@ -645,6 +663,8 @@ impl App {
             sticker_rules: Default::default(),
             chain_identities: Vec::new(),
             chain_identities_rev: 0,
+            records: Arc::default(),
+            record_state: records::RecordState::Off,
             content_hashes: Arc::default(),
             content_rev: 0,
             mod_content: None,
@@ -1038,10 +1058,18 @@ impl App {
                         owner: p.winner.map(|w| table.mod_name(p.versions[w].owner).to_string()),
                         versions: p.versions.len(),
                         missing_masters: p.missing_masters.clone(),
+                        records: self.plugin_records(&p.name),
                     })
                     .collect();
                 Reply::Plugins { plugins }
             }
+            Query::RecordChains {
+                plugin,
+                offset,
+                limit,
+            } => Reply::RecordChains {
+                page: Box::new(self.record_page(plugin.as_deref(), offset, limit.min(1000))),
+            },
             Query::ModDetail { key } => Reply::ModDetail {
                 detail: Box::new(self.mod_detail(key)),
             },
@@ -1438,6 +1466,7 @@ impl App {
                 owner: p.winner.map(|w| table.mod_name(p.versions[w].owner).to_string()),
                 versions: p.versions.len(),
                 missing_masters: p.missing_masters.clone(),
+                records: self.plugin_records(&p.name),
             })
             .collect();
         ModDetail {
@@ -1481,7 +1510,7 @@ pub struct InsideChain {
 pub const MAIN_VIEW: ViewId = MAIN;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use sat_core::canon::{Entry, EntryKind, Modlist};
     use sat_core::order::OrderBook;
@@ -1491,7 +1520,7 @@ mod tests {
         app_of(["A", "B"])
     }
 
-    fn app_of(mods: [&str; 2]) -> App {
+    pub(crate) fn app_of(mods: [&str; 2]) -> App {
         let facts: Vec<sat_core::facts::ModFacts> = mods
             .iter()
             .map(|n| {

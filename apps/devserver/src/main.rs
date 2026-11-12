@@ -276,7 +276,42 @@ fn load(args: &[String]) -> Result<App, String> {
     for e in app.set_counters(&counters) {
         eprintln!("{e}");
     }
+    // @sat:devserver.records
+    // the record layer (`@sat:records`): plugins are read off the request loop, the window shows it when ready
+    let loaded = sat_scan::records::loaded_plugins(
+        &app.session().plugins(),
+        app.session().table(),
+        |m| {
+            if m == sat_core::session::OVERWRITE {
+                inst.overwrite_dir.clone()
+            } else {
+                inst.mods_dir.join(m)
+            }
+        },
+        &inst.game_path.join("Data"),
+    );
+    let cache = inst.profile_dir().join("satellite").join("records");
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.records_pending();
+    std::thread::spawn(move || {
+        let t = std::time::Instant::now();
+        let (ix, unread, read) = sat_scan::records::index(&loaded, &cache);
+        eprintln!(
+            "records: {} in {} plugin(s), {read} read, {:.1} s",
+            ix.records(),
+            ix.plugins.len(),
+            t.elapsed().as_secs_f64()
+        );
+        let _ = tx.send(sat_app::records::RecordReport::from_index(&ix, unread));
+    });
+    RECORDS.with(|r| *r.borrow_mut() = Some(rx));
     Ok(app)
+}
+
+thread_local! {
+    /// The record report on its way from the reading thread.
+    static RECORDS: std::cell::RefCell<Option<std::sync::mpsc::Receiver<sat_app::records::RecordReport>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 fn json(body: String, status: u16) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
@@ -307,6 +342,11 @@ fn main() {
     });
     eprintln!("open http://127.0.0.1:{port}/  (sandbox: nothing is saved; Ctrl+C to stop)");
     for mut req in server.incoming_requests() {
+        RECORDS.with(|r| {
+            if let Some(report) = r.borrow().as_ref().and_then(|rx| rx.try_recv().ok()) {
+                app.set_records(report);
+            }
+        });
         let mut body = String::new();
         let _ = req.as_reader().read_to_string(&mut body);
         let url = req.url().to_string();

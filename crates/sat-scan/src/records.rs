@@ -132,6 +132,49 @@ pub fn load_all(plugins: &[PathBuf], cache_dir: &Path) -> (Vec<Result<PluginReco
     (out.into_iter().map(|x| x.0).collect(), read)
 }
 
+// @sat:scan.records.loaded
+/// The files of the loaded plugins, in load order: base masters from the game's `data` folder, the rest from the
+/// folder of the mod they load from (`folder(mod name)`).
+pub fn loaded_plugins(
+    list: &sat_core::plugins::PluginList,
+    table: &sat_core::table::ProviderTable,
+    folder: impl Fn(&str) -> PathBuf,
+    data: &Path,
+) -> Vec<(String, PathBuf)> {
+    let names = table.mod_names();
+    list.plugins
+        .iter()
+        .filter(|p| p.active)
+        .filter_map(|p| {
+            let path = match (p.origin, p.winner) {
+                (sat_core::plugins::Origin::Base, _) => data.join(&p.name),
+                (_, Some(w)) => folder(&names[p.versions[w].owner.idx()]).join(&p.name),
+                _ => return None,
+            };
+            Some((p.name.clone(), path))
+        })
+        .collect()
+}
+
+/// Reads (or takes from the cache) the loaded plugins and builds the record index; plugins not read come back with
+/// why. Returns the index, those plugins, and how many plugins were read now.
+pub fn index(
+    loaded: &[(String, PathBuf)],
+    cache_dir: &Path,
+) -> (sat_core::records::RecordIndex, Vec<String>, usize) {
+    let paths: Vec<PathBuf> = loaded.iter().map(|x| x.1.clone()).collect();
+    let (recs, read) = load_all(&paths, cache_dir);
+    let mut ok = Vec::new();
+    let mut unread = Vec::new();
+    for ((name, _), r) in loaded.iter().zip(&recs) {
+        match r {
+            Ok(r) => ok.push((name.clone(), r)),
+            Err(e) => unread.push(format!("{name}: {e}")),
+        }
+    }
+    (sat_core::records::RecordIndex::build(&ok), unread, read)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
