@@ -55,7 +55,11 @@ pub fn read_archive<R: Read + Seek>(r: R) -> Result<ArchiveManifest> {
     }
 }
 
-fn read_bsa<R: Read + Seek>(mut r: R) -> Result<ArchiveManifest> {
+/// A BSA file record: path, raw size field (with its compression-toggle bit `0x4000_0000`), data offset.
+pub(crate) type BsaRecord = (String, u32, u32);
+
+/// A BSA's file records with the archive's version and flags.
+pub(crate) fn bsa_records<R: Read + Seek>(mut r: R) -> Result<(u32, u32, Vec<BsaRecord>)> {
     let h = read_exact_vec(&mut r, 36)?;
     let version = u32le(&h, 4);
     let flags = u32le(&h, 12);
@@ -76,9 +80,9 @@ fn read_bsa<R: Read + Seek>(mut r: R) -> Result<ArchiveManifest> {
     }
     let has_dir_names = flags & 0x1 != 0;
     let has_file_names = flags & 0x2 != 0;
-    let mut pending: Vec<(usize, u64)> = Vec::with_capacity(files as usize); // (dir index, size)
+    let mut pending: Vec<(usize, u32, u32)> = Vec::with_capacity(files as usize); // (dir index, raw size, offset)
     let mut dirs: Vec<String> = Vec::with_capacity(folders as usize);
-    for (fi, &count) in counts.iter().enumerate() {
+    for &count in &counts {
         if has_dir_names {
             let mut len = [0u8; 1];
             r.read_exact(&mut len)?;
@@ -88,8 +92,11 @@ fn read_bsa<R: Read + Seek>(mut r: R) -> Result<ArchiveManifest> {
         }
         let block = read_exact_vec(&mut r, 16 * count)?;
         for j in 0..count {
-            let size = u32le(&block, j * 16 + 8) & 0x3FFF_FFFF;
-            pending.push((fi, u64::from(size)));
+            pending.push((
+                dirs.len() - 1,
+                u32le(&block, j * 16 + 8),
+                u32le(&block, j * 16 + 12),
+            ));
         }
     }
     if pending.len() != files as usize {
@@ -97,11 +104,11 @@ fn read_bsa<R: Read + Seek>(mut r: R) -> Result<ArchiveManifest> {
             "BSA: folder counts disagree with file count",
         ));
     }
-    let mut entries = Vec::with_capacity(pending.len());
+    let mut out = Vec::with_capacity(pending.len());
     if has_file_names {
         let names = read_exact_vec(&mut r, file_names_len)?;
         let mut it = names.split(|&b| b == 0);
-        for (dir, size) in pending {
+        for (dir, raw, offset) in pending {
             let name = it.next().ok_or(FormatError::Corrupt("BSA: missing file names"))?;
             let name = zstring(name);
             let d = &dirs[dir];
@@ -110,16 +117,24 @@ fn read_bsa<R: Read + Seek>(mut r: R) -> Result<ArchiveManifest> {
             } else {
                 format!("{d}/{name}")
             };
-            entries.push(ArchiveEntry {
-                path: normalize_path(&path),
-                size,
-                vram: 0,
-            });
+            out.push((normalize_path(&path), raw, offset));
         }
     }
+    Ok((version, flags, out))
+}
+
+fn read_bsa<R: Read + Seek>(r: R) -> Result<ArchiveManifest> {
+    let (version, _, records) = bsa_records(r)?;
     Ok(ArchiveManifest {
         kind: ArchiveKind::Bsa { version },
-        entries,
+        entries: records
+            .into_iter()
+            .map(|(path, raw, _)| ArchiveEntry {
+                path,
+                size: u64::from(raw & 0x3FFF_FFFF),
+                vram: 0,
+            })
+            .collect(),
     })
 }
 

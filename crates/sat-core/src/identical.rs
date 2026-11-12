@@ -8,7 +8,8 @@
 //! A verdict is a property of a conflict, never a filter: every conflict stays a conflict and keeps being counted.
 //! An identical copy still costs disk (and, in an archive, loading); a copy that was not read is "unknown", not
 //! "different". Sizes speak first: loose files of different sizes differ without being read. Archive entries are
-//! unknown until their entries are hashed.
+//! hashed by their unpacked bytes, so a packed copy compares with a loose one; a BA2 texture (no DDS header in the
+//! archive) stays unknown.
 
 use serde::{Deserialize, Serialize};
 
@@ -37,12 +38,11 @@ impl ContentHashes {
 
 // @sat:identical.same
 /// Whether two copies of a path hold the same bytes: `Some(false)` for loose files of different sizes or different
-/// hashes, `Some(true)` for equal hashes, `None` when it is not known (an archive entry, a file not read).
+/// hashes, `Some(true)` for equal hashes (an archive entry's hash is of its unpacked bytes), `None` when it is not
+/// known (a copy not read, an entry that cannot be unpacked for comparison).
 pub fn same(table: &ProviderTable, hashes: &ContentHashes, a: usize, b: usize) -> Option<bool> {
-    if table.is_archive(a) || table.is_archive(b) {
-        return None;
-    }
-    if table.size(a) != table.size(b) {
+    // loose files: sizes speak without reading; archive sizes may be packed, only hashes speak
+    if !table.is_archive(a) && !table.is_archive(b) && table.size(a) != table.size(b) {
         return Some(false);
     }
     Some(hashes.get(a)? == hashes.get(b)?)
@@ -175,8 +175,9 @@ pub fn mod_content(table: &ProviderTable, hashes: &ContentHashes, prio: &Priorit
 }
 
 // @sat:identical.needs
-/// Loose copies worth reading: on a contested path, sharing their size with another loose copy of another mod (any
-/// mod, on or off — a verdict must not change when a mod is switched), at least `min_size` bytes.
+/// Copies worth reading, on contested paths (any mod, on or off — a verdict must not change when a mod is
+/// switched): a loose file that shares its size with another loose copy of another mod, at least `min_size` bytes;
+/// an archive entry whenever another mod has a copy (its packed size says nothing).
 pub fn needs_hash(table: &ProviderTable, min_size: u64) -> Vec<usize> {
     let mut out = Vec::new();
     for p in 0..table.path_count() {
@@ -184,14 +185,19 @@ pub fn needs_hash(table: &ProviderTable, min_size: u64) -> Vec<usize> {
         if r.len() < 2 {
             continue;
         }
-        let loose: Vec<usize> = r
-            .filter(|&i| !table.is_archive(i) && table.size(i) >= min_size)
-            .collect();
-        for &i in &loose {
-            if loose
-                .iter()
-                .any(|&j| j != i && table.owner(j) != table.owner(i) && table.size(j) == table.size(i))
-            {
+        let all: Vec<usize> = r.collect();
+        for &i in &all {
+            let other = |j: &&usize| **j != i && table.owner(**j) != table.owner(i);
+            let read = if table.is_archive(i) {
+                all.iter().any(|j| other(&j))
+            } else {
+                table.size(i) >= min_size
+                    && all
+                        .iter()
+                        .filter(other)
+                        .any(|&j| table.is_archive(j) || table.size(j) == table.size(i))
+            };
+            if read {
                 out.push(i);
             }
         }

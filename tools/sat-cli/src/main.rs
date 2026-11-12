@@ -790,7 +790,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         });
         timings.insert("content_hashes", t.elapsed().as_millis());
         println!(
-            "losing copies equal to the winner: {files} file(s), {}; not compared: {unknown} (archive entries, unread); {read} file(s) read now",
+            "losing copies equal to the winner: {files} file(s), {}; not compared: {unknown} (BA2 textures, unreadable); {read} file(s) and archive(s) read now",
             human_bytes(bytes)
         );
         if has(args, "--identical") {
