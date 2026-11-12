@@ -42,6 +42,7 @@ pub mod plugin_edit;
 pub mod plugins;
 pub mod profile;
 pub mod project;
+pub mod records;
 pub mod resource;
 pub mod routes;
 pub mod run;

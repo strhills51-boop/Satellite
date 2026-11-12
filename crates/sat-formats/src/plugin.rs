@@ -179,6 +179,63 @@ pub fn scan_records<R: BufRead>(mut r: R) -> Result<RecordCounts> {
     Ok(counts)
 }
 
+// @sat:formats.plugin.records
+/// One record of a plugin as the record layer needs it (`@sat:records`): signature, FormID as written in the file
+/// (its top byte indexes the plugin's masters, the plugin itself after them), flags, and the record's data —
+/// unpacked when the record is compressed (`None` when it does not unpack).
+#[derive(Debug)]
+pub struct RecordData<'a> {
+    pub signature: [u8; 4],
+    pub form_id: u32,
+    pub flags: u32,
+    pub data: Option<&'a [u8]>,
+}
+
+/// Calls `each` for every record after the `TES4` header, in file order (groups are walked into).
+pub fn read_records<R: BufRead>(mut r: R, mut each: impl FnMut(RecordData<'_>)) -> Result<()> {
+    let mut hdr = [0u8; 24];
+    let mut first = true;
+    let mut buf = Vec::new();
+    let mut unpacked = Vec::new();
+    loop {
+        if !read_full_or_eof(&mut r, &mut hdr)? {
+            break;
+        }
+        if &hdr[0..4] == b"GRUP" {
+            first = false;
+            continue;
+        }
+        let size = u32le(&hdr, 4) as usize;
+        if size > 1 << 28 {
+            return Err(FormatError::Corrupt("record larger than 256 MiB"));
+        }
+        buf.resize(size, 0);
+        r.read_exact(&mut buf)?;
+        if std::mem::take(&mut first) && &hdr[0..4] == b"TES4" {
+            continue;
+        }
+        let flags = u32le(&hdr, 8);
+        let data = if flags & 0x0004_0000 != 0 && buf.len() >= 4 {
+            unpacked.clear();
+            let ok = std::io::Read::read_to_end(
+                &mut std::io::Read::take(flate2::read::ZlibDecoder::new(&buf[4..]), 1 << 28),
+                &mut unpacked,
+            )
+            .is_ok();
+            ok.then_some(unpacked.as_slice())
+        } else {
+            Some(buf.as_slice())
+        };
+        each(RecordData {
+            signature: hdr[0..4].try_into().expect("4 bytes"),
+            form_id: u32le(&hdr, 12),
+            flags,
+            data,
+        });
+    }
+    Ok(())
+}
+
 /// Reads exactly `buf.len()` bytes; `Ok(false)` on clean EOF before the first byte, error on a torn header.
 fn read_full_or_eof<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<bool> {
     let mut n = 0;
@@ -207,6 +264,60 @@ fn skip<R: BufRead>(r: &mut R, mut n: u64) -> Result<()> {
         n -= k as u64;
     }
     Ok(())
+}
+
+/// Test/fixture writers, public for other crates' tests.
+pub mod fixtures {
+    use std::io::Write;
+
+    /// A plugin with `masters` and `records` as (signature, FormID, data, compressed), all in one group.
+    pub fn plugin(esm: bool, masters: &[&str], records: &[(&[u8; 4], u32, &[u8], bool)]) -> Vec<u8> {
+        let mut body = Vec::new();
+        let mut sub = |sig: &[u8; 4], data: &[u8]| {
+            body.extend_from_slice(sig);
+            body.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            body.extend_from_slice(data);
+        };
+        let mut hedr = Vec::new();
+        hedr.extend_from_slice(&1.71f32.to_bits().to_le_bytes());
+        hedr.extend_from_slice(&(records.len() as u32).to_le_bytes());
+        hedr.extend_from_slice(&0x800u32.to_le_bytes());
+        sub(b"HEDR", &hedr);
+        for m in masters {
+            let mut z = m.as_bytes().to_vec();
+            z.push(0);
+            sub(b"MAST", &z);
+            sub(b"DATA", &[0; 8]);
+        }
+        let mut out = b"TES4".to_vec();
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(&u32::from(esm).to_le_bytes());
+        out.extend_from_slice(&[0; 12]);
+        out.extend_from_slice(&body);
+        let mut recs = Vec::new();
+        for (sig, id, data, packed) in records {
+            let stored = if *packed {
+                let mut w = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+                w.write_all(data).expect("in memory");
+                let mut v = (data.len() as u32).to_le_bytes().to_vec();
+                v.extend(w.finish().expect("in memory"));
+                v
+            } else {
+                data.to_vec()
+            };
+            recs.extend_from_slice(*sig);
+            recs.extend_from_slice(&(stored.len() as u32).to_le_bytes());
+            recs.extend_from_slice(&(if *packed { 0x0004_0000u32 } else { 0 }).to_le_bytes());
+            recs.extend_from_slice(&id.to_le_bytes());
+            recs.extend_from_slice(&[0; 8]);
+            recs.extend(stored);
+        }
+        out.extend_from_slice(b"GRUP");
+        out.extend_from_slice(&((24 + recs.len()) as u32).to_le_bytes());
+        out.extend_from_slice(&[0; 16]);
+        out.extend(recs);
+        out
+    }
 }
 
 #[cfg(test)]
@@ -255,6 +366,30 @@ pub(crate) mod tests {
         out.extend(refrs);
         out.extend(rec(b"NPC_"));
         out
+    }
+
+    #[test]
+    fn records_come_with_their_form_ids_and_unpacked_data() {
+        let bytes = fixtures::plugin(
+            false,
+            &["Skyrim.esm"],
+            &[
+                (b"NPC_", 0x0000_0D0E, b"edited npc", false),
+                (b"WEAP", 0x0100_0800, b"new weapon data", true),
+            ],
+        );
+        let mut got = Vec::new();
+        read_records(&bytes[..], |r| {
+            got.push((r.signature, r.form_id, r.data.map(<[u8]>::to_vec)))
+        })
+        .unwrap();
+        assert_eq!(
+            got,
+            [
+                (*b"NPC_", 0x0000_0D0E, Some(b"edited npc".to_vec())),
+                (*b"WEAP", 0x0100_0800, Some(b"new weapon data".to_vec()))
+            ]
+        );
     }
 
     #[test]

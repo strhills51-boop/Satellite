@@ -17,7 +17,8 @@ mod read;
 pub use archive::{ArchiveEntry, ArchiveKind, ArchiveManifest, read_archive};
 pub use dds::{DdsInfo, dxgi_name, texture_bytes};
 pub use plugin::{
-    PluginHeader, PluginKind, RecordCounts, monolith_plugin_type, read_plugin_header, scan_records,
+    PluginHeader, PluginKind, RecordCounts, RecordData, monolith_plugin_type, read_plugin_header,
+    read_records, scan_records,
 };
 
 /// Errors produced by the parsers.

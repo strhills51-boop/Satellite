@@ -14,6 +14,7 @@
 pub mod analyzer;
 mod cache;
 pub mod content;
+pub mod records;
 mod signature;
 mod walk;
 

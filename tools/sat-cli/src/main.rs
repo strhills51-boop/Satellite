@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -998,6 +998,115 @@ fn analyze(args: &[String]) -> Result<(), String> {
         ps.owner_disabled,
         ps.missing
     );
+
+    // @sat:cli.records
+    // the record layer (`@sat:records`): loaded plugins' records, overrides as conflicts, chains by plugin stack
+    if has(args, "--records") {
+        if offline {
+            eprintln!("--records reads the plugins: not with --offline");
+        } else {
+            let t = Instant::now();
+            let names = table.mod_names();
+            let loaded: Vec<(String, std::path::PathBuf)> = plugin_list
+                .plugins
+                .iter()
+                .filter(|p| p.active)
+                .filter_map(|p| {
+                    let path = match (p.origin, p.winner) {
+                        (sat_core::plugins::Origin::Base, _) => inst.game_path.join("Data").join(&p.name),
+                        (_, Some(w)) => {
+                            let owner = &names[p.versions[w].owner.idx()];
+                            let root = if owner == OVERWRITE {
+                                inst.overwrite_dir.clone()
+                            } else {
+                                inst.mods_dir.join(owner)
+                            };
+                            root.join(&p.name)
+                        }
+                        _ => return None,
+                    };
+                    Some((p.name.clone(), path))
+                })
+                .collect();
+            let paths: Vec<std::path::PathBuf> = loaded.iter().map(|x| x.1.clone()).collect();
+            let cache = inst.profile_dir().join("satellite").join("records");
+            let (recs, read) = sat_scan::records::load_all(&paths, &cache);
+            let mut ok: Vec<(String, &sat_core::records::PluginRecords)> = Vec::new();
+            let mut unread = Vec::new();
+            for ((name, _), r) in loaded.iter().zip(&recs) {
+                match r {
+                    Ok(r) => ok.push((name.clone(), r)),
+                    Err(e) => unread.push(format!("{name}: {e}")),
+                }
+            }
+            let ix = sat_core::records::RecordIndex::build(&ok);
+            let chains = sat_core::records::chains(&ix);
+            let stats = sat_core::records::plugin_stats(&ix);
+            timings.insert("records", t.elapsed().as_millis());
+            println!(
+                "records: {} in {} plugin(s), {} read now; conflicts: {} record(s) in {} chain(s); not read: {}",
+                ix.records(),
+                ix.plugins.len(),
+                read,
+                ix.conflicts(),
+                chains.len(),
+                unread.len()
+            );
+            for u in unread.iter().take(5) {
+                println!("  not read: {u}");
+            }
+            let stack = |v: &[String]| {
+                if v.len() <= 4 {
+                    v.join(" → ")
+                } else {
+                    format!(
+                        "{} → {} → … → {} ({} plugins)",
+                        v[0],
+                        v[1],
+                        v[v.len() - 1],
+                        v.len()
+                    )
+                }
+            };
+            let limit = match flag_value(args, "--limit").map(str::parse::<usize>) {
+                Some(Ok(0)) => usize::MAX,
+                Some(Ok(n)) => n,
+                _ => 15,
+            };
+            println!("record chains, largest first:");
+            for c in chains.iter().take(limit) {
+                let mut sigs: Vec<_> = c.by_signature.iter().collect();
+                sigs.sort_by_key(|x| std::cmp::Reverse(*x.1));
+                let sigs: Vec<String> = sigs.iter().take(4).map(|(k, n)| format!("{k} {n}")).collect();
+                println!(
+                    "  {:>7}  {}   [{}]{}",
+                    c.records,
+                    stack(&c.stack),
+                    sigs.join(", "),
+                    if c.equal_to_winner > 0 {
+                        format!("  equal to the winner: {}", c.equal_to_winner)
+                    } else {
+                        String::new()
+                    }
+                );
+            }
+            let mut by: Vec<(usize, &sat_core::records::PluginRecordStat)> =
+                stats.iter().enumerate().collect();
+            by.sort_by_key(|x| std::cmp::Reverse(x.1.loses));
+            println!("plugins losing the most records (a later plugin takes them whole):");
+            for (i, s) in by.iter().take(10).filter(|x| x.1.loses > 0) {
+                println!(
+                    "  {:>7}  {}   (overrides {}, wins {})",
+                    s.loses, ix.plugins[*i], s.overrides, s.wins
+                );
+            }
+            by.sort_by_key(|x| std::cmp::Reverse(x.1.unchanged));
+            println!("unchanged overrides (equal to the record they override, ITM):");
+            for (i, s) in by.iter().take(10).filter(|x| x.1.unchanged > 0) {
+                println!("  {:>7}  {}", s.unchanged, ix.plugins[*i]);
+            }
+        }
+    }
 
     let totals = proj.totals();
     let ts = table.stats();
