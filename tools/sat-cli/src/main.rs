@@ -1009,7 +1009,13 @@ fn analyze(args: &[String]) -> Result<(), String> {
             let loaded = sat_scan::records::loaded_plugins(
                 &plugin_list,
                 &table,
-                |m| if m == OVERWRITE { inst.overwrite_dir.clone() } else { inst.mods_dir.join(m) },
+                |m| {
+                    if m == OVERWRITE {
+                        inst.overwrite_dir.clone()
+                    } else {
+                        inst.mods_dir.join(m)
+                    }
+                },
                 &inst.game_path.join("Data"),
             );
             let (ix, unread, read) =
