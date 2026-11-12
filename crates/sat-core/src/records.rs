@@ -1,5 +1,6 @@
-//! The record layer: plugins' records as facts, their overrides as conflicts — the same model as file paths, keyed
-//! by record instead of path. @sat:records
+//! The record layer: plugins' records as facts, their overrides as conflicts. @sat:records
+//!
+//! The same model as file paths, keyed by record instead of path.
 //!
 //! Owns: a plugin's records as facts (FormID, signature, content hash), the record index over the loaded plugins
 //! (key: the plugin a record comes from + its object id; providers: every plugin that has it, in load order; winner:
