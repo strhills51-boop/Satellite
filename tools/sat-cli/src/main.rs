@@ -1050,6 +1050,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 chains.iter().filter(|c| c.conflict).count(),
                 unread.len()
             );
+            let blind: u32 = chains.iter().filter(|c| c.blind).map(|c| c.records).sum();
+            println!(
+                "blind conflicts: {blind} record(s) in {} chain(s) - a later plugin overrides an earlier one it does not know",
+                chains.iter().filter(|c| c.blind).count()
+            );
             for u in unread.iter().take(5) {
                 println!("  not read: {u}");
             }
@@ -1074,7 +1079,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
             };
             for (title, conflict) in [
                 (
-                    "conflicts: two or more plugins over the same records, the last takes them whole",
+                    "conflicts: two or more plugins over the same records, the last takes them whole \
+                     (BLIND: a later plugin does not have the earlier one as a master; on top: built on it)",
                     true,
                 ),
                 (
@@ -1088,8 +1094,13 @@ fn analyze(args: &[String]) -> Result<(), String> {
                     sigs.sort_by_key(|x| std::cmp::Reverse(*x.1));
                     let sigs: Vec<String> = sigs.iter().take(4).map(|(k, n)| format!("{k} {n}")).collect();
                     println!(
-                        "  {:>7}  {}   [{}]{}",
+                        "  {:>7}  {}{}   [{}]{}",
                         c.records,
+                        match (c.conflict, c.blind) {
+                            (true, true) => "BLIND  ",
+                            (true, false) => "on top ",
+                            _ => "",
+                        },
                         stack(&c.stack),
                         sigs.join(", "),
                         if c.equal_to_winner > 0 {

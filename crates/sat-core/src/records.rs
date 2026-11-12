@@ -64,6 +64,8 @@ pub struct RecordIndex {
     contested: Vec<(u32, u32)>,
     /// Each loaded plugin's own origin id (its new records carry it).
     plugin_origin: Vec<u32>,
+    /// Each loaded plugin's masters, as origin ids.
+    plugin_masters: Vec<Vec<u32>>,
 }
 
 impl RecordIndex {
@@ -80,10 +82,12 @@ impl RecordIndex {
         };
         let mut entries = Vec::with_capacity(plugins.iter().map(|p| p.1.records.len()).sum());
         let mut plugin_origin = Vec::with_capacity(plugins.len());
+        let mut plugin_masters = Vec::with_capacity(plugins.len());
         for (i, (name, recs)) in plugins.iter().enumerate() {
             let own = id(name);
             plugin_origin.push(own);
             let masters: Vec<u32> = recs.masters.iter().map(|m| id(m)).collect();
+            plugin_masters.push(masters.clone());
             for r in &recs.records {
                 let at = (r.form_id >> 24) as usize;
                 let origin = masters.get(at).copied().unwrap_or(own);
@@ -116,6 +120,7 @@ impl RecordIndex {
             entries,
             contested,
             plugin_origin,
+            plugin_masters,
         }
     }
 
@@ -143,6 +148,22 @@ impl RecordIndex {
 
     fn overriders(&self, es: &[Entry]) -> usize {
         es.iter().filter(|e| !self.is_origin(e)).count()
+    }
+
+    // @sat:records.blind
+    /// Whether some overriding plugin takes a record over from an earlier overriding plugin it does not have as a
+    /// master: it was not made with it in view, and the earlier one's changes are lost unknowingly. A plugin built on
+    /// the previous one (a patch, an addon) overrides it on purpose.
+    fn blind(&self, es: &[Entry]) -> bool {
+        let over: Vec<u32> = es
+            .iter()
+            .filter(|e| !self.is_origin(e))
+            .map(|e| e.plugin)
+            .collect();
+        over.windows(2).any(|w| {
+            let prev = self.plugin_origin[w[0] as usize];
+            !self.plugin_masters[w[1] as usize].contains(&prev)
+        })
     }
 
     fn group(&self, g: (u32, u32)) -> &[Entry] {
@@ -216,6 +237,9 @@ pub struct RecordChain {
     pub stack: Vec<String>,
     /// Two or more plugins override these records (a conflict); else one plugin overrides its source (an override).
     pub conflict: bool,
+    /// A conflict where a later plugin does not have the earlier one as a master (`@sat:records.blind`).
+    #[serde(default)]
+    pub blind: bool,
     pub records: u32,
     /// Records by signature (`NPC_`, `LVLI`, …).
     pub by_signature: BTreeMap<String, u32>,
@@ -227,17 +251,19 @@ pub struct RecordChain {
     pub samples: Vec<String>,
 }
 
-/// Chains: conflicts first, then overrides, each largest first.
+/// Chains: blind conflicts first, then conflicts on purpose, then overrides, each largest first.
 pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
     let mut by_stack: HashMap<(Vec<u32>, bool), RecordChain> = HashMap::new();
     for &g in &ix.contested {
         let es = ix.group(g);
         let stack: Vec<u32> = es.iter().map(|e| e.plugin).collect();
         let conflict = ix.overriders(es) >= 2;
+        let blind = conflict && ix.blind(es);
         let c = by_stack
             .entry((stack.clone(), conflict))
             .or_insert_with(|| RecordChain {
                 conflict,
+                blind,
                 stack: stack.iter().map(|&p| ix.plugins[p as usize].clone()).collect(),
                 records: 0,
                 by_signature: BTreeMap::new(),
@@ -261,6 +287,7 @@ pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
     v.sort_by(|a, b| {
         b.conflict
             .cmp(&a.conflict)
+            .then(b.blind.cmp(&a.blind))
             .then(b.records.cmp(&a.records))
             .then_with(|| a.stack.cmp(&b.stack))
     });
@@ -277,6 +304,26 @@ mod tests {
             signature: *s,
             hash: Some(hash),
         }
+    }
+
+    #[test]
+    fn a_plugin_that_does_not_know_the_earlier_one_overrides_it_blind() {
+        let npc = |h| PluginRecords {
+            masters: vec!["Skyrim.esm".into()],
+            records: vec![rec(0x0001_2E49, b"NPC_", h)],
+        };
+        let base = PluginRecords {
+            masters: vec![],
+            records: vec![rec(0x0001_2E49, b"NPC_", 1)],
+        };
+        let (a, b) = (npc(2), npc(3));
+        let ix = RecordIndex::build(&[
+            ("Skyrim.esm".into(), &base),
+            ("A.esp".into(), &a),
+            ("B.esp".into(), &b),
+        ]);
+        let ch = chains(&ix);
+        assert!(ch[0].conflict && ch[0].blind, "B does not have A as a master");
     }
 
     #[test]
@@ -327,6 +374,7 @@ mod tests {
         let ch = chains(&ix);
         assert_eq!(ch.len(), 3);
         assert!(ch[0].conflict && !ch[1].conflict, "conflicts first");
+        assert!(!ch[0].blind, "B has A as a master: on purpose");
         let npc = ch.iter().find(|c| c.stack.len() == 3).unwrap();
         assert_eq!(npc.by_signature["NPC_"], 1);
         assert_eq!(npc.samples, ["skyrim.esm:012E49"]);

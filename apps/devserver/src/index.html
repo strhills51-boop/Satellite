@@ -181,6 +181,7 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .rc .kind { font-size: 10px; padding: 1px 6px; border-radius: 6px; margin-right: 8px; border: 1px solid var(--line); }
 .rc .k-c { color: var(--l-txt); border-color: var(--l-txt); }
 .rc .k-o { color: var(--muted); }
+.rc .k-p { color: var(--w-txt); border-color: var(--w-txt); }
 .plug .rs { grid-column: 2; font-size: 11px; color: var(--muted); }
 .plug .rs a { color: var(--accent); cursor: pointer; }
 /* conflict context table (monolith modal with the colour-types flag): rows = mods by separator, columns = paths */
@@ -870,7 +871,7 @@ async function recLoad() {
   $("recList").innerHTML = p.chains.map(c => {
     const sigs = Object.entries(c.by_signature).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${k} ${num(n)}`).join(" · ");
     const stack = c.stack.map((s, i) => i === c.stack.length - 1 ? `<b>${esc(s)}</b>` : esc(s)).join("<i>→</i>");
-    return `<div class="rc"><span class="n">${num(c.records)}</span><span class="st"><span class="kind ${c.conflict ? "k-c" : "k-o"}">${c.conflict ? "конфликт" : "правка"}</span>${stack}</span>` +
+    return `<div class="rc"><span class="n">${num(c.records)}</span><span class="st"><span class="kind ${c.conflict ? (c.blind ? "k-c" : "k-p") : "k-o"}" title="${c.conflict ? (c.blind ? "плагин ниже не знает о плагине выше (нет его в мастерах): правки выше теряются молча" : "плагин ниже собран поверх плагина выше (он в мастерах): перекрывает намеренно") : "один плагин правит запись, откуда она пришла"}">${c.conflict ? (c.blind ? "вслепую" : "поверх") : "правка"}</span>${stack}</span>` +
       `<span class="meta">${sigs}${c.equal_to_winner ? ` · <span class="eq">равны победителю: ${num(c.equal_to_winner)}</span>` : ""}` +
       `${c.unknown ? ` · содержимое не прочитано: ${num(c.unknown)}` : ""}</span>` +
       `<span class="meta">напр. ${esc(c.samples.join(", "))}</span></div>`;
