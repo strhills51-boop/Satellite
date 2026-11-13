@@ -280,6 +280,9 @@ fn analyze(args: &[String]) -> Result<(), String> {
     } else {
         None
     };
+    if !inst.profile_dir().join("modlist.txt").is_file() {
+        return Err(inst.missing_modlist());
+    }
     let manager = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
     // The project is the canon (ADR 0006); modlist.txt is a side. First run imports it.
     let project_path = flag_value(args, "--project")

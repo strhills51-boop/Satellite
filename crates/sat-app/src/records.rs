@@ -394,5 +394,41 @@ mod tests {
         );
         assert_eq!(t.cols[0].path, "skyrim.esm:000001 NPC_");
         assert!(t.chains[0].name.starts_with("вслепую"));
+        // the same chain as a card, and its teeth
+        let Reply::ChainCards { cards: Some(cards) } = a.query(Query::RecordCards { context: 0 }).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (
+                cards.len(),
+                cards[0].files,
+                cards[0].blind,
+                cards[0].stack.clone()
+            ),
+            (1, 1, true, vec!["X.esp".to_string(), "Y.esp".to_string()])
+        );
+        let Reply::ChainCard { card: Some(d) } = a
+            .query(Query::RecordCard {
+                context: 0,
+                index: 0,
+                limit: 10,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(
+            d.members
+                .iter()
+                .map(|m| (m.name.as_str(), m.teeth.as_str()))
+                .collect::<Vec<_>>(),
+            [("X.esp", "l"), ("Y.esp", "w")]
+        );
+        assert_eq!(
+            (d.items.clone(), d.items_total),
+            (vec!["skyrim.esm:000001 NPC_".to_string()], 1)
+        );
+        assert!(a.record_cards(5).is_none());
     }
 }

@@ -203,6 +203,18 @@ impl App {
         out
     }
 
+    /// The context of mod `key`.
+    pub(crate) fn context_of(&mut self, key: Key) -> Option<ContextId> {
+        let table = self.session.table();
+        let name = self.session.book().name(key).to_lowercase();
+        let m = table
+            .mod_names()
+            .iter()
+            .position(|n| n.to_lowercase() == name)
+            .map(ModId::from_idx)?;
+        self.session.overwrite().mod_context(m)
+    }
+
     // @sat:app.context-table.window
     /// The window `[row_start, +row_count) × [col_start, +col_count)` of the context of mod `key`.
     pub(crate) fn context_table(
@@ -214,16 +226,7 @@ impl App {
     ) -> Option<ContextTable> {
         let ow = self.session.overwrite();
         let table = self.session.table().clone();
-        let m = {
-            let book = self.session.book();
-            let name = book.name(key).to_lowercase();
-            table
-                .mod_names()
-                .iter()
-                .position(|n| n.to_lowercase() == name)
-                .map(ModId::from_idx)?
-        };
-        let cx = ow.mod_context(m)?;
+        let cx = self.context_of(key)?;
         let fresh = self
             .open_context
             .as_ref()
@@ -327,6 +330,41 @@ impl App {
     }
 }
 
+// @sat:app.context-table.groups
+/// The normalized chains of a context, larger first: the order of the table's chain bands and of the chain cards.
+pub(crate) fn context_groups(
+    ow: &sat_core::overwrite::OverwriteProjection,
+    heads: &[crate::chains::Head],
+    cx: ContextId,
+) -> Vec<u32> {
+    let routes = ow.routes();
+    let mut groups: Vec<u32> = ow.contexts()[cx.idx()]
+        .chains
+        .iter()
+        .filter_map(|&c| routes.of_chain(c))
+        .collect();
+    groups.sort_unstable();
+    groups.dedup();
+    groups.sort_by_key(|&g| (std::cmp::Reverse(heads[g as usize].files), g));
+    groups
+}
+
+/// The sorted paths of a normalized chain with their exact chain: the column order inside its band.
+pub(crate) fn group_paths(
+    ow: &sat_core::overwrite::OverwriteProjection,
+    table: &sat_core::table::ProviderTable,
+    head: &crate::chains::Head,
+) -> Vec<(String, PathId, ChainId)> {
+    let mut ps: Vec<(String, PathId, ChainId)> = head
+        .chains
+        .iter()
+        .flat_map(|&c| ow.chain_paths(c).into_iter().map(move |p| (p, c)))
+        .map(|(p, c)| (table.path_string(p), p, c))
+        .collect();
+    ps.sort_unstable();
+    ps
+}
+
 #[allow(clippy::too_many_arguments)]
 fn open(
     ow: &sat_core::overwrite::OverwriteProjection,
@@ -339,27 +377,12 @@ fn open(
     revision: u64,
 ) -> OpenContext {
     let context = &ow.contexts()[cx.idx()];
-    let routes = ow.routes();
-    // normalized chains of the context, larger first
-    let mut groups: Vec<u32> = context
-        .chains
-        .iter()
-        .filter_map(|&c| routes.of_chain(c))
-        .collect();
-    groups.sort_unstable();
-    groups.dedup();
-    groups.sort_by_key(|&g| (std::cmp::Reverse(heads[g as usize].files), g));
+    let groups = context_groups(ow, heads, cx);
     let mut cols: Vec<(PathId, u32, ChainId)> = Vec::new();
     let mut chain_starts = Vec::with_capacity(groups.len());
     for (i, &g) in groups.iter().enumerate() {
         chain_starts.push(cols.len() as u32);
-        let mut ps: Vec<(String, PathId, ChainId)> = heads[g as usize]
-            .chains
-            .iter()
-            .flat_map(|&c| ow.chain_paths(c).into_iter().map(move |p| (p, c)))
-            .map(|(p, c)| (table.path_string(p), p, c))
-            .collect();
-        ps.sort_unstable();
+        let ps = group_paths(ow, table, &heads[g as usize]);
         cols.extend(ps.into_iter().map(|(_, p, c)| (p, i as u32, c)));
     }
     if order == ColumnOrder::Strength {

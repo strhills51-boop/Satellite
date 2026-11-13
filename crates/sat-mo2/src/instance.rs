@@ -45,8 +45,9 @@ impl Instance {
                 ));
             }
             return Err(Mo2Error::NotInstance(format!(
-                "neither ModOrganizer.ini nor mods/ + profiles/ found at {}",
-                p.display()
+                "neither ModOrganizer.ini nor mods/ + profiles/ found at {}{}",
+                p.display(),
+                instances_inside(&p)
             )));
         }
         let ini = ini::parse(&read(&ini_path)?);
@@ -131,6 +132,21 @@ impl Instance {
         self.profiles_dir.join(&self.profile)
     }
 
+    // @sat:mo2.instance.missing
+    /// Why the profile has no `modlist.txt`, said so the user can fix the path: which profile was read, which
+    /// profiles there are, and MO2 instances in the subfolders (a folder of several instances is a common mistake).
+    pub fn missing_modlist(&self) -> String {
+        let mut out = format!(
+            "{}: no modlist.txt (profile \"{}\")",
+            self.profile_dir().display(),
+            self.profile
+        );
+        if !self.profiles.is_empty() {
+            out += &format!("; profiles here: {}", self.profiles.join(", "));
+        }
+        out + &instances_inside(&self.base_dir)
+    }
+
     /// Folder of a mod. An instance has exactly one mods folder, as in MO2 and the monolith; other folders
     /// with mods are external donors (ADR 0006), never extra roots of the build.
     pub fn mod_dir(&self, name: &str) -> PathBuf {
@@ -149,6 +165,26 @@ fn list_dirs(dir: &Path) -> Vec<String> {
         .unwrap_or_default();
     v.sort();
     v
+}
+
+/// "; MO2 instances inside: …" for the subfolders of `dir` that are instances, else empty.
+fn instances_inside(dir: &Path) -> String {
+    let mut near: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.join("ModOrganizer.ini").is_file() || (p.join("mods").is_dir() && p.join("profiles").is_dir())
+        })
+        .map(|p| p.display().to_string())
+        .collect();
+    near.sort();
+    if near.is_empty() {
+        String::new()
+    } else {
+        format!("; MO2 instances inside: {} — give one of them", near.join(", "))
+    }
 }
 
 fn normalize(inst_dir: &Path, v: &str) -> PathBuf {
@@ -203,5 +239,26 @@ mod tests {
             Instance::load(dir.path()),
             Err(Mo2Error::NotInstance(_))
         ));
+    }
+
+    #[test]
+    fn a_folder_of_instances_names_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("SSE/profiles/Default")).unwrap();
+        std::fs::create_dir_all(root.join("SSE/mods")).unwrap();
+        let Err(Mo2Error::NotInstance(e)) = Instance::load(root) else {
+            panic!()
+        };
+        assert!(e.contains("MO2 instances inside") && e.contains("SSE"), "{e}");
+        // an instance whose profile has no modlist.txt says which profile and where to look
+        std::fs::create_dir_all(root.join("profiles/Default")).unwrap();
+        std::fs::create_dir_all(root.join("mods")).unwrap();
+        let i = Instance::load(root).unwrap();
+        let m = i.missing_modlist();
+        assert!(
+            m.contains("no modlist.txt") && m.contains("\"Default\"") && m.contains("SSE"),
+            "{m}"
+        );
     }
 }

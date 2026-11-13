@@ -48,7 +48,8 @@
 | Задачи (долгая работа): отмена, поколения, вытеснение новой задачей того же рода, единые ворота публикации результата | `@sat:jobs`, `@sat:jobs.supervisor` (`Jobs::start`, `cancel`), `@sat:jobs.publish`; отмена скана между пачками — `@sat:scan.cancel` (`ScanProgress::cancel`, `Completion`) | сама работа — скан, правила; применение результата — сессия |
 | Нормализованные цепочки (слой монолита v499–v501): точные цепочки одного победителя → одна, супер-маршрут, без циклов, капы 256 / 128 | `@sat:routes` (`RouteGroups`, `OverwriteProjection::routes`), `@sat:routes.groups`, `@sat:routes.of-mod`; заголовки и «решено» — `@sat:app.chains`, `@sat:app.chains.heads`; бейджи — `@sat:app.badges.normalized` | точные стеки — `@sat:overwrite.projection`; решения — на точных (`@sat:decisions`) |
 | Бейджи перезаписи на карточке (модель «коллекция цепочек» монолита): по контексту, значки крупнейших цепочек, `+N` | `@sat:app.badges` (`Query::Rows { badges }`) | модель `OW N` — та же выдача, другой показ на странице |
-| Таблица конфликтов контекста (монолит, флажок «цветные типы»): моды × файлы окнами по обеим осям, группы по разделителям, порядок «цепочка / сила» | `@sat:app.context-table` (`Query::Contexts`), `@sat:app.context-table.window` (`Query::ContextTable`) | цепочки и стеки — `@sat:overwrite.projection`; цвет типа файла — страница |
+| Таблица конфликтов контекста (монолит, флажок «цветные типы»): моды × файлы окнами по обеим осям, группы по разделителям, порядок «цепочка / сила» | `@sat:app.context-table` (`Query::Contexts`), `@sat:app.context-table.window` (`Query::ContextTable`), порядок цепочек контекста — `@sat:app.context-table.groups` | цепочки и стеки — `@sat:overwrite.projection`; цвет типа файла — страница |
+| Карточки цепочек контекста (модалка монолита «Карточки» / «2 области»): контексты-бакеты, в каждом карточки цепочек; открытая карточка — участники с «зубным рядом» (зуб на путь или запись) и дерево путей; карточка ведёт таблицу к своей полосе | `@sat:app.cards`: файлы — `@sat:app.cards.files` (`ContextCards`, `ContextCard`), записи — `@sat:app.cards.records` (`RecordCards`, `RecordCard`) | `index` карточки = место цепочки в порядке контекста = полоса таблицы; детали окном (`limit`) |
 | Решения по конфликтам: цепочка «решена» на подписи содержимого, переживает перестановку, пробег и переименование мода | `@sat:decisions` (`@sat:decisions.chains`), в сессии `@sat:session.decide`, команда `SetChainDone`; ключи участников — id сущностей: `@sat:session.member-keys` | хранение — раздел `decisions` проекта (`@sat:project`) |
 | Сводка мода: с кем и в чём конфликтует (соперники ▲/▼, «зубы» по цепочкам, цепочки с путями), плагины мода | `@sat:app.mod-detail` (`Query::ModDetail`) | счётчики W/L/M на карточке — `Counters` |
 | Карточка мода — стандарт быстрого обзора (ADR 0015): значок / мини / полная, разделы с происхождением (наблюдено, пользователь; позже автор, сообщество) и сигналами | `@sat:app.sheet` (`ModSheet`, `Query::ModSheet`), сборка — `@sat:app.sheet.build`; сводка фактов мода без путей — `@sat:table.summary` | подписи полей — в окне, по id поля |
@@ -188,6 +189,7 @@
 
 - `crates/sat-app/src/lib.rs` — `@sat:app`: `Command` / `Query` / `Reply` / `Event`, `App` — диспетчер над сессией и реестром ресурсов; строки окна со счётчиками и бейджами карточки, окно рядов потока (`@sat:app.lines`), сводка мода, редактор декорации (`@sat:app.decoration`, `@sat:app.patch-style`).
 - `crates/sat-app/src/chains.rs` — `@sat:app.chains`: заголовки нормализованных цепочек (значок, имя, «решено»).
+- `crates/sat-app/src/cards.rs` — `@sat:app.cards`: карточки цепочек контекста (файлы и записи одной формой), детали карточки с зубами.
 - `crates/sat-app/src/context.rs` — `@sat:app.context-table`: таблица конфликтов контекста, окно строк × столбцов.
 - `crates/sat-app/src/sync.rs` — `@sat:app.sync`: записи SYNC в приложении — решения командой, план запросом.
 - `crates/sat-app/src/sheet.rs` — `@sat:app.sheet`: карточка мода — схема, уровни, слои наблюдённого и пользователя.
@@ -208,7 +210,7 @@
 ### `crates/sat-mo2` — адаптер Mod Organizer 2
 - `crates/sat-mo2/src/lib.rs` — `@sat:mo2`: `Mo2Error`, `read`, `write_atomic`.
 - `crates/sat-mo2/src/ini.rs` — `@sat:mo2.ini`: ini MO2, `@ByteArray`, `@Variant`.
-- `crates/sat-mo2/src/instance.rs` — `@sat:mo2.instance`: `Instance::load`, `from_dirs`, `mod_dir`; папки mods, overwrite, profiles, downloads.
+- `crates/sat-mo2/src/instance.rs` — `@sat:mo2.instance`: `Instance::load`, `from_dirs`, `mod_dir`, почему нет modlist.txt — `@sat:mo2.instance.missing` (профиль, профили, экземпляры в подпапках); папки mods, overwrite, profiles, downloads.
 - `crates/sat-mo2/src/commit.rs` — `@sat:mo2.commit`: исполнение плана — версия-бэкап, журнал, операции (в т. ч. установка), запись профиля, замена файла проекта, откат.
 - `crates/sat-mo2/src/bake.rs` — `@sat:mo2.bake`: запекание группы в одну папку (последний участник выигрывает), ссылки или копии.
 - `crates/sat-mo2/src/patches.rs` — `@sat:mo2.patches`: применение патчей и сборка мода Satellite Patches, проверка основы.

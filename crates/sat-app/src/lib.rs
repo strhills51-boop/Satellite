@@ -10,12 +10,14 @@
 
 use std::sync::Arc;
 
+mod cards;
 mod chains;
 mod context;
 pub mod find;
 pub mod records;
 pub mod sheet;
 mod sync;
+pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
 pub use sync::{Decision, RecordView};
 
@@ -239,6 +241,26 @@ pub enum Query {
         row_count: usize,
         col_start: usize,
         col_count: usize,
+    },
+    /// Chain cards of the file context of mod `key` (`@sat:app.cards.files`).
+    ContextCards {
+        key: Key,
+    },
+    /// Details of chain card `index` of the file context of mod `key`: members with teeth, the first `limit` paths.
+    ContextCard {
+        key: Key,
+        index: usize,
+        limit: usize,
+    },
+    /// Chain cards of record context `context` (`@sat:app.cards.records`).
+    RecordCards {
+        context: usize,
+    },
+    /// Details of chain card `index` of record context `context`.
+    RecordCard {
+        context: usize,
+        index: usize,
+        limit: usize,
     },
     /// A window of the conflict table of the context that mod `key` belongs to.
     ContextTable {
@@ -565,6 +587,13 @@ pub enum Reply {
     Sync {
         records: Vec<RecordView>,
         plan: Box<sat_core::sync::plan::Plan>,
+    },
+    /// `None` when there is no such context.
+    ChainCards {
+        cards: Option<Vec<ChainCard>>,
+    },
+    ChainCard {
+        card: Option<Box<ChainCardDetail>>,
     },
     /// `None` when the mod is in no context.
     ContextTable {
@@ -1223,6 +1252,22 @@ impl App {
                         (col_start, col_count.min(1000)),
                     )
                     .map(Box::new),
+            },
+            Query::ContextCards { key } => Reply::ChainCards {
+                cards: self.context_cards(key),
+            },
+            Query::ContextCard { key, index, limit } => Reply::ChainCard {
+                card: self.context_card(key, index, limit.min(5000)).map(Box::new),
+            },
+            Query::RecordCards { context } => Reply::ChainCards {
+                cards: self.record_cards(context),
+            },
+            Query::RecordCard {
+                context,
+                index,
+                limit,
+            } => Reply::ChainCard {
+                card: self.record_card(context, index, limit.min(5000)).map(Box::new),
             },
             Query::Contexts => Reply::Contexts {
                 contexts: self.contexts(),

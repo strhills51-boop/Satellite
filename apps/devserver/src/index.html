@@ -198,6 +198,36 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #ct .tab.cur { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 #ct .legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
 #ct .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+#ctBody { flex: 1; display: flex; min-height: 0; }
+#ctPane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#ctCards { width: 470px; flex: none; overflow: auto; border-right: 1px solid var(--line); padding: 8px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 6px; }
+#ct.m-cards #ctPane, #ct.m-table #ctCards { display: none; }
+#ct.m-cards #ctCards { flex: 1; width: auto; border-right: 0; }
+#ct .modes { display: inline-flex; gap: 4px; }
+#ctCards input[type=search] { width: 100%; box-sizing: border-box; }
+.cx { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
+.cx > .h { display: flex; gap: 8px; align-items: center; padding: 6px 8px; cursor: pointer; font-size: 12px; }
+.cx > .h b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.cx > .h .n { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
+.cx.cur > .h { box-shadow: inset 3px 0 0 var(--accent); }
+.cx .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 0 6px 6px; }
+.cc { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.cc.sel { border-color: var(--accent); }
+.cc.done { opacity: .55; }
+.cc > .h { display: flex; gap: 6px; align-items: center; padding: 5px 8px; cursor: pointer; font-size: 12px; }
+.cc > .h .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc > .h .n { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
+.cc > .h button { font-size: 11px; padding: 0 7px; border-radius: 999px; }
+.cc { min-width: 0; }
+.cc .body { padding: 2px 8px 8px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; }
+.cc .mem { display: grid; grid-template-columns: 150px minmax(0, 1fr) 70px; gap: 6px; align-items: center; font-size: 12px; }
+.cc .mem .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc .mem .nm i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+.cc .mem .wl { font: 11px var(--mono); color: var(--muted); text-align: right; }
+.cc .mem canvas { width: 100%; height: 12px; display: block; }
+.cc .mem.win .nm { color: var(--win); }
+.cc details { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.cc pre { margin: 4px 0 0; font: 11px/1.45 var(--mono); color: var(--fg); max-height: 260px; overflow: auto; white-space: pre; }
 #ctScroll { flex: 1; overflow: auto; position: relative; overscroll-behavior: contain; }
 #ctView { position: sticky; top: 0; left: 0; }
 #ctCanvas { display: block; }
@@ -246,17 +276,18 @@ footer b { color: var(--accent2); font-weight: 500; }
   </div>
   <div id="recList"></div>
 </div>
-<div id="ct" hidden role="dialog" aria-label="Таблица конфликтов">
+<div id="ct" class="m-both" hidden role="dialog" aria-label="Таблица конфликтов">
   <div class="top">
     <div class="t1"><span class="tabs"><button id="tabFiles" class="tab cur">Файлы</button><button id="tabRecords" class="tab">Записи плагинов</button></span>
-      <b id="ctTitle"></b><button id="ctList" hidden title="Все цепочки записей списком, с правками">Списком</button><button id="ctClose">Закрыть</button></div>
+      <b id="ctTitle"></b><span class="modes"><button class="tab" data-mode="cards">Карточки</button><button class="tab" data-mode="table">Таблица</button><button class="tab cur" data-mode="both">2 области</button></span><button id="ctList" hidden title="Все цепочки записей списком, с правками">Списком</button><button id="ctClose">Закрыть</button></div>
     <div class="t2"><span>Контекст:</span><select id="ctCtx"></select>
       <select id="ctOrder"><option value="chain">Релевантность цепочке</option><option value="strength">Сила конфликта</option></select>
       <span id="ctStats"></span></div>
     <div class="legend" id="ctLegend"></div>
   </div>
+  <div id="ctBody"><div id="ctCards"></div><div id="ctPane">
   <div id="ctScroll"><div id="ctView"><canvas id="ctCanvas"></canvas></div><div id="ctSpacer"></div></div>
-  <div id="ctStatus">наведи на клетку: путь, цепочка, стек</div>
+  <div id="ctStatus">наведи на клетку: путь, цепочка, стек</div></div></div>
 </div>
 <script>
 "use strict";
@@ -590,6 +621,7 @@ function ctLegend() {
 function ctTab(tab) {
   CT.tab = tab; $("tabFiles").classList.toggle("cur", tab === "files"); $("tabRecords").classList.toggle("cur", tab === "records");
   $("ctOrder").hidden = tab !== "files"; $("ctList").hidden = tab !== "records"; CT.data = null; ctLegend();
+  CC.det.clear(); CC.cards.clear(); CC.shown.clear(); CC.sel = null; CT.selChain = null;
 }
 async function openRecords(plugin) {
   ctTab("records"); $("ct").hidden = false;
@@ -605,7 +637,7 @@ async function openRecords(plugin) {
   $("ctCtx").innerHTML = contexts.map((c, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)} · ${c.chains} цеп. · ${c.plugins} плагинов · ${num(c.records)} записей${c.blind ? ` · вслепую ${num(c.blind)}` : ""}</option>`).join("");
   const want = plugin ? contexts.findIndex(c => c.members.includes(plugin.toLowerCase())) : -1;
   CT.rctx = want >= 0 ? want : 0; $("ctCtx").value = String(CT.rctx);
-  $("ctScroll").scrollTo(0, 0); await ctSync(false);
+  $("ctScroll").scrollTo(0, 0); await ctSync(false); ctCards();
 }
 const EXT = { dds: 28, png: 28, tga: 28, nif: 210, tri: 200, hkx: 275, esp: 135, esm: 135, esl: 135, pex: 50, psc: 55, bsa: 0, ba2: 0,
   wav: 175, xwm: 175, fuz: 185, lip: 190, swf: 320, json: 0, ini: 0, txt: 0, seq: 300, bgsm: 240, bgem: 240 };
@@ -616,7 +648,7 @@ async function openTable(key) {
   CT.contexts = contexts;
   $("ctCtx").innerHTML = contexts.map((c, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)} · ${c.chains} цеп. · ${c.mods} модов · ${c.files} файлов</option>`).join("");
   $("ctScroll").scrollTo(0, 0);
-  await ctSync(true);
+  await ctSync(true); ctCards();
 }
 async function ctSync(pickCtx) {
   if (CT.busy) { CT.again = true; return; }
@@ -665,6 +697,11 @@ function ctDraw() {
       g.fillRect(x + 1, y + 6, CW - 2, RH - 12);
     }
   });
+  // the chain of the selected card stays lit, the rest dims
+  if (CT.selChain != null) {
+    g.fillStyle = "rgba(10,14,20,.6)";
+    t.cols.forEach((c, j) => { if (c.chain !== CT.selChain) g.fillRect(LW + ox + j * CW, HH, CW, h - HH); });
+  }
   g.restore();
   // column heads: chain band (its hue) and a file-type tile (colour by extension)
   g.save(); g.beginPath(); g.rect(LW, 0, w - LW, HH); g.clip();
@@ -722,13 +759,158 @@ $("ctScroll").addEventListener("click", ev => {
   if (CT.tab === "files" && hit && hit.row && !hit.row.header && hit.row.key !== null) run({ type: "focus", view: VIEW, key: hit.row.key });
 });
 $("ctClose").onclick = () => { $("ct").hidden = true; list.focus({ preventScroll: true }); };
-$("ctOrder").onchange = ev => { CT.order = ev.target.value; ctSync(false); };
+$("ctOrder").onchange = ev => { CT.order = ev.target.value; CT.selChain = null; ctSync(false); };
 $("ctCtx").onchange = ev => {
-  if (CT.tab === "records") { CT.rctx = +ev.target.value; $("ctScroll").scrollTo(0, 0); ctSync(false); return; }
-  const c = CT.contexts[+ev.target.value]; if (c && c.key !== null) { CT.key = c.key; $("ctScroll").scrollTo(0, 0); ctSync(false); } };
+  CT.selChain = null;
+  if (CT.tab === "records") { CT.rctx = +ev.target.value; $("ctScroll").scrollTo(0, 0); ctSync(false); ctCards(); return; }
+  const c = CT.contexts[+ev.target.value]; if (c && c.key !== null) { CT.key = c.key; $("ctScroll").scrollTo(0, 0); ctSync(false); ctCards(); } };
 $("tabRecords").onclick = () => openRecords();
 $("tabFiles").onclick = async () => { if (CT.key === null) { const { contexts } = await query({ type: "contexts" }); if (contexts[0]) CT.key = contexts[0].key; } openTable(CT.key); };
 $("ctList").onclick = () => recOpen("");
+// ---------------------------------------------------------------- chain cards (monolith conflict modal "Карточки")
+// Contexts as buckets, each with its chains as cards; a card opens to its members with a teeth row (one tooth per path
+// or record) and the tree of its paths. A card leads the table to its chain band.
+const CC = { open: new Set(), cards: new Map(), det: new Map(), shown: new Set(), sel: null, q: "", LIMIT: 600, MAXCTX: 400 };
+const ccId = i => (CT.tab === "files" ? "f" : "r") + i;
+const ccCur = () => CT.tab === "records" ? CT.rctx : +$("ctCtx").value;
+function ctMode(m) {
+  $("ct").className = "m-" + m; document.querySelectorAll("#ct [data-mode]").forEach(b => b.classList.toggle("cur", b.dataset.mode === m));
+  if (m !== "cards") ctSync(false);
+}
+async function ccFetch(i) {
+  const id = ccId(i);
+  if (CC.cards.has(id)) return CC.cards.get(id);
+  const c = CT.contexts[i];
+  const r = CT.tab === "records" ? await query({ type: "record-cards", context: i }) : await query({ type: "context-cards", key: c.key });
+  const cards = r.cards || [];
+  CC.cards.set(id, cards);
+  return cards;
+}
+async function ccDetail(i, ix) {
+  const id = ccId(i) + ":" + ix;
+  if (CC.det.has(id)) return CC.det.get(id);
+  const r = CT.tab === "records" ? await query({ type: "record-card", context: i, index: ix, limit: CC.LIMIT })
+    : await query({ type: "context-card", key: CT.contexts[i].key, index: ix, limit: CC.LIMIT });
+  CC.det.set(id, r.card);
+  return r.card;
+}
+function ccTree(items) {
+  if (CT.tab === "records") return items.join("\n");
+  const root = { d: new Map(), f: [] };
+  for (const p of items) {
+    const parts = p.split("/"); let n = root;
+    for (const seg of parts.slice(0, -1)) { if (!n.d.has(seg)) n.d.set(seg, { d: new Map(), f: [] }); n = n.d.get(seg); }
+    n.f.push(parts[parts.length - 1]);
+  }
+  const out = [];
+  const walk = (n, pre) => {
+    const kids = [...n.d.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    let files = n.f.slice().sort();
+    if (files.length > 8) {
+      const by = new Map(); for (const f of files) { const e = "." + (f.split(".").pop() || "").toLowerCase(); by.set(e, (by.get(e) || 0) + 1); }
+      files = [...by.entries()].map(([e, k]) => `${k}× ${e}`);
+    }
+    const all = [...kids.map(k => ["d", k]), ...files.map(f => ["f", f])];
+    all.forEach(([t, v], j) => {
+      const last = j === all.length - 1;
+      out.push(pre + (last ? "└─ " : "├─ ") + (t === "d" ? "📁 " + v[0] : v));
+      if (t === "d") walk(v[1], pre + (last ? "   " : "│  "));
+    });
+  };
+  walk(root, "");
+  return out.join("\n");
+}
+function ccCard(i, k) {
+  const id = ccId(i) + ":" + k.index, open = CC.shown.has(id), d = open && CC.det.get(id);
+  const unit = CT.tab === "records" ? "зап." : "ф.";
+  const eq = k.equal ? ` · = ${num(k.equal)}` : "";
+  let body = "";
+  if (open) {
+    body = !d ? `<div class="body">загрузка…</div>` : `<div class="body">` + d.members.map((m, mi) =>
+      `<div class="mem${m.wins && !m.loses ? " win" : ""}"><span class="nm" title="${esc(m.name)}"><i style="background:${m.enabled ? css("--ok") : css("--miss")}"></i>${esc(m.name)}</span>` +
+      `<canvas data-t="${m.teeth}" data-cc="${id}" data-m="${mi}"></canvas><span class="wl">▲${m.wins} ▼${m.loses}</span></div>`).join("") +
+      `<details${d.items.length <= 40 ? " open" : ""}><summary>${CT.tab === "records" ? "Записи" : "Пути"}: ${num(d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary><pre>${esc(ccTree(d.items))}</pre></details></div>`;
+  }
+  return `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
+    `<div class="h"><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}">${esc(k.name)}</span>` +
+    `<span class="n">${k.stack.length} × ${num(k.files)} ${unit}${eq}</span>` +
+    (CT.tab === "files" ? `<button data-done="${k.signature}" data-v="${k.done ? 0 : 1}" title="${k.done ? "Снять «решено»" : "Отметить решённой"}">${k.done ? "✓" : "○"}</button>` : "") +
+    `<span>${open ? "▾" : "▸"}</span></div>${body}</div>`;
+}
+async function ctCards() {
+  const box = $("ctCards");
+  if (!CT.contexts || !CT.contexts.length) { box.innerHTML = ""; return; }
+  const cur = ccCur(), q = CC.q.trim().toLowerCase(), top = box.scrollTop;
+  CC.open.add(ccId(cur));
+  const n = Math.min(CT.contexts.length, CC.MAXCTX);
+  let html = `<input type="search" id="ccQ" placeholder="Поиск по цепочкам, ${CT.tab === "records" ? "плагинам" : "модам"}" value="${esc(CC.q)}">`;
+  for (let i = 0; i < n; i++) {
+    const c = CT.contexts[i], id = ccId(i), open = CC.open.has(id) || !!q;
+    let cards = open ? await ccFetch(i) : [];
+    if (q) cards = cards.filter(k => k.name.toLowerCase().includes(q) || k.stack.some(m => m.toLowerCase().includes(q)));
+    if (q && !cards.length) continue;
+    const cnt = CT.tab === "records" ? `${c.chains} цеп. · ${c.plugins} пл. · ${num(c.records)} зап.${c.blind ? ` · ⚠️ ${num(c.blind)}` : ""}`
+      : `${c.chains} цеп. · ${c.mods} модов · ${num(c.files)} ф.`;
+    html += `<div class="cx${i === cur ? " cur" : ""}" data-cx="${i}" style="border-left:3px solid hsl(${c.hue} 65% 55%)"><div class="h"><span>${open ? "▾" : "▸"}</span>` +
+      `<b title="${esc(c.name)}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)}</b><span class="n">${cnt}</span></div>` +
+      (open ? `<div class="cards">${cards.map(k => ccCard(i, k)).join("")}</div>` : "") + `</div>`;
+  }
+  if (CT.contexts.length > n) html += `<div class="n" style="color:var(--muted);font-size:12px">ещё ${CT.contexts.length - n} контекстов — в списке «Контекст» сверху</div>`;
+  const had = document.activeElement && document.activeElement.id === "ccQ";
+  box.innerHTML = html; box.scrollTop = top;
+  if (had) { const el = $("ccQ"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  box.querySelectorAll("canvas[data-t]").forEach(ccTeeth);
+}
+function ccTeeth(cv) {
+  const t = cv.dataset.t, dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const tw = w / Math.max(1, t.length), gap = tw >= 4 ? 1 : 0;
+  const col = { w: css("--win"), l: css("--lose"), s: CELL.s[0], o: CELL.o[0] };
+  for (let j = 0; j < t.length; j++) { g.fillStyle = col[t[j]] || "rgba(127,127,127,.12)"; g.fillRect(j * tw, 0, Math.max(1, tw - gap), h); }
+}
+async function ccSelectContext(i) {
+  if (CT.tab === "records") { if (CT.rctx === i) return; CT.rctx = i; }
+  else { const c = CT.contexts[i]; if (!c || c.key === null || +$("ctCtx").value === i) return; CT.key = c.key; }
+  CT.selChain = null; $("ctCtx").value = String(i); $("ctScroll").scrollTo(0, 0); await ctSync(false);
+}
+async function ccGoChain(i, ix) {
+  await ccSelectContext(i);
+  if (CT.tab === "files" && CT.order !== "chain") { CT.order = "chain"; $("ctOrder").value = "chain"; await ctSync(false); }
+  const t = CT.data && CT.data.t; if (!t || !t.chain_starts.length) return;
+  CT.selChain = ix; $("ctScroll").scrollLeft = t.chain_starts[ix] * CT.CW; ctDraw();
+}
+$("ctCards").addEventListener("click", async ev => {
+  const done = ev.target.closest("button[data-done]");
+  if (done) {
+    ev.stopPropagation();
+    await run({ type: "set-chain-done", signature: done.dataset.done, done: done.dataset.v === "1" });
+    CC.cards.clear(); await ctCards(); ctSync(false); return;
+  }
+  const card = ev.target.closest(".cc");
+  if (card && ev.target.closest(".cc > .h")) {
+    const i = +card.dataset.cx, ix = +card.dataset.ix, id = ccId(i) + ":" + ix;
+    CC.sel = id;
+    if (CC.shown.has(id)) { CC.shown.delete(id); CC.sel = null; CT.selChain = null; await ctCards(); ctDraw(); return; }
+    CC.shown.add(id); ctCards(); await ccDetail(i, ix);
+    await ctCards(); ccGoChain(i, ix); return;
+  }
+  const cx = ev.target.closest(".cx");
+  if (cx && ev.target.closest(".cx > .h")) {
+    const i = +cx.dataset.cx, id = ccId(i);
+    if (CC.open.has(id) && i === ccCur()) CC.open.delete(id); else CC.open.add(id);
+    await ccSelectContext(i); await ctCards();
+  }
+});
+$("ctCards").addEventListener("input", ev => { if (ev.target.id === "ccQ") { CC.q = ev.target.value; clearTimeout(CC.qt); CC.qt = setTimeout(ctCards, 250); } });
+$("ctCards").addEventListener("mousemove", ev => {
+  const cv = ev.target.closest("canvas[data-t]"); if (!cv) return;
+  const d = CC.det.get(cv.dataset.cc); if (!d) return;
+  const m = d.members[+cv.dataset.m], r = cv.getBoundingClientRect(), j = Math.floor((ev.clientX - r.left) / r.width * m.teeth.length);
+  const ch = m.teeth[j]; if (ch === undefined) return;
+  cv.title = `${d.items[j] || ""}\n${m.name} — ${CELL[ch] ? CELL[ch][1] : "не участвует"}`;
+});
+document.querySelectorAll("#ct [data-mode]").forEach(b => { b.onclick = () => ctMode(b.dataset.mode); });
 function sigHue(path) { const s = path.split(" ")[1] || ""; let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; }
 window.addEventListener("resize", () => { if (!$("ct").hidden) ctSync(false); });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("ct").hidden) { ev.stopPropagation(); $("ctClose").onclick(); } }, true);

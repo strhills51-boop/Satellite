@@ -123,7 +123,10 @@ fn load(args: &[String]) -> Result<App, String> {
         inst.profile = p.to_string();
     }
     let read = |f: &str| std::fs::read(inst.profile_dir().join(f));
-    let modlist = read("modlist.txt").map_err(|e| format!("modlist.txt: {e}"))?;
+    let modlist = read("modlist.txt").map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => inst.missing_modlist(),
+        _ => format!("modlist.txt: {e}"),
+    })?;
     let manager: Modlist = profile::parse_modlist(&modlist).0;
     let sat_dir = inst.profile_dir().join("satellite");
     let project_file = sat_dir.join(sat_stll::FILE_NAME);
