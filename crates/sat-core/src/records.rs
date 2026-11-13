@@ -170,10 +170,37 @@ impl RecordIndex {
         &self.entries[g.0 as usize..(g.0 + g.1) as usize]
     }
 
+    // @sat:records.providers
+    /// The plugins that have a record, in load order.
+    pub fn providers(&self, key: u64) -> Vec<Provider> {
+        let at = self.entries.partition_point(|e| e.key < key);
+        self.entries[at..]
+            .iter()
+            .take_while(|e| e.key == key)
+            .map(|e| Provider {
+                plugin: e.plugin,
+                origin: self.is_origin(e),
+                hash: e.hash,
+                signature: e.signature,
+            })
+            .collect()
+    }
+
     /// The record a conflict is about: its origin plugin and FormID within it, e.g. `Skyrim.esm:012E49`.
-    fn label(&self, key: u64) -> String {
+    pub fn label(&self, key: u64) -> String {
         format!("{}:{:06X}", self.origins[(key >> 32) as usize], key & 0x00FF_FFFF)
     }
+}
+
+/// A plugin that has a record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Provider {
+    /// Load-order index into `RecordIndex::plugins`.
+    pub plugin: u32,
+    /// The record comes from this plugin (not an override).
+    pub origin: bool,
+    pub hash: Option<u64>,
+    pub signature: [u8; 4],
 }
 
 // @sat:records.plugin-stat
@@ -249,6 +276,11 @@ pub struct RecordChain {
     pub unknown: u32,
     /// A few of its records (`Skyrim.esm:012E49`).
     pub samples: Vec<String>,
+    /// Its records (keys of the index) and its stack as load-order indices — for tables, not for the wire.
+    #[serde(skip)]
+    pub keys: Vec<u64>,
+    #[serde(skip)]
+    pub stack_ids: Vec<u32>,
 }
 
 /// Chains: blind conflicts first, then conflicts on purpose, then overrides, each largest first.
@@ -270,6 +302,8 @@ pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
                 equal_to_winner: 0,
                 unknown: 0,
                 samples: Vec::new(),
+                keys: Vec::new(),
+                stack_ids: stack.clone(),
             });
         let winner = es[es.len() - 1];
         c.records += 1;
@@ -279,6 +313,7 @@ pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
         } else if es.iter().all(|e| e.hash == winner.hash) {
             c.equal_to_winner += 1;
         }
+        c.keys.push(winner.key);
         if c.samples.len() < 5 {
             c.samples.push(ix.label(winner.key));
         }
@@ -291,6 +326,78 @@ pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
             .then(b.records.cmp(&a.records))
             .then_with(|| a.stack.cmp(&b.stack))
     });
+    v
+}
+
+// @sat:records.contexts
+/// Plugins tied by record conflicts (two of them override the same record), with their conflict chains: the record
+/// counterpart of the file contexts. A record's own plugin does not tie (else `Skyrim.esm` would tie everything).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordContext {
+    /// Load-order indices of the plugins in its chains (own plugins of the records too), in load order.
+    pub plugins: Vec<u32>,
+    /// Indices into the chains it was built from, in their order.
+    pub chains: Vec<usize>,
+    pub records: u32,
+    pub blind_records: u32,
+}
+
+/// Contexts of the conflict chains, largest first.
+pub fn contexts(ix: &RecordIndex, chains: &[RecordChain]) -> Vec<RecordContext> {
+    let n = ix.plugins.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    // tie the overriding plugins of every conflict chain (its first key tells the record's own plugin)
+    let overriders = |c: &RecordChain| -> Vec<u32> {
+        let own = ix.providers(c.keys[0]);
+        c.stack_ids
+            .iter()
+            .copied()
+            .filter(|p| !own.iter().any(|x| x.plugin == *p && x.origin))
+            .collect()
+    };
+    let conflict: Vec<usize> = (0..chains.len()).filter(|&i| chains[i].conflict).collect();
+    for &i in &conflict {
+        let o = overriders(&chains[i]);
+        for w in o.windows(2) {
+            let (a, b) = (find(&mut parent, w[0] as usize), find(&mut parent, w[1] as usize));
+            if a != b {
+                parent[a] = b;
+            }
+        }
+    }
+    let mut by_root: HashMap<usize, RecordContext> = HashMap::new();
+    for &i in &conflict {
+        let c = &chains[i];
+        let root = find(&mut parent, overriders(c)[0] as usize);
+        let cx = by_root.entry(root).or_insert_with(|| RecordContext {
+            plugins: Vec::new(),
+            chains: Vec::new(),
+            records: 0,
+            blind_records: 0,
+        });
+        cx.chains.push(i);
+        cx.records += c.records;
+        if c.blind {
+            cx.blind_records += c.records;
+        }
+        cx.plugins.extend(&c.stack_ids);
+    }
+    let mut v: Vec<RecordContext> = by_root
+        .into_values()
+        .map(|mut c| {
+            c.plugins.sort_unstable();
+            c.plugins.dedup();
+            c
+        })
+        .collect();
+    v.sort_by(|a, b| b.records.cmp(&a.records).then(a.plugins.cmp(&b.plugins)));
     v
 }
 
@@ -324,6 +431,43 @@ mod tests {
         ]);
         let ch = chains(&ix);
         assert!(ch[0].conflict && ch[0].blind, "B does not have A as a master");
+        let cx = contexts(&ix, &ch);
+        assert_eq!(cx.len(), 1);
+        assert_eq!(
+            (cx[0].plugins.clone(), cx[0].records, cx[0].blind_records),
+            (vec![0, 1, 2], 1, 1)
+        );
+        let pr = ix.providers(ch[0].keys[0]);
+        assert_eq!(
+            pr.iter().map(|p| (p.plugin, p.origin)).collect::<Vec<_>>(),
+            [(0, true), (1, false), (2, false)]
+        );
+    }
+
+    #[test]
+    fn a_record_s_own_plugin_does_not_tie_contexts() {
+        let base = PluginRecords {
+            masters: vec![],
+            records: vec![rec(1, b"NPC_", 1), rec(2, b"NPC_", 1)],
+        };
+        let over = |id, h| PluginRecords {
+            masters: vec!["Skyrim.esm".into()],
+            records: vec![rec(id, b"NPC_", h)],
+        };
+        let (a, b, c, d) = (over(1, 2), over(1, 3), over(2, 4), over(2, 5));
+        let ix = RecordIndex::build(&[
+            ("Skyrim.esm".into(), &base),
+            ("A.esp".into(), &a),
+            ("B.esp".into(), &b),
+            ("C.esp".into(), &c),
+            ("D.esp".into(), &d),
+        ]);
+        let cx = contexts(&ix, &chains(&ix));
+        assert_eq!(
+            cx.len(),
+            2,
+            "A+B and C+D: both through Skyrim records, not tied by it"
+        );
     }
 
     #[test]

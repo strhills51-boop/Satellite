@@ -312,7 +312,7 @@ fn load(args: &[String]) -> Result<App, String> {
             ix.plugins.len(),
             t.elapsed().as_secs_f64()
         );
-        let _ = tx.send(sat_app::records::RecordReport::from_index(&ix, unread));
+        let _ = tx.send(sat_app::records::RecordReport::from_index(ix, unread));
     });
     RECORDS.with(|r| *r.borrow_mut() = Some(rx));
     Ok(app)

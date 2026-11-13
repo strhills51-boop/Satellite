@@ -193,6 +193,11 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #ct .t1 b { font-size: 15px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ct .t2 { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
 #ct .t2 select { max-width: 520px; }
+#ct .tabs { display: inline-flex; gap: 4px; }
+#ct .tab { border-radius: 8px; padding: 3px 10px; }
+#ct .tab.cur { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+#ct .legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+#ct .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 #ctScroll { flex: 1; overflow: auto; position: relative; overscroll-behavior: contain; }
 #ctView { position: sticky; top: 0; left: 0; }
 #ctCanvas { display: block; }
@@ -208,7 +213,7 @@ footer b { color: var(--accent2); font-weight: 500; }
 <header>
   <span class="brand">Satellite</span><span class="pill">NG</span>
   <div class="pipeline" aria-label="Конвейер"><span>Анализ mods</span><i>→</i><span>Конфликты</span><i>→</i><span>Sync</span></div>
-  <button id="recBtn" title="Конфликты записей плагинов: цепочки по стеку плагинов">Записи</button>
+  <button id="recBtn" title="Конфликты: файлы и записи плагинов">Конфликты</button>
   <button id="theme" title="Светлая / тёмная">◐</button>
   <span class="sandbox">песочница: изменения живут в памяти и никуда не пишутся</span>
 </header>
@@ -243,10 +248,12 @@ footer b { color: var(--accent2); font-weight: 500; }
 </div>
 <div id="ct" hidden role="dialog" aria-label="Таблица конфликтов">
   <div class="top">
-    <div class="t1"><b id="ctTitle"></b><button id="ctClose">Закрыть</button></div>
+    <div class="t1"><span class="tabs"><button id="tabFiles" class="tab cur">Файлы</button><button id="tabRecords" class="tab">Записи плагинов</button></span>
+      <b id="ctTitle"></b><button id="ctList" hidden title="Все цепочки записей списком, с правками">Списком</button><button id="ctClose">Закрыть</button></div>
     <div class="t2"><span>Контекст:</span><select id="ctCtx"></select>
       <select id="ctOrder"><option value="chain">Релевантность цепочке</option><option value="strength">Сила конфликта</option></select>
       <span id="ctStats"></span></div>
+    <div class="legend" id="ctLegend"></div>
   </div>
   <div id="ctScroll"><div id="ctView"><canvas id="ctCanvas"></canvas></div><div id="ctSpacer"></div></div>
   <div id="ctStatus">наведи на клетку: путь, цепочка, стек</div>
@@ -573,12 +580,38 @@ $("bDecor").addEventListener("click", ev => {
 });
 
 // ---------------------------------------------------------------- conflict context table
-const CT = { key: null, order: "chain", data: null, busy: false, again: false, LW: 300, HH: 44, CW: 12, RH: 26 };
+const CT = { tab: "files", key: null, rctx: 0, order: "chain", data: null, busy: false, again: false, LW: 300, HH: 44, CW: 12, RH: 26 };
+const CELL = { w: ["--win", "выигрывает"], l: ["--lose", "проигрывает"], s: ["#d4a017", "равна победителю"], o: ["#4f7fd6", "источник записи"] };
+function ctLegend() {
+  const keys = CT.tab === "files" ? ["w", "l"] : ["w", "l", "s", "o"];
+  $("ctLegend").innerHTML = keys.map(k => `<span><i style="background:${CELL[k][0].startsWith("--") ? css(CELL[k][0]) : CELL[k][0]}"></i>${CELL[k][1]}</span>`).join("") +
+    (CT.tab === "records" ? `<span>полоса над столбцами — цепочка (стек плагинов); ⚠️ — вслепую: плагин ниже не держит плагин выше в мастерах</span>` : "");
+}
+function ctTab(tab) {
+  CT.tab = tab; $("tabFiles").classList.toggle("cur", tab === "files"); $("tabRecords").classList.toggle("cur", tab === "records");
+  $("ctOrder").hidden = tab !== "files"; $("ctList").hidden = tab !== "records"; CT.data = null; ctLegend();
+}
+async function openRecords(plugin) {
+  ctTab("records"); $("ct").hidden = false;
+  const { contexts } = await query({ type: "record-contexts" });
+  CT.contexts = contexts;
+  if (!contexts.length) {
+    const { page } = await query({ type: "record-chains", limit: 1 });
+    $("ctTitle").textContent = page.state === "pending" ? "плагины читаются… (первый раз — долго, потом из кэша)" : "конфликтов записей нет";
+    $("ctCtx").innerHTML = ""; $("ctStats").textContent = ""; ctDraw();
+    if (page.state === "pending") setTimeout(() => { if (!$("ct").hidden && CT.tab === "records") openRecords(plugin); }, 2000);
+    return;
+  }
+  $("ctCtx").innerHTML = contexts.map((c, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)} · ${c.chains} цеп. · ${c.plugins} плагинов · ${num(c.records)} записей${c.blind ? ` · вслепую ${num(c.blind)}` : ""}</option>`).join("");
+  const want = plugin ? contexts.findIndex(c => c.members.includes(plugin.toLowerCase())) : -1;
+  CT.rctx = want >= 0 ? want : 0; $("ctCtx").value = String(CT.rctx);
+  $("ctScroll").scrollTo(0, 0); await ctSync(false);
+}
 const EXT = { dds: 28, png: 28, tga: 28, nif: 210, tri: 200, hkx: 275, esp: 135, esm: 135, esl: 135, pex: 50, psc: 55, bsa: 0, ba2: 0,
   wav: 175, xwm: 175, fuz: 185, lip: 190, swf: 320, json: 0, ini: 0, txt: 0, seq: 300, bgsm: 240, bgem: 240 };
 const extHue = p => { const e = (p.split(".").pop() || "").toLowerCase(); return e in EXT ? EXT[e] : [...e].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7); };
 async function openTable(key) {
-  CT.key = key; $("ct").hidden = false;
+  ctTab("files"); CT.key = key; $("ct").hidden = false;
   const { contexts } = await query({ type: "contexts" });
   CT.contexts = contexts;
   $("ctCtx").innerHTML = contexts.map((c, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)} · ${c.chains} цеп. · ${c.mods} модов · ${c.files} файлов</option>`).join("");
@@ -592,13 +625,16 @@ async function ctSync(pickCtx) {
     const sc = $("ctScroll"), w = sc.clientWidth, h = sc.clientHeight;
     const r0 = Math.floor(sc.scrollTop / CT.RH), c0 = Math.floor(sc.scrollLeft / CT.CW);
     const rc = Math.ceil((h - CT.HH) / CT.RH) + 1, cc = Math.ceil((w - CT.LW) / CT.CW) + 1;
-    const rep = await query({ type: "context-table", key: CT.key, order: CT.order, row_start: r0, row_count: rc, col_start: c0, col_count: cc });
+    const rec = CT.tab === "records";
+    const rep = rec ? await query({ type: "record-table", context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
+      : await query({ type: "context-table", key: CT.key, order: CT.order, row_start: r0, row_count: rc, col_start: c0, col_count: cc });
     const t = rep.table;
-    if (!t) { $("ctTitle").textContent = "Мод ни с кем не конфликтует"; CT.data = null; return; }
+    if (!t) { $("ctTitle").textContent = rec ? "Нет такого контекста" : "Мод ни с кем не конфликтует"; CT.data = null; return; }
     CT.data = { t, r0, c0 };
     $("ctTitle").textContent = "△ " + t.name;
-    $("ctStats").textContent = `Цепочек: ${t.chains_total} · Строк: ${t.rows_total} · Файлов: ${t.cols_total}`;
-    if (pickCtx && CT.contexts) { const i = CT.contexts.findIndex(c => c.name === t.name); if (i >= 0) $("ctCtx").value = String(i); }
+    $("ctStats").textContent = rec ? `Цепочек: ${t.chains_total} · Плагинов: ${t.rows_total} · Записей: ${t.cols_total}`
+      : `Цепочек: ${t.chains_total} · Строк: ${t.rows_total} · Файлов: ${t.cols_total}`;
+    if (pickCtx && CT.contexts && !rec) { const i = CT.contexts.findIndex(c => c.name === t.name); if (i >= 0) $("ctCtx").value = String(i); }
     const sp = $("ctSpacer");
     sp.style.width = (CT.LW + t.cols_total * CT.CW) + "px"; sp.style.height = (CT.HH + t.rows_total * CT.RH) + "px";
     sp.style.marginTop = -h + "px";
@@ -625,7 +661,7 @@ function ctDraw() {
     if (r.header) { g.fillStyle = bg2; g.fillRect(LW, y, w - LW, RH); return; }
     for (let j = 0; j < r.cells.length; j++) {
       const x = LW + ox + j * CW, ch = r.cells[j];
-      g.fillStyle = ch === "w" ? win : ch === "l" ? lose : "rgba(127,127,127,.07)";
+      g.fillStyle = ch === "w" ? win : ch === "l" ? lose : ch === "s" ? CELL.s[0] : ch === "o" ? CELL.o[0] : "rgba(127,127,127,.07)";
       g.fillRect(x + 1, y + 6, CW - 2, RH - 12);
     }
   });
@@ -636,7 +672,7 @@ function ctDraw() {
   t.cols.forEach((c, j) => {
     const x = LW + ox + j * CW, ch = chains.get(c.chain);
     if (ch) { g.fillStyle = `hsl(${ch.hue} 65% 55%)`; g.fillRect(x, 6, CW, 4); }
-    g.fillStyle = `hsl(${extHue(c.path)} 70% 55%)`; g.fillRect(x + 1, 18, CW - 2, 14);
+    g.fillStyle = `hsl(${CT.tab === "records" ? sigHue(c.path) : extHue(c.path)} 70% 55%)`; g.fillRect(x + 1, 18, CW - 2, 14);
     const starts = t.chain_starts.length && (j > 0 ? t.cols[j - 1].chain !== c.chain : t.chain_starts.includes(c0));
     if (starts) {
       g.fillStyle = muted; g.fillRect(x, 4, 1, HH - 8);
@@ -653,7 +689,7 @@ function ctDraw() {
       g.fillStyle = fg; g.font = `600 12px ${css("--ui") || "sans-serif"}`; g.fillText("▾ " + r.name, 10, y + RH / 2); g.font = `13px ${css("--ui") || "sans-serif"}`;
       return;
     }
-    g.fillStyle = r.key === CT.key ? "rgba(34,197,94,.18)" : "transparent"; g.fillRect(0, y, LW, RH);
+    g.fillStyle = CT.tab === "files" && r.key === CT.key ? "rgba(34,197,94,.18)" : "transparent"; g.fillRect(0, y, LW, RH);
     g.fillStyle = "#7c3aed"; g.fillRect(0, y + 2, 3, RH - 4);
     g.fillStyle = r.enabled ? css("--ok") : css("--miss"); g.beginPath(); g.arc(16, y + RH / 2, 4, 0, 7); g.fill();
     g.fillStyle = fg; g.fillText(clip(g, r.name, LW - 110), 28, y + RH / 2);
@@ -676,18 +712,24 @@ $("ctScroll").addEventListener("mousemove", ev => {
   const hit = ctHit(ev); if (!hit) return;
   const { t } = CT.data, parts = [];
   if (hit.col) { const ch = t.chains.find(c => c.index === hit.col.chain);
-    parts.push(`<b>${esc(hit.col.path)}</b>`); if (ch) parts.push(`${ch.emoji} ${esc(ch.name)} · стек ${ch.depth} · ${ch.files} ф.${ch.done ? " · решено" : ""}`); }
+    parts.push(`<b>${esc(hit.col.path)}</b>`); if (ch) parts.push(`${ch.emoji} ${esc(ch.name)} · стек ${ch.depth} · ${ch.files} ${CT.tab === "records" ? "зап." : "ф."}${ch.done ? " · решено" : ""}`); }
   if (hit.row && !hit.row.header) { const c = hit.col && hit.row.cells[hit.ci];
-    parts.push(`${esc(hit.row.name)}${c === "w" ? " — выигрывает" : c === "l" ? " — проигрывает" : c === "-" ? " — не участвует" : ""}`); }
+    parts.push(`${esc(hit.row.name)}${c && CELL[c] ? " — " + CELL[c][1] : c === "-" ? " — не участвует" : ""}`); }
   $("ctStatus").innerHTML = parts.join(" · ") || "&nbsp;";
 });
 $("ctScroll").addEventListener("click", ev => {
   const hit = ctHit(ev);
-  if (hit && hit.row && !hit.row.header && hit.row.key !== null) run({ type: "focus", view: VIEW, key: hit.row.key });
+  if (CT.tab === "files" && hit && hit.row && !hit.row.header && hit.row.key !== null) run({ type: "focus", view: VIEW, key: hit.row.key });
 });
 $("ctClose").onclick = () => { $("ct").hidden = true; list.focus({ preventScroll: true }); };
 $("ctOrder").onchange = ev => { CT.order = ev.target.value; ctSync(false); };
-$("ctCtx").onchange = ev => { const c = CT.contexts[+ev.target.value]; if (c && c.key !== null) { CT.key = c.key; $("ctScroll").scrollTo(0, 0); ctSync(false); } };
+$("ctCtx").onchange = ev => {
+  if (CT.tab === "records") { CT.rctx = +ev.target.value; $("ctScroll").scrollTo(0, 0); ctSync(false); return; }
+  const c = CT.contexts[+ev.target.value]; if (c && c.key !== null) { CT.key = c.key; $("ctScroll").scrollTo(0, 0); ctSync(false); } };
+$("tabRecords").onclick = () => openRecords();
+$("tabFiles").onclick = async () => { if (CT.key === null) { const { contexts } = await query({ type: "contexts" }); if (contexts[0]) CT.key = contexts[0].key; } openTable(CT.key); };
+$("ctList").onclick = () => recOpen("");
+function sigHue(path) { const s = path.split(" ")[1] || ""; let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; }
 window.addEventListener("resize", () => { if (!$("ct").hidden) ctSync(false); });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("ct").hidden) { ev.stopPropagation(); $("ctClose").onclick(); } }, true);
 
@@ -878,11 +920,11 @@ async function recLoad() {
   }).join("") + (p.total > p.chains.length ? `<div class="muted" style="padding:8px">ещё ${num(p.total - p.chains.length)} — уточни фильтр по плагину</div>` : "");
 }
 function recOpen(plugin) { $("recPlugin").value = plugin || ""; if (plugin) $("recOnly").checked = false; $("rec").hidden = false; recLoad(); }
-$("recBtn").onclick = () => recOpen($("recPlugin").value);
+$("recBtn").onclick = () => openRecords();
 $("recClose").onclick = () => { $("rec").hidden = true; clearTimeout(recTimer); list.focus({ preventScroll: true }); };
 $("recPlugin").oninput = () => { clearTimeout(recTimer); recTimer = setTimeout(recLoad, 250); };
 $("recOnly").onchange = () => recLoad();
-$("bPlug").addEventListener("click", ev => { const a = ev.target.closest("[data-recplug]"); if (a) recOpen(a.dataset.recplug); });
+$("bPlug").addEventListener("click", ev => { const a = ev.target.closest("[data-recplug]"); if (a) openRecords(a.dataset.recplug); });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("rec").hidden) { ev.stopPropagation(); $("recClose").onclick(); } }, true);
 
 (async () => { await sync(false); await Promise.all([totals(), tiles(), decor()]); list.focus({ preventScroll: true }); })();

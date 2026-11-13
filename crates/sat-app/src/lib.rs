@@ -230,6 +230,16 @@ pub enum Query {
         offset: usize,
         limit: usize,
     },
+    /// Record conflict contexts (`@sat:app.records.contexts`), largest first.
+    RecordContexts,
+    /// A window of a record context's conflict table (`@sat:app.records.table`), in the file table's shape.
+    RecordTable {
+        context: usize,
+        row_start: usize,
+        row_count: usize,
+        col_start: usize,
+        col_count: usize,
+    },
     /// A window of the conflict table of the context that mod `key` belongs to.
     ContextTable {
         key: Key,
@@ -524,6 +534,9 @@ pub enum Reply {
     },
     RecordChains {
         page: Box<records::RecordPage>,
+    },
+    RecordContexts {
+        contexts: Vec<records::RecordContextItem>,
     },
     ModSheet {
         sheet: Box<sheet::ModSheet>,
@@ -1192,6 +1205,24 @@ impl App {
                     })
                     .collect(),
                 catalog: self.tags.clone(),
+            },
+            Query::RecordContexts => Reply::RecordContexts {
+                contexts: self.record_contexts(),
+            },
+            Query::RecordTable {
+                context,
+                row_start,
+                row_count,
+                col_start,
+                col_count,
+            } => Reply::ContextTable {
+                table: self
+                    .record_table(
+                        context,
+                        (row_start, row_count.min(500)),
+                        (col_start, col_count.min(1000)),
+                    )
+                    .map(Box::new),
             },
             Query::Contexts => Reply::Contexts {
                 contexts: self.contexts(),
