@@ -326,6 +326,26 @@ fn scan_one(job: &ScanJob, ctx: &walk::Ctx<'_>) -> ScanOutcome {
     }
 }
 
+// @sat:scan.game-runtime
+/// The game's version (its executable's file version) and the file names in its folder, for the pack's runtime
+/// rules (`@sat:conflict.kinds.runtime`); an unknown version when the executable is not there.
+pub fn game_runtime(game_dir: &std::path::Path) -> sat_core::conflict_kinds::GameRuntime {
+    let pack = sat_core::game::active();
+    let files: Vec<String> = std::fs::read_dir(game_dir)
+        .map(|rd| {
+            rd.filter_map(Result::ok)
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    let version = pack.runtime.as_ref().and_then(|r| {
+        let exe = files.iter().find(|f| f.eq_ignore_ascii_case(&r.exe))?;
+        sat_formats::pe::file_version(&std::fs::read(game_dir.join(exe)).ok()?)
+    });
+    sat_core::conflict_kinds::GameRuntime { version, files }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

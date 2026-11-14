@@ -91,6 +91,8 @@ pub(crate) struct DomainInputs {
     pub rev: u64,
     /// Bumped with every new record report.
     pub records_rev: u64,
+    /// The game's version and folder (`@sat:conflict.kinds.runtime`).
+    pub runtime: sat_core::conflict_kinds::GameRuntime,
 }
 
 impl std::fmt::Debug for DomainInputs {
@@ -116,6 +118,12 @@ impl App {
     /// The shell's file reader (for spec domains that rank by a field).
     pub fn set_file_reader(&mut self, reader: FileReader) {
         self.domain_inputs.reader = Some(reader);
+        self.domain_inputs.rev += 1;
+    }
+
+    /// What the shell found in the game's folder: its version and file names.
+    pub fn set_game_runtime(&mut self, rt: sat_core::conflict_kinds::GameRuntime) {
+        self.domain_inputs.runtime = rt;
         self.domain_inputs.rev += 1;
     }
 
@@ -163,7 +171,19 @@ impl App {
             }
         };
         let mut out = vec![
-            Arc::new(sat_core::conflict_kinds::constraints(&list)),
+            Arc::new(sat_core::conflict_kinds::constraints_with(
+                &list,
+                (self.record_state == crate::records::RecordState::Ready)
+                    .then_some(self.records.index.as_ref()),
+                pack,
+            )),
+            Arc::new(sat_core::conflict_kinds::generations(&cand, &table, prio, pack)),
+            Arc::new(sat_core::conflict_kinds::runtime(
+                &self.domain_inputs.runtime,
+                &table,
+                prio,
+                pack,
+            )),
             Arc::new(sat_core::conflict_kinds::archives_in(
                 &cand.archives,
                 &table,
@@ -342,7 +362,9 @@ impl App {
             "dangerous" => 4,
             "archives" => 5,
             "facegen" => 6,
-            _ => 7,
+            "runtime" => 4,
+            "generations" => 7,
+            _ => 8,
         };
         out.sort_by_key(|d| rank(&d.id));
         out

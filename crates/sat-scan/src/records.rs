@@ -214,6 +214,33 @@ fn field_hash(bytes: &[u8], map: &[u32]) -> u64 {
     h.digest()
 }
 
+/// A record's fields as compared: derived fields (counts of a list) left out, array fields split into their
+/// elements (so they compare as collections, like repeated fields).
+fn shape_fields(
+    raw: Vec<([u8; 4], &[u8])>,
+    map: &[u32],
+    rules: Option<&sat_core::game::RecordRules>,
+) -> sat_core::conflict_fields::Fields {
+    let mut out = Vec::with_capacity(raw.len());
+    for (sig, b) in raw {
+        let name = String::from_utf8_lossy(&sig);
+        if let Some(r) = rules {
+            if r.derived.iter().any(|d| *d == name) {
+                continue;
+            }
+            if let Some(&n) = r.arrays.get(name.as_ref())
+                && n > 0
+                && b.len().is_multiple_of(n)
+            {
+                out.extend(b.chunks(n).map(|e| (sig, field_hash(e, map))));
+                continue;
+            }
+        }
+        out.push((sig, field_hash(b, map)));
+    }
+    out
+}
+
 // @sat:scan.records.fields
 /// Fields of the conflict records (`@sat:conflict.fields`): every plugin of every record two overriders share is
 /// read again, only those records kept.
@@ -230,6 +257,7 @@ pub fn fields(
             }
         }
     }
+    let rules = sat_core::game::active().records.clone();
     // the index holds only the plugins that were read: find each one's file by name
     let path_of: HashMap<String, &PathBuf> = loaded.iter().map(|(n, p)| (n.to_lowercase(), p)).collect();
     let parts: Vec<Vec<((u32, u64), sat_core::conflict_fields::Fields)>> = ix
@@ -248,10 +276,7 @@ pub fn fields(
             let _ = sat_formats::read_records(BufReader::with_capacity(1 << 20, f), |r| {
                 let Some(&key) = want.get(&r.form_id) else { return };
                 let Some(d) = r.data else { return };
-                let fields = sat_formats::subrecords(d)
-                    .into_iter()
-                    .map(|(sig, b)| (sig, field_hash(b, &map)))
-                    .collect();
+                let fields = shape_fields(sat_formats::subrecords(d), &map, rules.as_ref());
                 out.push(((i as u32, key), fields));
             });
             out
@@ -314,5 +339,22 @@ mod field_tests {
             field_hash(&5u32.to_le_bytes(), &[10]),
             field_hash(&5u32.to_le_bytes(), &[11])
         );
+    }
+
+    #[test]
+    fn keywords_split_into_elements_and_counts_are_left_out() {
+        let rules = sat_core::game::active().records.clone();
+        let kwda: Vec<u8> = [0x0000_1234u32, 0x0000_5678]
+            .iter()
+            .flat_map(|x| x.to_le_bytes())
+            .collect();
+        let raw = vec![
+            (*b"KSIZ", &[2u8, 0, 0, 0][..]),
+            (*b"KWDA", &kwda[..]),
+            (*b"DATA", &b"xy"[..]),
+        ];
+        let f = shape_fields(raw, &[1], rules.as_ref());
+        let sigs: Vec<&[u8; 4]> = f.iter().map(|x| &x.0).collect();
+        assert_eq!(sigs, [b"KWDA", b"KWDA", b"DATA"]);
     }
 }

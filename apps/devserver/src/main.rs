@@ -303,6 +303,11 @@ fn load(args: &[String]) -> Result<App, String> {
             };
             std::fs::read(dir.join(rel)).ok()
         }));
+        let rt = sat_scan::game_runtime(&inst.game_path);
+        if let Some(v) = rt.version {
+            eprintln!("game: {}.{}.{}.{}", v.0, v.1, v.2, v.3);
+        }
+        app.set_game_runtime(rt);
         let user = inst.profile_dir().join("satellite").join("conflict-domains.json");
         if let Ok(text) = std::fs::read_to_string(&user) {
             match serde_json::from_str::<Vec<sat_core::conflict_spec::DomainSpec>>(&text) {

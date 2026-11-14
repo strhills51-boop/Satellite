@@ -76,6 +76,20 @@ pub struct DomainSpec {
     /// Participants a target needs to be a case.
     #[serde(default = "two")]
     pub min_participants: usize,
+    /// Only files whose name (the last segment) matches this regex.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Targets are lines of the matched files, not the files: rule files (`*_SWAP.ini`, `*_DISTR.ini`).
+    #[serde(default)]
+    pub lines: Option<LineSpec>,
+}
+
+// @sat:conflict.spec.lines
+/// A rule file's lines as targets: each line the regex matches is one target, its named groups join the captures
+/// (`target` names them). `;` and `#` start comments.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LineSpec {
+    pub regex: String,
 }
 
 #[derive(Debug)]
@@ -184,6 +198,7 @@ pub struct Matcher {
     segs: Vec<Seg>,
     prefix: String,
     exts: Vec<String>,
+    file: Option<regex::Regex>,
 }
 
 impl Matcher {
@@ -202,7 +217,13 @@ impl Matcher {
             .iter()
             .map(|e| format!(".{}", e.to_lowercase()))
             .collect();
-        Self { segs, prefix, exts }
+        let file = spec.file.as_deref().and_then(|f| regex::Regex::new(f).ok());
+        Self {
+            segs,
+            prefix,
+            exts,
+            file,
+        }
     }
 
     /// Captures of a path (`lower` — the same path in lower case, to test cheaply), if it matches.
@@ -211,6 +232,11 @@ impl Matcher {
             return None;
         }
         if !self.exts.is_empty() && !self.exts.iter().any(|e| lower.ends_with(e.as_str())) {
+            return None;
+        }
+        if let Some(f) = &self.file
+            && !f.is_match(path.rsplit('/').next().unwrap_or(path))
+        {
             return None;
         }
         matches(&self.segs, path)
@@ -264,18 +290,42 @@ pub fn evaluate_matched(
     };
     // target → participant → member
     let mut targets: FxHashMap<String, FxHashMap<String, Member>> = FxHashMap::default();
+    let line_re = spec.lines.as_ref().and_then(|l| regex::Regex::new(&l.regex).ok());
+    let mut unread_files = 0u32;
     for (p, caps) in paths {
         let Some(w) = seen(table, prio, *p) else { continue };
         let who = render(&spec.participant, caps);
-        let what = render(&spec.target, caps).to_lowercase();
-        targets
-            .entry(what)
-            .or_default()
-            .entry(who.to_lowercase())
-            .or_insert(Member {
-                caps: caps.clone(),
-                owner: table.owner(w).idx(),
-            });
+        let mut add = |caps: Vec<(String, String)>| {
+            let what = render(&spec.target, &caps).to_lowercase();
+            targets
+                .entry(what)
+                .or_default()
+                .entry(who.to_lowercase())
+                .or_insert(Member {
+                    caps,
+                    owner: table.owner(w).idx(),
+                });
+        };
+        match &line_re {
+            None => add(caps.clone()),
+            Some(re) => {
+                let Some(bytes) = read(w) else {
+                    unread_files += 1;
+                    continue;
+                };
+                for line in String::from_utf8_lossy(&bytes).lines() {
+                    let l = line.split([';', '#']).next().unwrap_or("");
+                    let Some(m) = re.captures(l) else { continue };
+                    let mut c = caps.clone();
+                    for name in re.capture_names().flatten() {
+                        if let Some(v) = m.name(name) {
+                            c.push((name.to_string(), v.as_str().trim().to_string()));
+                        }
+                    }
+                    add(c);
+                }
+            }
+        }
     }
 
     let mut b = Builder::new(info);
@@ -358,9 +408,20 @@ pub fn evaluate_matched(
         } else if spec.semantics == Semantics::Exclusive {
             ("взаимоисключение", Severity::Error, true)
         } else {
-            ("", Severity::Info, false)
+            let how = match spec.centrality {
+                Centrality::Name => "по имени файла",
+                Centrality::Field => "по приоритету",
+                Centrality::ModOrder | Centrality::PluginOrder => "по порядку",
+                Centrality::None => "вместе",
+            };
+            (how, Severity::Info, false)
         };
         b.contest(t, &members, kind, sev, unresolved);
+    }
+    if unread_files > 0 {
+        b.note(format!(
+            "{unread_files} файл(ов) правил не прочитано (в архиве или нет доступа)"
+        ));
     }
     skipped.sort();
     skipped.dedup();
@@ -481,6 +542,47 @@ mod tests {
         assert_eq!(c.row(1), b"t");
         assert_eq!(r.participants[c.stack[1] as usize].owner.as_deref(), Some("Low"));
         assert_eq!(r.targets[c.targets[0] as usize], "character/mt_idle.hkx");
+    }
+
+    #[test]
+    fn rule_files_compete_line_by_line_in_name_order() {
+        let facts = [
+            mk("A", &["Zeta_SWAP.ini", "Readme.txt"]),
+            mk("B", &["Alpha_SWAP.ini"]),
+        ];
+        let table = ProviderTable::build(&facts);
+        let bos = crate::game::builtin()[0]
+            .domains
+            .iter()
+            .find(|d| d.id == "bos")
+            .unwrap()
+            .clone();
+        let read = |i: usize| -> Option<Vec<u8>> {
+            let p = table.path_string(table.path_of_provider(i)).to_lowercase();
+            Some(if p.starts_with("zeta") {
+                b"[Forms]\n0x123~Skyrim.esm|0x456~Skyrim.esm\n; 0x999|x\n".to_vec()
+            } else {
+                b"[Forms]\n0x123~Skyrim.esm|0x777~Skyrim.esm\nOnlyMine|x\n".to_vec()
+            })
+        };
+        let r = evaluate(&bos, Origin::Pack, &table, &Priorities(vec![0, 1]), &read);
+        assert_eq!(
+            r.counts.targets, 1,
+            "one object swapped by both; comments and single swaps are not cases"
+        );
+        let c = &r.chains[0];
+        let labels: Vec<&str> = c
+            .stack
+            .iter()
+            .map(|&p| r.participants[p as usize].label.as_str())
+            .collect();
+        assert_eq!(
+            labels,
+            ["Alpha_SWAP.ini", "Zeta_SWAP.ini"],
+            "alphabetical: the last file wins"
+        );
+        assert_eq!(c.row(1), b"w");
+        assert_eq!(r.targets[c.targets[0] as usize], "0x123~skyrim.esm");
     }
 
     #[test]

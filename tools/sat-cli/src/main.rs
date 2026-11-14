@@ -1155,9 +1155,13 @@ fn analyze(args: &[String]) -> Result<(), String> {
         let t = Instant::now();
         let pack = sat_core::game::active();
         let prio = proj.priorities();
+        let specs: Vec<&sat_core::conflict_spec::DomainSpec> = pack.domains.iter().collect();
+        let cand = sat_core::conflict_kinds::candidates(&table, pack, &specs);
         let mut reports = vec![
-            sat_core::conflict_kinds::constraints(&plugin_list),
-            sat_core::conflict_kinds::archives(&table, prio, &plugin_list, pack),
+            sat_core::conflict_kinds::constraints_with(&plugin_list, record_ix.as_ref().map(|x| &x.0), pack),
+            sat_core::conflict_kinds::archives_in(&cand.archives, &table, prio, &plugin_list, pack),
+            sat_core::conflict_kinds::generations(&cand, &table, prio, pack),
+            sat_core::conflict_kinds::runtime(&sat_scan::game_runtime(&inst.game_path), &table, prio, pack),
         ];
         if let Some((ix, loaded)) = &record_ix {
             if let Some(rules) = &pack.records {

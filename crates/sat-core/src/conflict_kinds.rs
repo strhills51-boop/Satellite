@@ -43,10 +43,16 @@ fn info(
 // @sat:conflict.kinds.constraints
 /// Missing masters, a master loading after its dependent, plugins beyond the index limits.
 pub fn constraints(list: &PluginList) -> DomainReport {
+    constraints_with(list, None, crate::game::active())
+}
+
+/// [`constraints`], plus — with the record index — light plugins whose new records leave the light range, and
+/// plugins of another edition of the game (an older header version).
+pub fn constraints_with(list: &PluginList, ix: Option<&RecordIndex>, pack: &GamePack) -> DomainReport {
     let mut b = Builder::new(info(
         "constraints",
         "Ограничения",
-        "Нет мастера, мастер грузится ниже зависимого, плагин сверх лимита индексов. Победителя нет: требование нарушено.",
+        "Нет мастера, мастер грузится ниже зависимого, плагин сверх лимита индексов, лёгкий плагин с записями вне лёгкого диапазона, плагин другой редакции игры. Победителя нет: требование нарушено.",
         Family::Constraint,
         Centrality::None,
         Semantics::Constraint,
@@ -89,6 +95,19 @@ pub fn constraints(list: &PluginList) -> DomainReport {
                 );
             }
         }
+        let header = p.winner.and_then(|w| p.versions[w].header_version);
+        if let (Some(min), Some(h)) = (pack.plugins.min_header, header)
+            && h < min
+            && p.origin != crate::plugins::Origin::Base
+        {
+            b.contest(
+                &format!("{} (HEDR {h})", p.name),
+                &[(me, cell::BREAKS)],
+                "другая редакция игры",
+                Severity::Warn,
+                true,
+            );
+        }
         if let Some(ix) = p.index
             && ix.overflow()
         {
@@ -100,6 +119,53 @@ pub fn constraints(list: &PluginList) -> DomainReport {
                 &format!("{} [{ix}]", p.name),
                 &[(me, cell::BREAKS)],
                 kind,
+                Severity::Error,
+                true,
+            );
+        }
+    }
+    // light plugins: new records must stay in the light range
+    if let Some(ix) = ix {
+        let light: Vec<(u32, (u32, u32), usize)> = ix
+            .plugins
+            .iter()
+            .enumerate()
+            .filter_map(|(i, name)| {
+                let pos = list
+                    .plugins
+                    .iter()
+                    .position(|p| p.name.eq_ignore_ascii_case(name))?;
+                let p = &list.plugins[pos];
+                if p.kind != sat_formats::PluginKind::Esl {
+                    return None;
+                }
+                let header = p.winner.and_then(|w| p.versions[w].header_version);
+                Some((i as u32, pack.plugins.light_range(header)?, pos))
+            })
+            .collect();
+        let ids: Vec<u32> = light.iter().map(|x| x.0).collect();
+        let mut out: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+        for (plugin, object) in ix.new_objects(&ids) {
+            let (_, (low, high), _) = light.iter().find(|x| x.0 == plugin).expect("listed");
+            if object < *low || object > *high {
+                out.entry(plugin).or_default().push(object);
+            }
+        }
+        let mut found: Vec<(u32, Vec<u32>)> = out.into_iter().collect();
+        found.sort_by_key(|x| x.0);
+        for (plugin, mut objects) in found {
+            objects.sort_unstable();
+            let (_, (low, high), pos) = light.iter().find(|x| x.0 == plugin).expect("listed");
+            let name = &list.plugins[*pos].name;
+            let me = b.participant(name, None, *pos as i64);
+            b.contest(
+                &format!(
+                    "{name}: {} записей вне {low:03X}–{high:03X} (например {:06X})",
+                    objects.len(),
+                    objects[0]
+                ),
+                &[(me, cell::BREAKS)],
+                "лёгкий плагин вне диапазона",
                 Severity::Error,
                 true,
             );
@@ -230,6 +296,9 @@ pub fn archives_in(
     b.finish()
 }
 
+/// A generator's output mods and its input mods (with a sample path).
+pub type GeneratorMods = (Vec<ModId>, Vec<(ModId, PathId)>);
+
 // @sat:conflict.kinds.candidates
 /// What each kind looks at, found in one pass over the table (it depends on the table only, not on the order):
 /// archive candidates, face files, and each spec's matches.
@@ -238,6 +307,8 @@ pub struct Candidates {
     pub archives: Vec<PathId>,
     pub facegen: Vec<(PathId, String, u32)>,
     pub specs: Vec<crate::conflict_spec::Matched>,
+    /// Per generator of the pack: mods with its output markers, mods with its inputs (with a sample path).
+    pub generators: Vec<GeneratorMods>,
 }
 
 pub fn candidates(
@@ -260,6 +331,18 @@ pub fn candidates(
             Some((segs, pi, fi))
         })
         .collect();
+    let gens: Vec<(Vec<regex::Regex>, Vec<regex::Regex>)> = pack
+        .generators
+        .iter()
+        .map(|g| {
+            (
+                g.markers.iter().map(|m| crate::game::glob(m)).collect(),
+                g.inputs.iter().map(|m| crate::game::glob(m)).collect(),
+            )
+        })
+        .collect();
+    let mut gen_sets: Vec<(FxHashMap<ModId, ()>, FxHashMap<ModId, PathId>)> =
+        vec![Default::default(); gens.len()];
     let mut out = Candidates {
         specs: vec![Vec::new(); specs.len()],
         ..Candidates::default()
@@ -298,8 +381,190 @@ pub fn candidates(
                 out.specs[k].push((p, c));
             }
         }
+        for (k, (markers, inputs)) in gens.iter().enumerate() {
+            let is_marker = markers.iter().any(|r| r.is_match(&s));
+            let is_input = inputs.iter().any(|r| r.is_match(&s));
+            if !is_marker && !is_input {
+                continue;
+            }
+            for i in table.path_providers(p) {
+                let m = table.owner(i);
+                if is_marker {
+                    gen_sets[k].0.insert(m, ());
+                }
+                if is_input {
+                    gen_sets[k].1.entry(m).or_insert(p);
+                }
+            }
+        }
     }
+    out.generators = gen_sets
+        .into_iter()
+        .map(|(o, i)| {
+            let mut o: Vec<ModId> = o.into_keys().collect();
+            o.sort();
+            let mut i: Vec<(ModId, PathId)> = i.into_iter().collect();
+            i.sort();
+            (o, i)
+        })
+        .collect();
     out
+}
+
+/// What the shell found in the game's folder.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameRuntime {
+    /// The executable's file version.
+    pub version: Option<(u16, u16, u16, u16)>,
+    /// File names in the game folder (the loader is looked for among them).
+    pub files: Vec<String>,
+}
+
+// @sat:conflict.kinds.runtime
+/// The script extender against the game: a loader for another game version, extender plugins without a loader, no
+/// address library for this game version. Only when the game's version is known.
+pub fn runtime(rt: &GameRuntime, table: &ProviderTable, prio: &Priorities, pack: &GamePack) -> DomainReport {
+    let mut b = Builder::new(info(
+        "runtime",
+        "Версии (SKSE)",
+        "Загрузчик расширителя (SKSE) под другую версию игры, плагины SKSE без загрузчика, нет Address Library под версию игры — плагины SKSE не загрузятся или уронят игру.",
+        Family::Constraint,
+        Centrality::None,
+        Semantics::Constraint,
+    ));
+    let (Some(rules), Some(v)) = (&pack.runtime, rt.version) else {
+        return b.finish();
+    };
+    let game = format!("{}.{}.{}", v.0, v.1, v.2);
+    let gp = b.participant(&format!("игра {game}"), None, -1);
+    let loader = regex::Regex::new(&rules.loader).ok();
+    let loaders: Vec<(String, String)> = rt
+        .files
+        .iter()
+        .filter_map(|f| {
+            let c = loader.as_ref()?.captures(f)?;
+            let ver: Vec<&str> = c.iter().skip(1).flatten().map(|m| m.as_str()).collect();
+            Some((f.clone(), ver.join(".")))
+        })
+        .collect();
+    let plugins_re = crate::game::glob(&rules.plugins);
+    let dash = format!("{}-{}-{}", v.0, v.1, v.2);
+    let lib_res: Vec<regex::Regex> = rules
+        .address_library
+        .iter()
+        .map(|t| crate::game::glob(&t.replace("{v}", &dash)))
+        .collect();
+    let (mut dll_mods, mut has_lib): (Vec<ModId>, bool) = (Vec::new(), false);
+    for p in 0..table.path_count() {
+        let p = PathId::from_idx(p);
+        let s = table.path_string(p);
+        let is_dll = plugins_re.is_match(&s);
+        let is_lib = lib_res.iter().any(|r| r.is_match(&s));
+        if !is_dll && !is_lib {
+            continue;
+        }
+        for i in table.path_providers(p) {
+            let m = table.owner(i);
+            if !prio.is_active(m) {
+                continue;
+            }
+            if is_lib {
+                has_lib = true;
+            }
+            if is_dll && !dll_mods.contains(&m) {
+                dll_mods.push(m);
+            }
+        }
+    }
+    dll_mods.sort_by_key(|&m| prio.get(m));
+    for (file, ver) in &loaders {
+        if *ver != game {
+            let lp = b.participant(file, None, 0);
+            b.contest(
+                &format!("{file} — для {ver}, игра {game}"),
+                &[(gp, cell::MEMBER), (lp, cell::BREAKS)],
+                "загрузчик не под версию игры",
+                Severity::Error,
+                true,
+            );
+        }
+    }
+    let members = |b: &mut Builder| -> Vec<(u32, u8)> {
+        dll_mods
+            .iter()
+            .map(|&m| {
+                let n = table.mod_name(m);
+                (b.participant(n, Some(n), i64::from(prio.get(m))), cell::BREAKS)
+            })
+            .collect()
+    };
+    if !dll_mods.is_empty() && loaders.is_empty() {
+        let ms = members(&mut b);
+        b.contest(
+            "нет загрузчика SKSE в папке игры",
+            &ms,
+            "плагины SKSE без загрузчика",
+            Severity::Error,
+            true,
+        );
+    }
+    if !dll_mods.is_empty() && !has_lib {
+        let ms = members(&mut b);
+        b.contest(
+            &format!("Address Library для {game}"),
+            &ms,
+            "нет Address Library под версию игры",
+            Severity::Error,
+            true,
+        );
+    }
+    b.finish()
+}
+
+// @sat:conflict.kinds.generations
+/// Outputs of the pack's generators (LOD, behaviors, patches) with an input mod after them: the output was built
+/// without it, or the input overrides what the output made. Only active mods count.
+pub fn generations(
+    cands: &Candidates,
+    table: &ProviderTable,
+    prio: &Priorities,
+    pack: &GamePack,
+) -> DomainReport {
+    let mut b = Builder::new(info(
+        "generations",
+        "Генерации",
+        "Выход генератора (DynDOLOD, xLODGen, Nemesis, Synthesis, Bashed Patch) должен стоять после всех своих входов: мод-вход ниже выхода по порядку — выход собран без него (или вход перекрывает сделанное). Перегенерировать или переставить.",
+        Family::Interaction,
+        Centrality::ModOrder,
+        Semantics::Constraint,
+    ));
+    for (g, (outputs, inputs)) in pack.generators.iter().zip(&cands.generators) {
+        for &o in outputs {
+            if !prio.is_active(o) {
+                continue;
+            }
+            for &(m, sample) in inputs {
+                if m == o || outputs.contains(&m) || !prio.is_active(m) || prio.get(m) <= prio.get(o) {
+                    continue;
+                }
+                let om = b.participant(table.mod_name(o), Some(table.mod_name(o)), i64::from(prio.get(o)));
+                let im = b.participant(table.mod_name(m), Some(table.mod_name(m)), i64::from(prio.get(m)));
+                b.contest(
+                    &format!(
+                        "{}: {} — например {}",
+                        g.title,
+                        table.mod_name(m),
+                        table.path_string(sample)
+                    ),
+                    &[(om, cell::MEMBER), (im, cell::BREAKS)],
+                    &format!("{}: вход после выхода", g.title),
+                    Severity::Warn,
+                    true,
+                );
+            }
+        }
+    }
+    b.finish()
 }
 
 fn sig4(s: &str) -> [u8; 4] {
@@ -479,6 +744,7 @@ mod tests {
             file_name: plugin.into(),
             header: Some(sat_formats::PluginHeader {
                 masters: masters.iter().map(|s| s.to_string()).collect(),
+                version: 1.71,
                 ..Default::default()
             }),
             records: None,
@@ -575,6 +841,93 @@ mod tests {
         assert_eq!(ca.row(m), b"w", "the loose copy of the lower mod wins");
         // b.dds: High's Orphan.bsa has no plugin, Other.bsa has none either — nothing loads it
         assert!(r.chains.iter().any(|c| c.kind == "архив не грузится"));
+    }
+
+    #[test]
+    fn the_extender_must_fit_the_game_version() {
+        let facts = [
+            mk("Engine Fixes", &["SKSE/Plugins/EngineFixes.dll"]),
+            mk("Other", &["textures/a.dds"]),
+        ];
+        let table = ProviderTable::build(&facts);
+        let prio = Priorities(vec![0, 1]);
+        let rt = GameRuntime {
+            version: Some((1, 6, 1170, 0)),
+            files: vec!["skse64_1_6_640.dll".into(), "SkyrimSE.exe".into()],
+        };
+        let r = runtime(&rt, &table, &prio, crate::game::active());
+        let kinds: Vec<&str> = r.counts.kinds.iter().map(|k| k.0.as_str()).collect();
+        assert!(kinds.contains(&"загрузчик не под версию игры"), "{kinds:?}");
+        assert!(
+            kinds.contains(&"нет Address Library под версию игры"),
+            "{kinds:?}"
+        );
+        // with the address library and the right loader: nothing
+        let facts = [
+            mk("Engine Fixes", &["SKSE/Plugins/EngineFixes.dll"]),
+            mk("Address Library", &["SKSE/Plugins/versionlib-1-6-1170-0.bin"]),
+        ];
+        let table = ProviderTable::build(&facts);
+        let rt = GameRuntime {
+            version: Some((1, 6, 1170, 0)),
+            files: vec!["skse64_1_6_1170.dll".into()],
+        };
+        assert_eq!(
+            runtime(&rt, &table, &prio, crate::game::active()).counts.targets,
+            0
+        );
+    }
+
+    #[test]
+    fn an_input_after_a_generator_s_output_is_a_case() {
+        let facts = [
+            mk("Old Plugin", &["Old.esp"]),
+            mk("DynDOLOD Output", &["DynDOLOD.esp", "meshes/lod/x.nif"]),
+            mk("Late Plugin", &["Late.esp"]),
+            mk("Late Texture", &["textures/other.dds"]),
+        ];
+        let table = ProviderTable::build(&facts);
+        let prio = Priorities(vec![0, 1, 2, 3]);
+        let pack = crate::game::active();
+        let c = candidates(&table, pack, &[]);
+        let r = generations(&c, &table, &prio, pack);
+        assert_eq!(r.counts.targets, 1, "{:?}", r.targets);
+        assert!(
+            r.targets[0].starts_with("DynDOLOD: Late Plugin"),
+            "{}",
+            r.targets[0]
+        );
+        assert_eq!(r.chains[0].cells, b"mx");
+    }
+
+    #[test]
+    fn a_light_plugin_out_of_range_and_an_old_edition_plugin_break_constraints() {
+        let mut light = with_plugin("Light", &[], "Light.esp", &["Skyrim.esm"]);
+        let h = light.plugins[0].header.as_mut().unwrap();
+        h.light_flag = true;
+        h.version = 1.7;
+        let mut old = with_plugin("Old", &[], "Old.esp", &["Skyrim.esm"]);
+        old.plugins[0].header.as_mut().unwrap().version = 0.94;
+        let facts = [light, old];
+        let prio = Priorities(vec![0, 1]);
+        let list = list_of(&facts, &prio, &["Light.esp", "Old.esp"]);
+        let rec = |form_id: u32| RecordFact {
+            form_id,
+            signature: *b"MISC",
+            hash: Some(1),
+            flags: 0,
+        };
+        let lp = PluginRecords {
+            masters: vec!["Skyrim.esm".into()],
+            records: vec![rec(0x0100_0900), rec(0x0100_0012)],
+        };
+        let ix = RecordIndex::build(&[("Light.esp".into(), &lp)]);
+        let r = constraints_with(&list, Some(&ix), crate::game::active());
+        let kinds: Vec<&str> = r.counts.kinds.iter().map(|k| k.0.as_str()).collect();
+        assert!(kinds.contains(&"лёгкий плагин вне диапазона"), "{kinds:?}");
+        assert!(kinds.contains(&"другая редакция игры"), "{kinds:?}");
+        let t = r.targets.iter().find(|t| t.starts_with("Light.esp:")).unwrap();
+        assert!(t.contains("1 записей") && t.contains("000012"), "{t}");
     }
 
     #[test]

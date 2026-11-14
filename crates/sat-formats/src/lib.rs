@@ -11,6 +11,7 @@ pub mod bsa_write;
 pub mod dds;
 pub mod fomod;
 pub mod ini;
+pub mod pe;
 pub mod plugin;
 mod read;
 

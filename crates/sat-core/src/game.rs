@@ -35,6 +35,31 @@ pub struct PluginRules {
     pub full_limit: u32,
     /// How many light plugins load.
     pub light_limit: u32,
+    /// Plugins with an older header version are of another edition of the game (Skyrim LE in SE).
+    #[serde(default)]
+    pub min_header: Option<f32>,
+    /// Object ids a light plugin's new records may take, by header version (the last that applies counts).
+    #[serde(default)]
+    pub light_ranges: Vec<LightRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LightRange {
+    /// From this header version on.
+    pub from_header: f32,
+    pub low: u32,
+    pub high: u32,
+}
+
+impl PluginRules {
+    /// The object id range of a light plugin with this header version.
+    pub fn light_range(&self, header: Option<f32>) -> Option<(u32, u32)> {
+        let h = header.unwrap_or(0.0);
+        self.light_ranges
+            .iter()
+            .rfind(|r| h >= r.from_header)
+            .map(|r| (r.low, r.high))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -56,6 +81,24 @@ pub struct RecordRules {
     pub deleted_watch: Vec<String>,
     /// Signatures two plugins must not both edit (navmeshes): no merge exists.
     pub exclusive: Vec<String>,
+    /// Fields that are arrays of fixed-size elements (keywords: 4-byte references): compared as collections.
+    #[serde(default)]
+    pub arrays: std::collections::BTreeMap<String, usize>,
+    /// Fields derived from others (counts of a list): not compared.
+    #[serde(default)]
+    pub derived: Vec<String>,
+}
+
+/// A tool that builds an output mod from the build (LOD, behaviors, patches): its output must come after every
+/// input, or it was built without them (ADR 0018 §5, generations).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Generator {
+    pub id: String,
+    pub title: String,
+    /// A mod with a path matching one of these is the tool's output (`*` — within a folder, `**` — any depth).
+    pub markers: Vec<String>,
+    /// A mod with a path matching one of these is an input.
+    pub inputs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -83,6 +126,49 @@ pub struct GamePack {
     /// The game's conflict domains described by data (`@sat:conflict.spec`).
     #[serde(default)]
     pub domains: Vec<DomainSpec>,
+    /// Tools whose outputs go stale (`@sat:conflict.kinds.generations`).
+    #[serde(default)]
+    pub generators: Vec<Generator>,
+    /// The script extender and its address library (`@sat:conflict.kinds.runtime`).
+    #[serde(default)]
+    pub runtime: Option<RuntimeRules>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeRules {
+    /// The game's executable in its folder (its file version is the game version).
+    pub exe: String,
+    /// The extender's loader library in the game folder; its captures are the game version it is for.
+    pub loader: String,
+    /// Extender plugins in mods.
+    pub plugins: String,
+    /// Address library files, `{v}` — the game version as `1-6-1170`; one of them must be in an active mod.
+    pub address_library: Vec<String>,
+}
+
+// @sat:game.glob
+/// A path glob as a case-insensitive regex: `**` any depth, `*` within one segment, `?` one character.
+pub fn glob(g: &str) -> regex::Regex {
+    let mut re = String::from("(?i)^");
+    let mut it = g.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '*' if it.peek() == Some(&'*') => {
+                it.next();
+                if it.peek() == Some(&'/') {
+                    it.next();
+                    re.push_str("(?:.*/)?");
+                } else {
+                    re.push_str(".*");
+                }
+            }
+            '*' => re.push_str("[^/]*"),
+            '?' => re.push_str("[^/]"),
+            c => re.push_str(&regex::escape(&c.to_string())),
+        }
+    }
+    re.push('$');
+    regex::Regex::new(&re).expect("a glob compiles")
 }
 
 const BUILTIN: &[&str] = &[include_str!("../games/skyrimse.json")];
@@ -177,6 +263,12 @@ mod tests {
         assert_eq!(GamePack::archive_stem("Foo.bsa"), "foo");
         assert!(p.domains.iter().any(|d| d.id == "oar"));
         assert!(for_game_name("Starfield").is_none());
+        assert_eq!(p.plugins.light_range(Some(1.7)), Some((0x800, 0xFFF)));
+        assert_eq!(p.plugins.light_range(Some(1.71)), Some((0, 0xFFF)));
+        assert!(glob("meshes/**/*.nif").is_match("Meshes/a/b/c.NIF"));
+        assert!(glob("meshes/**/*.nif").is_match("meshes/c.nif"));
+        assert!(!glob("*.esp").is_match("a/b.esp"));
+        assert!(glob("*.esp").is_match("DynDOLOD.esp"));
         assert_eq!(active().id, "skyrimse");
     }
 }

@@ -114,6 +114,8 @@ pub struct Version {
     pub masters: Vec<String>,
     /// Header could not be read (masters unknown).
     pub error: Option<String>,
+    /// The header's version (`HEDR`): which edition of the game made it.
+    pub header_version: Option<f32>,
 }
 
 // @sat:plugins.versions
@@ -135,6 +137,7 @@ fn version_of(owner: ModId, p: &PluginFacts) -> Version {
         master: is_master_file(&p.file_name) || p.header.as_ref().is_some_and(|h| h.master_flag),
         masters: p.header.as_ref().map(|h| h.masters.clone()).unwrap_or_default(),
         error: p.error.clone(),
+        header_version: p.header.as_ref().map(|h| h.version),
     }
 }
 

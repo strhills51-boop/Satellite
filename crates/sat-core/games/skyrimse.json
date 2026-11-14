@@ -1,29 +1,99 @@
 {
   "id": "skyrimse",
   "title": "Skyrim Special Edition / Anniversary Edition",
-  "mo2_names": ["Skyrim Special Edition", "SkyrimSE", "Skyrim VR", "Skyrim Anniversary Edition"],
+  "mo2_names": [
+    "Skyrim Special Edition",
+    "SkyrimSE",
+    "Skyrim VR",
+    "Skyrim Anniversary Edition"
+  ],
   "plugins": {
     "format": "tes4",
     "base": [
-      { "name": "Skyrim.esm", "masters": [] },
-      { "name": "Update.esm", "masters": ["Skyrim.esm"] },
-      { "name": "Dawnguard.esm", "masters": ["Skyrim.esm", "Update.esm"] },
-      { "name": "HearthFires.esm", "masters": ["Skyrim.esm", "Update.esm"] },
-      { "name": "Dragonborn.esm", "masters": ["Skyrim.esm", "Update.esm"] }
+      {
+        "name": "Skyrim.esm",
+        "masters": []
+      },
+      {
+        "name": "Update.esm",
+        "masters": [
+          "Skyrim.esm"
+        ]
+      },
+      {
+        "name": "Dawnguard.esm",
+        "masters": [
+          "Skyrim.esm",
+          "Update.esm"
+        ]
+      },
+      {
+        "name": "HearthFires.esm",
+        "masters": [
+          "Skyrim.esm",
+          "Update.esm"
+        ]
+      },
+      {
+        "name": "Dragonborn.esm",
+        "masters": [
+          "Skyrim.esm",
+          "Update.esm"
+        ]
+      }
     ],
     "creation_club_prefix": "cc",
     "full_limit": 254,
-    "light_limit": 4096
+    "light_limit": 4096,
+    "min_header": 1.7,
+    "light_ranges": [
+      {
+        "from_header": 0.0,
+        "low": 2048,
+        "high": 4095
+      },
+      {
+        "from_header": 1.71,
+        "low": 0,
+        "high": 4095
+      }
+    ]
   },
   "archives": {
-    "exts": ["bsa"],
+    "exts": [
+      "bsa"
+    ],
     "loose_over_archive": true,
     "by_plugin": true
   },
   "records": {
     "deleted_flag": 32,
-    "deleted_watch": ["REFR", "ACHR", "NAVM", "PGRE", "PHZD", "PMIS", "PARW", "PBAR", "PBEA", "PCON", "PFLA"],
-    "exclusive": ["NAVM"]
+    "deleted_watch": [
+      "REFR",
+      "ACHR",
+      "NAVM",
+      "PGRE",
+      "PHZD",
+      "PMIS",
+      "PARW",
+      "PBAR",
+      "PBEA",
+      "PCON",
+      "PFLA"
+    ],
+    "exclusive": [
+      "NAVM"
+    ],
+    "arrays": {
+      "KWDA": 4
+    },
+    "derived": [
+      "KSIZ",
+      "LLCT",
+      "COCT",
+      "SPCT",
+      "PRKZ"
+    ]
   },
   "facegen": {
     "record": "NPC_",
@@ -39,13 +109,18 @@
       "about": "Open Animation Replacer: подмоды заменяют одну анимацию; выигрывает больший приоритет из config.json (или user.json), пока его условия выполняются. Одинаковый приоритет — ничья.",
       "family": "interaction",
       "pattern": "meshes/actors/{actor}/animations/openanimationreplacer/{mod}/{submod}/{anim}",
-      "ext": ["hkx"],
+      "ext": [
+        "hkx"
+      ],
       "participant": "{mod}/{submod}",
       "target": "{actor}/{anim}",
       "centrality": "field",
       "semantics": "conditional",
       "field": {
-        "files": ["meshes/actors/{actor}/animations/openanimationreplacer/{mod}/{submod}/user.json", "meshes/actors/{actor}/animations/openanimationreplacer/{mod}/{submod}/config.json"],
+        "files": [
+          "meshes/actors/{actor}/animations/openanimationreplacer/{mod}/{submod}/user.json",
+          "meshes/actors/{actor}/animations/openanimationreplacer/{mod}/{submod}/config.json"
+        ],
         "key": "/priority",
         "skip_if": "/disabled"
       }
@@ -56,12 +131,120 @@
       "about": "Dynamic Animation Replacer: папки _CustomConditions/<число>; выигрывает большее число, пока условия выполняются.",
       "family": "interaction",
       "pattern": "meshes/actors/{actor}/animations/dynamicanimationreplacer/_customconditions/{n}/{anim}",
-      "ext": ["hkx"],
+      "ext": [
+        "hkx"
+      ],
       "participant": "{n}",
       "target": "{actor}/{anim}",
       "centrality": "field",
       "semantics": "conditional",
-      "field": { "capture": "n" }
+      "field": {
+        "capture": "n"
+      }
+    },
+    {
+      "id": "bos",
+      "title": "BOS: замены объектов",
+      "about": "Base Object Swapper: два файла *_SWAP.ini меняют один и тот же объект — сработает один (файлы читаются по алфавиту, последний выигрывает).",
+      "family": "collision",
+      "pattern": "{file}",
+      "file": "(?i)_swap\\.ini$",
+      "participant": "{file}",
+      "target": "{t}",
+      "centrality": "name",
+      "semantics": "last_wins",
+      "lines": {
+        "regex": "^\\s*(?P<t>[^|=;#]+?)\\s*\\|"
+      }
+    },
+    {
+      "id": "spid-outfit",
+      "title": "SPID: экипировка",
+      "about": "Spell Perk Item Distributor: два файла *_DISTR.ini раздают разную экипировку по одним и тем же фильтрам — у NPC одна экипировка, сработает одна раздача.",
+      "family": "collision",
+      "pattern": "{file}",
+      "file": "(?i)_distr\\.ini$",
+      "participant": "{file}",
+      "target": "outfit {t}",
+      "centrality": "name",
+      "semantics": "exclusive",
+      "lines": {
+        "regex": "(?i)^\\s*outfit\\s*=\\s*[^|]+\\|(?P<t>.+?)\\s*$"
+      }
     }
-  ]
+  ],
+  "generators": [
+    {
+      "id": "dyndolod",
+      "title": "DynDOLOD",
+      "markers": [
+        "dyndolod.esp",
+        "dyndolod.esm"
+      ],
+      "inputs": [
+        "*.esp",
+        "*.esm",
+        "*.esl",
+        "meshes/**/lod/**",
+        "textures/**/lod/**"
+      ]
+    },
+    {
+      "id": "xlodgen",
+      "title": "xLODGen",
+      "markers": [
+        "meshes/terrain/**/*.btr"
+      ],
+      "inputs": [
+        "*.esp",
+        "*.esm",
+        "*.esl",
+        "textures/landscape/**"
+      ]
+    },
+    {
+      "id": "nemesis",
+      "title": "Nemesis / Pandora",
+      "markers": [
+        "meshes/actors/character/behaviors/0_master.hkx"
+      ],
+      "inputs": [
+        "nemesis_engine/mod/**",
+        "meshes/actors/**/animations/**/fnis_*_list.txt"
+      ]
+    },
+    {
+      "id": "synthesis",
+      "title": "Synthesis",
+      "markers": [
+        "synthesis.esp"
+      ],
+      "inputs": [
+        "*.esp",
+        "*.esm",
+        "*.esl"
+      ]
+    },
+    {
+      "id": "bashed",
+      "title": "Bashed Patch",
+      "markers": [
+        "bashed patch, *.esp"
+      ],
+      "inputs": [
+        "*.esp",
+        "*.esm",
+        "*.esl"
+      ]
+    }
+  ],
+  "runtime": {
+    "exe": "SkyrimSE.exe",
+    "loader": "(?i)^skse64_(\\d+)_(\\d+)_(\\d+)\\.dll$",
+    "plugins": "skse/plugins/*.dll",
+    "address_library": [
+      "skse/plugins/versionlib-{v}-0.bin",
+      "skse/plugins/version-{v}-0.bin"
+    ]
+  }
 }

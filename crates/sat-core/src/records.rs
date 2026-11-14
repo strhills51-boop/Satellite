@@ -227,6 +227,15 @@ impl RecordIndex {
             .collect()
     }
 
+    /// Object ids of the records the given plugins (load-order indices) add themselves: (plugin, object id).
+    pub fn new_objects(&self, plugins: &[u32]) -> Vec<(u32, u32)> {
+        self.entries
+            .iter()
+            .filter(|e| plugins.contains(&e.plugin) && self.is_origin(e))
+            .map(|e| (e.plugin, e.key as u32 & 0x00FF_FFFF))
+            .collect()
+    }
+
     /// The FormID a plugin's file stores for a record (its master index in the top byte).
     pub fn raw_form_id(&self, plugin: u32, key: u64) -> Option<u32> {
         let origin = (key >> 32) as u32;
