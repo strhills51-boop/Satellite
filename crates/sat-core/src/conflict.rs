@@ -439,6 +439,42 @@ fn contexts(participants: &[Participant], chains: &[Chain]) -> Vec<Context> {
     out
 }
 
+// @sat:conflict.owners
+/// Per owner (lower case, as `owner_of` names it): targets it takes part in across `reports` (a cell that is not a
+/// target's own source or "not there"), and those wanting a decision.
+pub fn owner_cases(
+    reports: &[&DomainReport],
+    owner_of: impl Fn(&Participant) -> Option<String>,
+) -> FxHashMap<String, (u32, u32)> {
+    let mut out: FxHashMap<String, (u32, u32)> = FxHashMap::default();
+    for r in reports {
+        let owners: Vec<Option<String>> = r
+            .participants
+            .iter()
+            .map(|p| owner_of(p).map(|o| o.to_lowercase()))
+            .collect();
+        for c in &r.chains {
+            for (m, &p) in c.stack.iter().enumerate() {
+                let Some(o) = &owners[p as usize] else { continue };
+                let n = c
+                    .row(m)
+                    .iter()
+                    .filter(|&&x| x != cell::ORIGIN && x != cell::NONE)
+                    .count() as u32;
+                if n == 0 {
+                    continue;
+                }
+                let e = out.entry(o.clone()).or_default();
+                e.0 += n;
+                if c.unresolved {
+                    e.1 += n;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Cells of a winner semantics from ranks (stack order, lowest first): the top rank wins, equal tops tie, the rest
 /// lose. Returns the cells and whether the top is a tie.
 pub fn ranked_cells(ranks: &[f64], higher_wins: bool) -> (Vec<u8>, bool) {

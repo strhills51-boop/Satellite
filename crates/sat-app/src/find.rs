@@ -20,6 +20,7 @@ pub(crate) struct ViewParts {
     profile: Option<sat_core::profile::ContentProfile>,
     content: Option<sat_core::identical::ModContent>,
     stat: Option<ModStat>,
+    relations: Option<sat_core::metrics::ModRelations>,
     name: String,
     separator: Option<String>,
     tags: String,
@@ -35,6 +36,7 @@ impl ViewParts {
             profile: self.profile.as_ref(),
             content: self.content.as_ref(),
             stat: self.stat.as_ref(),
+            relations: self.relations.as_ref(),
             name: &self.name,
             separator: self.separator.as_deref(),
             tags: Some(&self.tags),
@@ -100,7 +102,9 @@ impl App {
             (Some(m), Some(c)) => c.get(m.idx()).copied(),
             _ => None,
         };
+        let relations = self.mod_relations().get(&name.to_lowercase()).copied();
         ViewParts {
+            relations,
             source,
             metrics,
             profile,

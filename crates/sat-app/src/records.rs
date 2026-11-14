@@ -109,6 +109,7 @@ impl App {
     pub fn set_records(&mut self, report: RecordReport) {
         self.records = std::sync::Arc::new(report);
         self.record_state = RecordState::Ready;
+        self.domain_inputs.records_rev += 1;
     }
 
     /// Record chains, conflicts first, largest first; with `plugin` only those it is in, with `conflicts_only` no

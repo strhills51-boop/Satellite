@@ -78,6 +78,7 @@ mod tests {
             ..ModMetrics::default()
         };
         let view = |m| ModView {
+            relations: None,
             metrics: Some(m),
             profile: None,
             content: None,

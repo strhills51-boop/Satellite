@@ -646,7 +646,7 @@ function ctLegend() {
     `<span>полоска слева у строки: зелёная — только выигрывает, красная — только проигрывает, жёлтая — и то и другое; потяни за имя — переставить</span>`;
 }
 function ctTab(tab) {
-  CT.tab = tab; ctTabsDraw(); ctDomains();
+  CT.tab = tab; ctTabsDraw(); ctDomains(); $("ctStatus").textContent = "наведи на клетку: цель, цепочка, участник";
   $("ctOrder").hidden = tab !== "files"; $("ctList").hidden = tab !== "records"; CT.data = null; ctLegend();
   CC.det.clear(); CC.cards.clear(); CC.shown.clear(); CC.sel = null; CT.selChain = null;
 }

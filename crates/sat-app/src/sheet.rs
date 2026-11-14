@@ -299,6 +299,36 @@ impl App {
                     conflicts.push(count("unknown_copies", c.unknown_files));
                 }
             }
+            // the monolith's counters (`commitConflictMetricSummariesV645`): win rate, opponents; and cases in the
+            // other domains (`@sat:app.domains.relations`)
+            let all = s.win + s.lose;
+            if all > 0 {
+                conflicts.push(Field {
+                    id: "win_rate".into(),
+                    value: Value::Text {
+                        text: format!(
+                            "{}%",
+                            (u64::from(s.win) * 100 + u64::from(all) / 2) / u64::from(all)
+                        ),
+                    },
+                    signal: None,
+                });
+            }
+            if let Some(r) = self
+                .mod_relations()
+                .get(&self.session.book().name(key).to_lowercase())
+                .copied()
+            {
+                if r.opponents > 0 {
+                    conflicts.push(count("opponents", r.opponents));
+                }
+                if let Some(c) = r.cases.filter(|&c| c > 0) {
+                    conflicts.push(count("cases", c));
+                }
+                if let Some(u) = r.unresolved.filter(|&u| u > 0) {
+                    conflicts.push(signal(count("unresolved_cases", u), Signal::Warn));
+                }
+            }
             sections.push(("conflicts", Origin::Observed, conflicts));
 
             // its plugins

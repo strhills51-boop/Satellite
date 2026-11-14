@@ -117,6 +117,17 @@ pub fn archives(
     list: &PluginList,
     pack: &GamePack,
 ) -> DomainReport {
+    archives_in(&candidates(table, pack, &[]).archives, table, prio, list, pack)
+}
+
+/// [`archives`] over candidate paths (a loose and an archive copy, or two archive copies, of different mods).
+pub fn archives_in(
+    paths: &[PathId],
+    table: &ProviderTable,
+    prio: &Priorities,
+    list: &PluginList,
+    pack: &GamePack,
+) -> DomainReport {
     let mut b = Builder::new(info(
         "archives",
         "Архивы и файлы",
@@ -148,12 +159,8 @@ pub fn archives(
             Source::Loose => None,
         }
     };
-    for p in 0..table.path_count() {
-        let p = PathId::from_idx(p);
+    for &p in paths {
         let r = table.path_providers(p);
-        if r.len() < 2 {
-            continue;
-        }
         let active: Vec<usize> = r.filter(|&i| prio.is_active(table.owner(i))).collect();
         if active.len() < 2 || !active.iter().any(|&i| table.is_archive(i)) {
             continue;
@@ -221,6 +228,78 @@ pub fn archives(
         b.contest(&table.path_string(p), &members, kind, sev, true);
     }
     b.finish()
+}
+
+// @sat:conflict.kinds.candidates
+/// What each kind looks at, found in one pass over the table (it depends on the table only, not on the order):
+/// archive candidates, face files, and each spec's matches.
+#[derive(Debug, Default)]
+pub struct Candidates {
+    pub archives: Vec<PathId>,
+    pub facegen: Vec<(PathId, String, u32)>,
+    pub specs: Vec<crate::conflict_spec::Matched>,
+}
+
+pub fn candidates(
+    table: &ProviderTable,
+    pack: &GamePack,
+    specs: &[&crate::conflict_spec::DomainSpec],
+) -> Candidates {
+    let matchers: Vec<crate::conflict_spec::Matcher> = specs
+        .iter()
+        .map(|s| crate::conflict_spec::Matcher::new(s))
+        .collect();
+    let templates: Vec<(Vec<String>, usize, usize)> = pack
+        .facegen
+        .iter()
+        .flat_map(|fg| fg.files.iter())
+        .filter_map(|t| {
+            let segs: Vec<String> = t.split('/').map(str::to_lowercase).collect();
+            let pi = segs.iter().position(|s| s == "{plugin}")?;
+            let fi = segs.iter().position(|s| s.starts_with("{formid}"))?;
+            Some((segs, pi, fi))
+        })
+        .collect();
+    let mut out = Candidates {
+        specs: vec![Vec::new(); specs.len()],
+        ..Candidates::default()
+    };
+    for p in 0..table.path_count() {
+        let p = PathId::from_idx(p);
+        let r = table.path_providers(p);
+        if r.len() >= 2 {
+            let first = table.owner(r.start);
+            if r.clone().any(|i| table.is_archive(i)) && r.clone().any(|i| table.owner(i) != first) {
+                out.archives.push(p);
+            }
+        }
+        let s = table.path_string(p);
+        let lower = s.to_lowercase();
+        if !templates.is_empty() {
+            let parts: Vec<&str> = lower.split('/').collect();
+            for (segs, pi, fi) in &templates {
+                if parts.len() == segs.len()
+                    && segs
+                        .iter()
+                        .zip(&parts)
+                        .enumerate()
+                        .all(|(k, (t, x))| k == *pi || k == *fi || t == x)
+                {
+                    let orig: Vec<&str> = s.split('/').collect();
+                    let stem = parts[*fi].split('.').next().unwrap_or("");
+                    if let Ok(object) = u32::from_str_radix(stem, 16) {
+                        out.facegen.push((p, orig[*pi].to_string(), object));
+                    }
+                }
+            }
+        }
+        for (k, m) in matchers.iter().enumerate() {
+            if let Some(c) = m.captures(&s, &lower) {
+                out.specs[k].push((p, c));
+            }
+        }
+    }
+    out
 }
 
 fn sig4(s: &str) -> [u8; 4] {
@@ -294,6 +373,18 @@ pub fn facegen(
     list: &PluginList,
     pack: &GamePack,
 ) -> DomainReport {
+    facegen_in(&candidates(table, pack, &[]).facegen, ix, table, prio, list, pack)
+}
+
+/// [`facegen`] over candidate face files: (path, the record's plugin, its object id).
+pub fn facegen_in(
+    faces: &[(PathId, String, u32)],
+    ix: &RecordIndex,
+    table: &ProviderTable,
+    prio: &Priorities,
+    list: &PluginList,
+    pack: &GamePack,
+) -> DomainReport {
     let mut b = Builder::new(info(
         "facegen",
         "Лица NPC",
@@ -311,37 +402,11 @@ pub fn facegen(
         let p = list.get(name)?;
         p.winner.map(|w| p.versions[w].owner)
     };
-    let templates: Vec<(Vec<&str>, usize, usize)> = fg
-        .files
-        .iter()
-        .filter_map(|t| {
-            let segs: Vec<&str> = t.split('/').collect();
-            let pi = segs.iter().position(|s| *s == "{plugin}")?;
-            let fi = segs.iter().position(|s| s.starts_with("{formid}"))?;
-            Some((segs, pi, fi))
-        })
-        .collect();
     // (key) → (face winner mod, record winner mod, files)
     let mut seen_keys: FxHashMap<u64, (ModId, ModId, bool)> = FxHashMap::default();
-    for p in 0..table.path_count() {
-        let p = PathId::from_idx(p);
-        let s = table.path_string(p);
-        let parts: Vec<&str> = s.split('/').collect();
-        for (segs, pi, fi) in &templates {
-            if parts.len() != segs.len()
-                || !segs
-                    .iter()
-                    .zip(&parts)
-                    .enumerate()
-                    .all(|(k, (t, x))| k == *pi || k == *fi || t.eq_ignore_ascii_case(x))
-            {
-                continue;
-            }
-            let plugin = parts[*pi];
-            let stem = parts[*fi].split('.').next().unwrap_or("");
-            let Ok(object) = u32::from_str_radix(stem, 16) else {
-                continue;
-            };
+    for (p, plugin, object) in faces {
+        let (p, object) = (*p, *object);
+        {
             let Some(key) = ix.key_of(plugin, object) else {
                 continue;
             };

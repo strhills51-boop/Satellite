@@ -78,6 +78,7 @@ pub struct DomainSpec {
     pub min_participants: usize,
 }
 
+#[derive(Debug)]
 enum Seg {
     Lit(String),
     Cap(String),
@@ -177,6 +178,60 @@ struct Member {
     owner: usize,
 }
 
+/// A compiled pattern: matches a path and gives its captures.
+#[derive(Debug)]
+pub struct Matcher {
+    segs: Vec<Seg>,
+    prefix: String,
+    exts: Vec<String>,
+}
+
+impl Matcher {
+    pub fn new(spec: &DomainSpec) -> Self {
+        let segs = compile(&spec.pattern);
+        let prefix: String = segs
+            .iter()
+            .take_while(|s| matches!(s, Seg::Lit(_)))
+            .map(|s| match s {
+                Seg::Lit(l) => format!("{l}/"),
+                Seg::Cap(_) => String::new(),
+            })
+            .collect();
+        let exts = spec
+            .ext
+            .iter()
+            .map(|e| format!(".{}", e.to_lowercase()))
+            .collect();
+        Self { segs, prefix, exts }
+    }
+
+    /// Captures of a path (`lower` — the same path in lower case, to test cheaply), if it matches.
+    pub fn captures(&self, path: &str, lower: &str) -> Option<Vec<(String, String)>> {
+        if !lower.starts_with(&self.prefix) {
+            return None;
+        }
+        if !self.exts.is_empty() && !self.exts.iter().any(|e| lower.ends_with(e.as_str())) {
+            return None;
+        }
+        matches(&self.segs, path)
+    }
+}
+
+/// Paths a spec matches, with their captures (they depend on the table only, not on the order).
+pub type Matched = Vec<(PathId, Vec<(String, String)>)>;
+
+/// Matches of a spec over the whole table.
+pub fn matched(spec: &DomainSpec, table: &ProviderTable) -> Matched {
+    let m = Matcher::new(spec);
+    (0..table.path_count())
+        .filter_map(|p| {
+            let p = PathId::from_idx(p);
+            let s = table.path_string(p);
+            m.captures(&s, &s.to_lowercase()).map(|c| (p, c))
+        })
+        .collect()
+}
+
 // @sat:conflict.spec.evaluate
 /// Evaluates a spec over the table. `read(provider)` gives a file's bytes (for `field` ranks).
 pub fn evaluate(
@@ -185,6 +240,18 @@ pub fn evaluate(
     table: &ProviderTable,
     prio: &Priorities,
     read: &dyn Fn(usize) -> Option<Vec<u8>>,
+) -> DomainReport {
+    evaluate_matched(spec, origin, table, prio, read, &matched(spec, table))
+}
+
+/// [`evaluate`] over paths already matched.
+pub fn evaluate_matched(
+    spec: &DomainSpec,
+    origin: Origin,
+    table: &ProviderTable,
+    prio: &Priorities,
+    read: &dyn Fn(usize) -> Option<Vec<u8>>,
+    paths: &Matched,
 ) -> DomainReport {
     let info = DomainInfo {
         id: spec.id.clone(),
@@ -195,41 +262,18 @@ pub fn evaluate(
         semantics: spec.semantics,
         origin,
     };
-    let segs = compile(&spec.pattern);
-    let prefix: String = segs
-        .iter()
-        .take_while(|s| matches!(s, Seg::Lit(_)))
-        .map(|s| match s {
-            Seg::Lit(l) => format!("{l}/"),
-            Seg::Cap(_) => String::new(),
-        })
-        .collect();
-    let exts: Vec<String> = spec
-        .ext
-        .iter()
-        .map(|e| format!(".{}", e.to_lowercase()))
-        .collect();
     // target → participant → member
     let mut targets: FxHashMap<String, FxHashMap<String, Member>> = FxHashMap::default();
-    for p in 0..table.path_count() {
-        let p = PathId::from_idx(p);
-        let s = table.path_string(p);
-        if !s.to_lowercase().starts_with(&prefix) {
-            continue;
-        }
-        if !exts.is_empty() && !exts.iter().any(|e| s.to_lowercase().ends_with(e.as_str())) {
-            continue;
-        }
-        let Some(caps) = matches(&segs, &s) else { continue };
-        let Some(w) = seen(table, prio, p) else { continue };
-        let who = render(&spec.participant, &caps);
-        let what = render(&spec.target, &caps).to_lowercase();
+    for (p, caps) in paths {
+        let Some(w) = seen(table, prio, *p) else { continue };
+        let who = render(&spec.participant, caps);
+        let what = render(&spec.target, caps).to_lowercase();
         targets
             .entry(what)
             .or_default()
             .entry(who.to_lowercase())
             .or_insert(Member {
-                caps,
+                caps: caps.clone(),
                 owner: table.owner(w).idx(),
             });
     }

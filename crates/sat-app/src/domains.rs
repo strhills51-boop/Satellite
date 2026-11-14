@@ -72,6 +72,14 @@ pub struct DomainContextItem {
 pub(crate) struct DomainCache {
     version: Option<(u64, u64, usize, u64, u64)>,
     reports: Vec<Arc<DomainReport>>,
+    /// Per mod (lower case): opponents and cases, for the same version.
+    relations: Option<Arc<std::collections::HashMap<String, sat_core::metrics::ModRelations>>>,
+    /// What each kind looks at, per table and specs (`@sat:conflict.kinds.candidates`).
+    candidates: Option<(
+        Arc<sat_core::table::ProviderTable>,
+        u64,
+        Arc<sat_core::conflict_kinds::Candidates>,
+    )>,
 }
 
 /// Inputs the shell hands over.
@@ -81,6 +89,8 @@ pub(crate) struct DomainInputs {
     pub user_specs: Vec<DomainSpec>,
     pub fields: Option<Arc<sat_core::conflict_fields::FieldFacts>>,
     pub rev: u64,
+    /// Bumped with every new record report.
+    pub records_rev: u64,
 }
 
 impl std::fmt::Debug for DomainInputs {
@@ -129,7 +139,7 @@ impl App {
         let version = (
             self.session.computed("plugins"),
             self.session.computed("overwrite"),
-            Arc::as_ptr(&self.records) as usize,
+            self.domain_inputs.records_rev as usize,
             self.domain_inputs.rev,
             u64::from(self.record_state == crate::records::RecordState::Ready),
         );
@@ -139,9 +149,28 @@ impl App {
         let pack = sat_core::game::active();
         let table = self.session.table().clone();
         let prio = ow.priorities();
+        let specs: Vec<(&DomainSpec, Origin)> = pack
+            .domains
+            .iter()
+            .map(|s| (s, Origin::Pack))
+            .chain(self.domain_inputs.user_specs.iter().map(|s| (s, Origin::User)))
+            .collect();
+        let cand = match &self.domain_cache.candidates {
+            Some((t, rev, c)) if Arc::ptr_eq(t, &table) && *rev == self.domain_inputs.rev => c.clone(),
+            _ => {
+                let refs: Vec<&DomainSpec> = specs.iter().map(|x| x.0).collect();
+                Arc::new(sat_core::conflict_kinds::candidates(&table, pack, &refs))
+            }
+        };
         let mut out = vec![
             Arc::new(sat_core::conflict_kinds::constraints(&list)),
-            Arc::new(sat_core::conflict_kinds::archives(&table, prio, &list, pack)),
+            Arc::new(sat_core::conflict_kinds::archives_in(
+                &cand.archives,
+                &table,
+                prio,
+                &list,
+                pack,
+            )),
         ];
         if self.record_state == crate::records::RecordState::Ready {
             let ix = &self.records.index;
@@ -151,8 +180,13 @@ impl App {
             if let Some(f) = &self.domain_inputs.fields {
                 out.push(Arc::new(sat_core::conflict_fields::classify(ix, f, &[])));
             }
-            out.push(Arc::new(sat_core::conflict_kinds::facegen(
-                ix, &table, prio, &list, pack,
+            out.push(Arc::new(sat_core::conflict_kinds::facegen_in(
+                &cand.facegen,
+                ix,
+                &table,
+                prio,
+                &list,
+                pack,
             )));
         }
         let names = table.mod_names().to_vec();
@@ -167,20 +201,66 @@ impl App {
                 &table.path_string(table.path_of_provider(i)),
             )
         };
-        for (spec, origin) in pack
-            .domains
-            .iter()
-            .map(|s| (s, Origin::Pack))
-            .chain(self.domain_inputs.user_specs.iter().map(|s| (s, Origin::User)))
-        {
-            out.push(Arc::new(sat_core::conflict_spec::evaluate(
-                spec, origin, &table, prio, &read,
+        for (k, (spec, origin)) in specs.iter().enumerate() {
+            out.push(Arc::new(sat_core::conflict_spec::evaluate_matched(
+                spec,
+                *origin,
+                &table,
+                prio,
+                &read,
+                &cand.specs[k],
             )));
         }
         self.domain_cache = DomainCache {
             version: Some(version),
             reports: out.clone(),
+            relations: None,
+            candidates: Some((table.clone(), self.domain_inputs.rev, cand)),
         };
+        out
+    }
+
+    // @sat:app.domains.relations
+    /// Each mod among the others (lower-case name): opponents in overwrite chains, cases in the other domains (a
+    /// plugin's case counts for the mod the plugin loads from).
+    pub(crate) fn mod_relations(
+        &mut self,
+    ) -> Arc<std::collections::HashMap<String, sat_core::metrics::ModRelations>> {
+        let reports = self.domain_reports();
+        if let Some(r) = &self.domain_cache.relations {
+            return r.clone();
+        }
+        let ow = self.session.overwrite();
+        let list = self.session.plugins();
+        let table = self.session.table().clone();
+        let owner_of = |p: &sat_core::conflict::Participant| -> Option<String> {
+            p.owner.clone().or_else(|| {
+                let pl = list.get(&p.label)?;
+                pl.winner
+                    .map(|w| table.mod_name(pl.versions[w].owner).to_string())
+            })
+        };
+        let refs: Vec<&DomainReport> = reports.iter().map(|r| r.as_ref()).collect();
+        let cases = sat_core::conflict::owner_cases(&refs, owner_of);
+        let mut out: std::collections::HashMap<String, sat_core::metrics::ModRelations> = Default::default();
+        for (m, n) in ow.opponents().into_iter().enumerate() {
+            let name = table.mod_name(sat_core::ids::ModId::from_idx(m)).to_lowercase();
+            out.insert(
+                name,
+                sat_core::metrics::ModRelations {
+                    opponents: n,
+                    cases: Some(0),
+                    unresolved: Some(0),
+                },
+            );
+        }
+        for (name, (c, u)) in cases {
+            let e = out.entry(name).or_default();
+            e.cases = Some(c);
+            e.unresolved = Some(u);
+        }
+        let out = Arc::new(out);
+        self.domain_cache.relations = Some(out.clone());
         out
     }
 
@@ -703,5 +783,63 @@ mod tests {
             ]
         );
         assert_eq!(t.cols[0].path, "character/mt_idle.hkx");
+        // counters: both mods take part in one OAR case; neither shares an overwrite chain
+        let found = |a: &mut crate::App, e: &str| match a
+            .query(Query::Find {
+                expr: e.into(),
+                limit: 10,
+            })
+            .unwrap()
+        {
+            Reply::Found { found } => found.keys.len(),
+            _ => panic!(),
+        };
+        assert_eq!(found(&mut a, "cases == 1"), 2);
+        assert_eq!(found(&mut a, "unresolved_cases > 0"), 0);
+        assert_eq!(found(&mut a, "opponents > 0"), 0);
+    }
+
+    #[test]
+    fn the_table_drops_a_mod_below_a_row() {
+        let mut a = crate::tests::app_from(vec![
+            files("A", &["x/a.dds"]),
+            files("B", &["x/a.dds"]),
+            files("C", &["x/b.dds"]),
+        ]);
+        let (ka, kb) = {
+            let b = a.session.book();
+            (b.key_of("A").unwrap(), b.key_of("B").unwrap())
+        };
+        a.command(crate::Command::Move {
+            keys: vec![ka],
+            before: None,
+            after: Some(kb),
+        })
+        .unwrap();
+        let b = a.session.book();
+        let order: Vec<&str> = (0..b.len()).map(|p| b.name(b.key_at(p))).collect();
+        assert_eq!(order, ["S_separator", "B", "A", "C"]);
+    }
+
+    #[test]
+    fn opponents_and_win_rate_come_from_the_overwrite_chains() {
+        let mut a = crate::tests::app_of(["A", "B"]);
+        let found = |a: &mut crate::App, e: &str| match a
+            .query(Query::Find {
+                expr: e.into(),
+                limit: 10,
+            })
+            .unwrap()
+        {
+            Reply::Found { found } => found
+                .keys
+                .iter()
+                .map(|&k| a.session.book().name(k).to_string())
+                .collect::<Vec<_>>(),
+            _ => panic!(),
+        };
+        assert_eq!(found(&mut a, "opponents == 1 && chains == 1"), ["A", "B"]);
+        assert_eq!(found(&mut a, "win_rate == 100"), ["B"]);
+        assert_eq!(found(&mut a, "conflict_paths == 1"), ["A", "B"]);
     }
 }

@@ -842,6 +842,15 @@ fn analyze(args: &[String]) -> Result<(), String> {
             Some(Ok(n)) => n,
             _ => 30,
         };
+        // opponents in overwrite chains (cases in other domains: the window counts them)
+        let relations: Vec<sat_core::metrics::ModRelations> = proj
+            .opponents()
+            .into_iter()
+            .map(|opponents| sat_core::metrics::ModRelations {
+                opponents,
+                ..Default::default()
+            })
+            .collect();
         let mut sep: Option<&str> = None;
         let mut hits = 0;
         for (pos, e) in list.entries.iter().enumerate() {
@@ -867,6 +876,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                     .zip(index.get(&e.name.to_lowercase()))
                     .map(|(c, &m)| &c[m.idx()]),
                 stat: index.get(&e.name.to_lowercase()).map(|&m| proj.stat(m)),
+                relations: index.get(&e.name.to_lowercase()).map(|&m| &relations[m.idx()]),
                 name: &e.name,
                 separator: sep,
                 enabled: e.enabled,

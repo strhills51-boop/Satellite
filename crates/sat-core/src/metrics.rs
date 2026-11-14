@@ -8,7 +8,7 @@
 //! here, not filter code. Besides the fixed list, `ext.<extension>` counts files of one extension (`ext.dds`) and
 //! `dir.<top folder>` files under one top folder (`dir.textures`).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::expr::Value;
 use crate::facts::ModMetrics;
@@ -98,6 +98,37 @@ pub const MOD_METRICS: &[MetricDef] = &[
         Unit::Count,
     ),
     m("unique", "Уникальных путей", "conflicts", Unit::Count),
+    m(
+        "conflict_paths",
+        "Путей в конфликте (выигрывает + проигрывает)",
+        "conflicts",
+        Unit::Count,
+    ),
+    m(
+        "win_rate",
+        "Доля выигрышей среди конфликтных путей",
+        "conflicts",
+        Unit::Percent,
+    ),
+    m("chains", "Цепочек перезаписи", "conflicts", Unit::Count),
+    m(
+        "opponents",
+        "Соперников: модов в общих цепочках",
+        "conflicts",
+        Unit::Count,
+    ),
+    m(
+        "cases",
+        "Случаев в других доменах (ограничения, архивы, поля, лица, OAR…)",
+        "conflicts",
+        Unit::Count,
+    ),
+    m(
+        "unresolved_cases",
+        "Нерешённых случаев в других доменах",
+        "conflicts",
+        Unit::Count,
+    ),
     m("overridden", "Не виден в игре (X)", "conflicts", Unit::Flag),
     m("kind", "Основной вид содержимого", "profile", Unit::Text),
     m("kinds", "Виды содержимого (по убыванию)", "profile", Unit::Text),
@@ -172,6 +203,17 @@ pub fn is_mod_metric(id: &str) -> bool {
         || id.strip_prefix("dir.").is_some_and(|e| !e.is_empty())
 }
 
+/// A mod among the others in conflicts: who it meets, and its cases in the domains beyond files
+/// (`@sat:conflict.owners`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModRelations {
+    /// Other mods in its overwrite chains.
+    pub opponents: u32,
+    /// Targets of other domains it takes part in, and those wanting a decision; `None` — not computed.
+    pub cases: Option<u32>,
+    pub unresolved: Option<u32>,
+}
+
 /// What is known about one mod for its metrics.
 #[derive(Debug, Clone, Copy)]
 pub struct ModView<'a> {
@@ -182,6 +224,8 @@ pub struct ModView<'a> {
     /// Losing copies against the winner's bytes (`@sat:identical.mods`); `None` — not compared.
     pub content: Option<&'a crate::identical::ModContent>,
     pub stat: Option<&'a ModStat>,
+    /// Opponents and cases in other domains; `None` — not computed.
+    pub relations: Option<&'a ModRelations>,
     pub name: &'a str,
     pub separator: Option<&'a str>,
     /// Tags of the mod joined with `, ` (`tags ~ "skse"`); `None` when not known.
@@ -214,6 +258,24 @@ impl ModView<'_> {
                 "mid" => return n(u64::from(s.mid)),
                 "unique" => return n(u64::from(s.unique)),
                 "overridden" => return Value::Bool(s.fully_overridden),
+                "conflict_paths" => return n(u64::from(s.win + s.lose)),
+                "win_rate" => {
+                    let all = s.win + s.lose;
+                    return Value::Num(if all == 0 {
+                        0.0
+                    } else {
+                        (f64::from(s.win) * 10_000.0 / f64::from(all)).round() / 100.0
+                    });
+                }
+                "chains" => return n(u64::from(s.chains)),
+                _ => {}
+            }
+        }
+        if let Some(r) = self.relations {
+            match id {
+                "opponents" => return n(u64::from(r.opponents)),
+                "cases" => return r.cases.map_or(Value::Null, |x| n(u64::from(x))),
+                "unresolved_cases" => return r.unresolved.map_or(Value::Null, |x| n(u64::from(x))),
                 _ => {}
             }
         }
@@ -308,6 +370,7 @@ mod tests {
             ..ModStat::default()
         };
         let v = ModView {
+            relations: None,
             metrics: Some(&f.metrics),
             profile: None,
             content: None,

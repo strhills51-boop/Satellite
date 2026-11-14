@@ -941,6 +941,23 @@ impl OverwriteProjection {
             x => Some(ContextId(x)),
         }
     }
+    // @sat:overwrite.opponents
+    /// Per mod (index = `ModId`): how many other mods share an overwrite chain with it (the monolith's opponents).
+    pub fn opponents(&self) -> Vec<u32> {
+        let mut sets: Vec<rustc_hash::FxHashSet<u32>> = vec![Default::default(); self.stats.len()];
+        for c in self.chain_ids() {
+            let ms = self.chain_mods(c);
+            for &a in ms {
+                for &b in ms {
+                    if a != b {
+                        sets[a.idx()].insert(b.0);
+                    }
+                }
+            }
+        }
+        sets.iter().map(|s| s.len() as u32).collect()
+    }
+
     /// Stack of the chain, winner first.
     pub fn chain_mods(&self, c: ChainId) -> &[ModId] {
         let r = &self.chains[c.idx()];

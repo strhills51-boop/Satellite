@@ -221,6 +221,7 @@ mod tests {
             ..ModStat::default()
         };
         let v = ModView {
+            relations: None,
             metrics: Some(&m),
             profile: None,
             content: None,
