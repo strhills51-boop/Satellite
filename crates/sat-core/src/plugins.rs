@@ -28,28 +28,20 @@ pub fn plugin_key(name: &str) -> String {
     name.trim().to_lowercase()
 }
 
-/// Plugins the game itself provides, in their fixed load order (Skyrim SE/AE; a game pack later).
-pub const SKYRIM_BASE: &[(&str, &[&str])] = &[
-    ("Skyrim.esm", &[]),
-    ("Update.esm", &["Skyrim.esm"]),
-    ("Dawnguard.esm", &["Skyrim.esm", "Update.esm"]),
-    ("HearthFires.esm", &["Skyrim.esm", "Update.esm"]),
-    ("Dragonborn.esm", &["Skyrim.esm", "Update.esm"]),
-];
-
-/// Creation Club content: shipped in the game's Data, listed in `loadorder.txt`, absent from `plugins.txt`.
+/// Creation Club content: shipped in the game's Data, listed in `loadorder.txt`, absent from `plugins.txt`
+/// (the active game pack's rule, `@sat:game`).
 pub fn is_creation_club(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    let Some((stem, ext)) = n.rsplit_once('.') else {
-        return false;
-    };
-    matches!(ext, "esl" | "esm" | "esp")
-        && stem.len() > 2
-        && stem.starts_with("cc")
-        && stem
-            .bytes()
-            .skip(2)
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    crate::game::active().is_creation_club(name)
+}
+
+/// The game's own masters with their masters, in their fixed load order (the active game pack).
+pub fn base_plugins() -> Vec<(String, Vec<String>)> {
+    crate::game::active()
+        .plugins
+        .base
+        .iter()
+        .map(|b| (b.name.clone(), b.masters.clone()))
+        .collect()
 }
 
 // @sat:plugins.canon
@@ -232,8 +224,8 @@ pub enum RuntimeIndex {
 impl RuntimeIndex {
     pub fn overflow(self) -> bool {
         match self {
-            RuntimeIndex::Full(i) => i > 0xFD,
-            RuntimeIndex::Light(i) => i > 0xFFF,
+            RuntimeIndex::Full(i) => i >= crate::game::active().plugins.full_limit,
+            RuntimeIndex::Light(i) => i >= crate::game::active().plugins.light_limit,
         }
     }
 }
@@ -284,7 +276,11 @@ impl PluginList {
         for (i, n) in canon.load_order.iter().enumerate() {
             order.entry(plugin_key(n)).or_insert(i);
         }
-        let base: FxHashMap<String, &[&str]> = SKYRIM_BASE.iter().map(|(n, m)| (plugin_key(n), *m)).collect();
+        let base_list = base_plugins();
+        let base: FxHashMap<String, &[String]> = base_list
+            .iter()
+            .map(|(n, m)| (plugin_key(n), m.as_slice()))
+            .collect();
         let hidden: rustc_hash::FxHashSet<String> = canon.blacklist.iter().map(|n| plugin_key(n)).collect();
 
         // every name anybody mentions: base, the manager's lists, mods
@@ -297,7 +293,7 @@ impl PluginList {
                 names.push(n.trim().to_string());
             }
         };
-        for (n, _) in SKYRIM_BASE {
+        for (n, _) in &base_list {
             add(n);
         }
         canon.load_order.iter().for_each(|n| add(n));
@@ -380,11 +376,7 @@ impl PluginList {
                 .cmp(&rank(b))
                 .then_with(|| match (a.origin, b.origin) {
                     (Origin::Base, Origin::Base) => {
-                        let pos = |p: &Plugin| {
-                            SKYRIM_BASE
-                                .iter()
-                                .position(|(n, _)| plugin_key(n) == plugin_key(&p.name))
-                        };
+                        let pos = |p: &Plugin| crate::game::active().base_position(&p.name);
                         pos(a).cmp(&pos(b))
                     }
                     _ => a.load_order.cmp(&b.load_order),
@@ -555,7 +547,7 @@ mod tests {
         ps.push(plugin("Off.esp", &[], false));
         ps.push(plugin("Fresh.esp", &[], false)); // not in the manager's lists
         let v = PluginVersions::build(&[mod_with("Big", ps)]);
-        let mut order: Vec<String> = SKYRIM_BASE.iter().map(|(n, _)| n.to_string()).collect();
+        let mut order: Vec<String> = base_plugins().into_iter().map(|(n, _)| n).collect();
         order.push("ccBGSSSE001-Fish.esm".into());
         order.extend((0..260).map(|i| format!("Full{i:03}.esp")));
         order.push("Small.esp".into());

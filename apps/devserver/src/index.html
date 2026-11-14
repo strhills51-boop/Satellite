@@ -193,7 +193,13 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #ct .t1 b { font-size: 15px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ct .t2 { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
 #ct .t2 select { max-width: 520px; }
-#ct .tabs { display: inline-flex; gap: 4px; }
+#ct .tabs { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+#ct .tab .badge { font: 11px var(--mono); opacity: .75; margin-left: 4px; }
+#ct .tab.hot .badge { color: var(--lose); opacity: 1; }
+#ct .tab.cur .badge { color: inherit; }
+#ct .tab.empty { opacity: .6; }
+#ct .about { font-size: 12px; color: var(--muted); }
+#ct .t1 { flex-wrap: wrap; }
 #ct .tab { border-radius: 8px; padding: 3px 10px; }
 #ct .tab.cur { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 #ct .legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
@@ -278,11 +284,12 @@ footer b { color: var(--accent2); font-weight: 500; }
 </div>
 <div id="ct" class="m-both" hidden role="dialog" aria-label="Таблица конфликтов">
   <div class="top">
-    <div class="t1"><span class="tabs"><button id="tabFiles" class="tab cur">Файлы</button><button id="tabRecords" class="tab">Записи плагинов</button></span>
+    <div class="t1"><span class="tabs" id="ctTabs"></span>
       <b id="ctTitle"></b><span class="modes"><button class="tab" data-mode="cards">Карточки</button><button class="tab" data-mode="table">Таблица</button><button class="tab cur" data-mode="both">2 области</button></span><button id="ctList" hidden title="Все цепочки записей списком, с правками">Списком</button><button id="ctClose">Закрыть</button></div>
     <div class="t2"><span>Контекст:</span><select id="ctCtx"></select>
       <select id="ctOrder"><option value="chain">Релевантность цепочке</option><option value="strength">Сила конфликта</option></select>
       <span id="ctStats"></span></div>
+    <div class="about" id="ctAbout"></div>
     <div class="legend" id="ctLegend"></div>
   </div>
   <div id="ctBody"><div id="ctCards"></div><div id="ctPane">
@@ -612,14 +619,34 @@ $("bDecor").addEventListener("click", ev => {
 
 // ---------------------------------------------------------------- conflict context table
 const CT = { tab: "files", key: null, rctx: 0, order: "chain", data: null, busy: false, again: false, LW: 300, HH: 44, CW: 12, RH: 26 };
-const CELL = { w: ["--win", "выигрывает"], l: ["--lose", "проигрывает"], s: ["#d4a017", "равна победителю"], o: ["#4f7fd6", "источник записи"] };
+const CELL = { w: ["--win", "выигрывает"], l: ["--lose", "проигрывает"], s: ["#d4a017", "равна победителю"], o: ["#4f7fd6", "источник"],
+  t: ["#f59e0b", "ничья за верх"], x: ["#a855f7", "нарушает"], m: ["#64748b", "участвует (без порядка)"] };
+const cellColor = ch => { const c = CELL[ch]; return !c ? "rgba(127,127,127,.07)" : c[0].startsWith("--") ? css(c[0]) : c[0]; };
+// a domain other than files and records: the generic projections (`@sat:app.domains`)
+const GEN = () => CT.tab !== "files" && CT.tab !== "records";
+CT.domains = [];
+async function ctDomains() {
+  try { const { domains } = await query({ type: "conflict-domains" }); CT.domains = domains; } catch (e) { CT.domains = []; }
+  ctTabsDraw();
+}
+function ctTabsDraw() {
+  $("ctTabs").innerHTML = CT.domains.map(d => {
+    const n = d.state === "pending" ? "…" : d.state === "off" ? "–" : num(d.unresolved || d.targets);
+    const cls = "tab" + (d.id === CT.tab ? " cur" : "") + (d.state === "ready" && d.unresolved ? " hot" : "") + (d.state === "ready" && !d.targets ? " empty" : "");
+    const tip = [d.about, d.kinds.length ? d.kinds.map(([k, n]) => `${k || "—"}: ${n}`).join(", ") : "", ...(d.notes || [])].filter(Boolean).join("\n");
+    return `<button class="${cls}" data-dom="${esc(d.id)}" title="${esc(tip)}">${esc(d.title)}<span class="badge">${n}</span></button>`;
+  }).join("");
+  const d = CT.domains.find(x => x.id === CT.tab);
+  $("ctAbout").textContent = d ? d.about + (d.notes && d.notes.length ? " · " + d.notes.join(" · ") : "") : "";
+}
 function ctLegend() {
-  const keys = CT.tab === "files" ? ["w", "l"] : ["w", "l", "s", "o"];
-  $("ctLegend").innerHTML = keys.map(k => `<span><i style="background:${CELL[k][0].startsWith("--") ? css(CELL[k][0]) : CELL[k][0]}"></i>${CELL[k][1]}</span>`).join("") +
-    (CT.tab === "records" ? `<span>полоса над столбцами — цепочка (стек плагинов); ⚠️ — вслепую: плагин ниже не держит плагин выше в мастерах</span>` : "");
+  const keys = CT.tab === "files" ? ["w", "l"] : CT.tab === "records" ? ["w", "l", "s", "o"] : ["w", "l", "s", "o", "t", "x", "m"];
+  $("ctLegend").innerHTML = keys.map(k => `<span><i style="background:${cellColor(k)}"></i>${CELL[k][1]}</span>`).join("") +
+    (CT.tab === "records" ? `<span>полоса над столбцами — цепочка (стек плагинов); ⚠️ — вслепую: плагин ниже не держит плагин выше в мастерах</span>` : "") +
+    `<span>полоска слева у строки: зелёная — только выигрывает, красная — только проигрывает, жёлтая — и то и другое; потяни за имя — переставить</span>`;
 }
 function ctTab(tab) {
-  CT.tab = tab; $("tabFiles").classList.toggle("cur", tab === "files"); $("tabRecords").classList.toggle("cur", tab === "records");
+  CT.tab = tab; ctTabsDraw(); ctDomains();
   $("ctOrder").hidden = tab !== "files"; $("ctList").hidden = tab !== "records"; CT.data = null; ctLegend();
   CC.det.clear(); CC.cards.clear(); CC.shown.clear(); CC.sel = null; CT.selChain = null;
 }
@@ -636,6 +663,22 @@ async function openRecords(plugin) {
   }
   $("ctCtx").innerHTML = contexts.map((c, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)} · ${c.chains} цеп. · ${c.plugins} плагинов · ${num(c.records)} записей${c.blind ? ` · вслепую ${num(c.blind)}` : ""}</option>`).join("");
   const want = plugin ? contexts.findIndex(c => c.members.includes(plugin.toLowerCase())) : -1;
+  CT.rctx = want >= 0 ? want : 0; $("ctCtx").value = String(CT.rctx);
+  $("ctScroll").scrollTo(0, 0); await ctSync(false); ctCards();
+}
+async function openDomain(id, member) {
+  ctTab(id); $("ct").hidden = false;
+  const d = CT.domains.find(x => x.id === id);
+  const { contexts } = await query({ type: "domain-contexts", domain: id });
+  CT.contexts = contexts || [];
+  if (!CT.contexts.length) {
+    $("ctTitle").textContent = !d ? "" : d.state === "pending" ? "считается… (нужны записи плагинов)" : d.state === "off" ? "нужны записи плагинов" : "случаев нет";
+    $("ctCtx").innerHTML = ""; $("ctStats").textContent = ""; CT.data = null; ctDraw(); ctCards();
+    if (d && d.state !== "ready") setTimeout(async () => { if (!$("ct").hidden && CT.tab === id) { await ctDomains(); openDomain(id, member); } }, 2000);
+    return;
+  }
+  $("ctCtx").innerHTML = CT.contexts.map((c, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)} · ${c.chains} цеп. · ${c.participants} уч. · ${num(c.targets)} целей${c.unresolved ? ` · нерешённых ${num(c.unresolved)}` : ""}</option>`).join("");
+  const want = member ? CT.contexts.findIndex(c => c.members.includes(member.toLowerCase())) : -1;
   CT.rctx = want >= 0 ? want : 0; $("ctCtx").value = String(CT.rctx);
   $("ctScroll").scrollTo(0, 0); await ctSync(false); ctCards();
 }
@@ -657,14 +700,16 @@ async function ctSync(pickCtx) {
     const sc = $("ctScroll"), w = sc.clientWidth, h = sc.clientHeight;
     const r0 = Math.floor(sc.scrollTop / CT.RH), c0 = Math.floor(sc.scrollLeft / CT.CW);
     const rc = Math.ceil((h - CT.HH) / CT.RH) + 1, cc = Math.ceil((w - CT.LW) / CT.CW) + 1;
-    const rec = CT.tab === "records";
-    const rep = rec ? await query({ type: "record-table", context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
+    const rec = CT.tab !== "files", gen = GEN();
+    const rep = gen ? await query({ type: "domain-table", domain: CT.tab, context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
+      : rec ? await query({ type: "record-table", context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
       : await query({ type: "context-table", key: CT.key, order: CT.order, row_start: r0, row_count: rc, col_start: c0, col_count: cc });
     const t = rep.table;
     if (!t) { $("ctTitle").textContent = rec ? "Нет такого контекста" : "Мод ни с кем не конфликтует"; CT.data = null; return; }
     CT.data = { t, r0, c0 };
     $("ctTitle").textContent = "△ " + t.name;
-    $("ctStats").textContent = rec ? `Цепочек: ${t.chains_total} · Плагинов: ${t.rows_total} · Записей: ${t.cols_total}`
+    $("ctStats").textContent = gen ? `Цепочек: ${t.chains_total} · Строк: ${t.rows_total} · Целей: ${t.cols_total}`
+      : rec ? `Цепочек: ${t.chains_total} · Плагинов: ${t.rows_total} · Записей: ${t.cols_total}`
       : `Цепочек: ${t.chains_total} · Строк: ${t.rows_total} · Файлов: ${t.cols_total}`;
     if (pickCtx && CT.contexts && !rec) { const i = CT.contexts.findIndex(c => c.name === t.name); if (i >= 0) $("ctCtx").value = String(i); }
     const sp = $("ctSpacer");
@@ -693,7 +738,7 @@ function ctDraw() {
     if (r.header) { g.fillStyle = bg2; g.fillRect(LW, y, w - LW, RH); return; }
     for (let j = 0; j < r.cells.length; j++) {
       const x = LW + ox + j * CW, ch = r.cells[j];
-      g.fillStyle = ch === "w" ? win : ch === "l" ? lose : ch === "s" ? CELL.s[0] : ch === "o" ? CELL.o[0] : "rgba(127,127,127,.07)";
+      g.fillStyle = ch === "w" ? win : ch === "l" ? lose : cellColor(ch);
       g.fillRect(x + 1, y + 6, CW - 2, RH - 12);
     }
   });
@@ -709,7 +754,8 @@ function ctDraw() {
   t.cols.forEach((c, j) => {
     const x = LW + ox + j * CW, ch = chains.get(c.chain);
     if (ch) { g.fillStyle = `hsl(${ch.hue} 65% 55%)`; g.fillRect(x, 6, CW, 4); }
-    g.fillStyle = `hsl(${CT.tab === "records" ? sigHue(c.path) : extHue(c.path)} 70% 55%)`; g.fillRect(x + 1, 18, CW - 2, 14);
+    const pathLike = CT.tab === "files" || (GEN() && /\/[^/ ]+\.[a-z0-9]+$/i.test(c.path));
+    g.fillStyle = `hsl(${pathLike ? extHue(c.path) : sigHue(c.path)} 70% 55%)`; g.fillRect(x + 1, 18, CW - 2, 14);
     const starts = t.chain_starts.length && (j > 0 ? t.cols[j - 1].chain !== c.chain : t.chain_starts.includes(c0));
     if (starts) {
       g.fillStyle = muted; g.fillRect(x, 4, 1, HH - 8);
@@ -727,7 +773,15 @@ function ctDraw() {
       return;
     }
     g.fillStyle = CT.tab === "files" && r.key === CT.key ? "rgba(34,197,94,.18)" : "transparent"; g.fillRect(0, y, LW, RH);
-    g.fillStyle = "#7c3aed"; g.fillRect(0, y + 2, 3, RH - 4);
+    // the side stripe: what the row does in the context — wins only, loses only, both — or, with a chain
+    // selected, whether it takes part in it
+    let stripe = r.wins && !r.loses ? win : r.loses && !r.wins ? lose : r.wins && r.loses ? "#f59e0b" : muted;
+    if (CT.selChain != null) {
+      const inSel = t.cols.some((c, j) => c.chain === CT.selChain && r.cells[j] && r.cells[j] !== "-");
+      stripe = inSel ? css("--accent") : "rgba(127,127,127,.25)";
+    }
+    g.fillStyle = stripe; g.fillRect(0, y + 2, 4, RH - 4);
+    if (CT.drag && CT.drag.over === i) { g.fillStyle = css("--accent"); g.fillRect(0, CT.drag.below ? y + RH - 2 : y, w, 2); }
     g.fillStyle = r.enabled ? css("--ok") : css("--miss"); g.beginPath(); g.arc(16, y + RH / 2, 4, 0, 7); g.fill();
     g.fillStyle = fg; g.fillText(clip(g, r.name, LW - 110), 28, y + RH / 2);
     g.fillStyle = muted; g.font = `11px ${css("--mono") || "monospace"}`; g.textAlign = "right";
@@ -749,30 +803,67 @@ $("ctScroll").addEventListener("mousemove", ev => {
   const hit = ctHit(ev); if (!hit) return;
   const { t } = CT.data, parts = [];
   if (hit.col) { const ch = t.chains.find(c => c.index === hit.col.chain);
-    parts.push(`<b>${esc(hit.col.path)}</b>`); if (ch) parts.push(`${ch.emoji} ${esc(ch.name)} · стек ${ch.depth} · ${ch.files} ${CT.tab === "records" ? "зап." : "ф."}${ch.done ? " · решено" : ""}`); }
+    parts.push(`<b>${esc(hit.col.path)}</b>`); if (ch) parts.push(`${ch.emoji} ${esc(ch.name)} · стек ${ch.depth} · ${ch.files} ${CT.tab === "records" ? "зап." : CT.tab === "files" ? "ф." : "цел."}${ch.done ? " · решено" : ""}`); }
   if (hit.row && !hit.row.header) { const c = hit.col && hit.row.cells[hit.ci];
     parts.push(`${esc(hit.row.name)}${c && CELL[c] ? " — " + CELL[c][1] : c === "-" ? " — не участвует" : ""}`); }
   $("ctStatus").innerHTML = parts.join(" · ") || "&nbsp;";
 });
 $("ctScroll").addEventListener("click", ev => {
+  if (CT.dragged) { CT.dragged = false; return; }
   const hit = ctHit(ev);
-  if (CT.tab === "files" && hit && hit.row && !hit.row.header && hit.row.key !== null) run({ type: "focus", view: VIEW, key: hit.row.key });
+  if (CT.tab !== "records" && hit && hit.row && !hit.row.header && hit.row.key != null) run({ type: "focus", view: VIEW, key: hit.row.key });
+});
+// drag a row by its name: mods move in the mod order (files and mod-row domains), plugins in the load order (records)
+$("ctScroll").addEventListener("mousedown", ev => {
+  const hit = ctHit(ev); if (!hit || !hit.label || !hit.row || hit.row.header) return;
+  const movable = CT.tab === "records" || hit.row.key != null; if (!movable) return;
+  CT.drag = { row: hit.row, y: ev.clientY, over: null, below: false };
+});
+window.addEventListener("mousemove", ev => {
+  if (!CT.drag || !CT.data) return;
+  if (Math.abs(ev.clientY - CT.drag.y) < 5 && CT.drag.over == null) return;
+  const sc = $("ctScroll"), rect = sc.getBoundingClientRect(), y = ev.clientY - rect.top;
+  const { r0 } = CT.data, pos = (y - CT.HH + sc.scrollTop) / CT.RH, ri = Math.floor(pos) - r0;
+  const row = CT.data.t.rows[ri];
+  CT.drag.over = row && !row.header ? ri : null; CT.drag.below = pos - Math.floor(pos) > .5;
+  $("ctStatus").textContent = row && !row.header ? `переставить «${CT.drag.row.name}» ${CT.drag.below ? "после" : "перед"} «${row.name}»` : "отпусти над строкой";
+  ctDraw();
+});
+window.addEventListener("mouseup", async () => {
+  const d = CT.drag; CT.drag = null; if (!d) return;
+  if (d.over == null || !CT.data) { ctDraw(); return; }
+  CT.dragged = true;
+  const rows = CT.data.t.rows, target = rows[d.over]; if (!target || target.name === d.row.name) { ctDraw(); return; }
+  try {
+    if (CT.tab === "records") {
+      const next = d.below ? rows.slice(d.over + 1).find(r => !r.header) : target;
+      await run({ type: "move-plugins", names: [d.row.name], before: next ? next.name : null });
+    } else {
+      await run(d.below ? { type: "move", keys: [d.row.key], before: null, after: target.key } : { type: "move", keys: [d.row.key], before: target.key });
+    }
+  } catch (e) { $("ctStatus").textContent = e.message; }
+  CC.cards.clear(); CC.det.clear(); await ctDomains(); await ctSync(false); ctCards();
 });
 $("ctClose").onclick = () => { $("ct").hidden = true; list.focus({ preventScroll: true }); };
 $("ctOrder").onchange = ev => { CT.order = ev.target.value; CT.selChain = null; ctSync(false); };
 $("ctCtx").onchange = ev => {
   CT.selChain = null;
-  if (CT.tab === "records") { CT.rctx = +ev.target.value; $("ctScroll").scrollTo(0, 0); ctSync(false); ctCards(); return; }
+  if (CT.tab !== "files") { CT.rctx = +ev.target.value; $("ctScroll").scrollTo(0, 0); ctSync(false); ctCards(); return; }
   const c = CT.contexts[+ev.target.value]; if (c && c.key !== null) { CT.key = c.key; $("ctScroll").scrollTo(0, 0); ctSync(false); ctCards(); } };
-$("tabRecords").onclick = () => openRecords();
-$("tabFiles").onclick = async () => { if (CT.key === null) { const { contexts } = await query({ type: "contexts" }); if (contexts[0]) CT.key = contexts[0].key; } openTable(CT.key); };
+async function openFiles() { if (CT.key === null) { const { contexts } = await query({ type: "contexts" }); if (contexts[0]) CT.key = contexts[0].key; } openTable(CT.key); }
+$("ctTabs").onclick = async ev => {
+  const b = ev.target.closest("[data-dom]"); if (!b) return;
+  const id = b.dataset.dom;
+  await ctDomains();
+  if (id === "files") openFiles(); else if (id === "records") openRecords(); else openDomain(id);
+};
 $("ctList").onclick = () => recOpen("");
 // ---------------------------------------------------------------- chain cards (monolith conflict modal "Карточки")
 // Contexts as buckets, each with its chains as cards; a card opens to its members with a teeth row (one tooth per path
 // or record) and the tree of its paths. A card leads the table to its chain band.
 const CC = { open: new Set(), cards: new Map(), det: new Map(), shown: new Set(), sel: null, q: "", LIMIT: 600, MAXCTX: 400 };
-const ccId = i => (CT.tab === "files" ? "f" : "r") + i;
-const ccCur = () => CT.tab === "records" ? CT.rctx : +$("ctCtx").value;
+const ccId = i => CT.tab + ":" + i;
+const ccCur = () => CT.tab !== "files" ? CT.rctx : +$("ctCtx").value;
 function ctMode(m) {
   $("ct").className = "m-" + m; document.querySelectorAll("#ct [data-mode]").forEach(b => b.classList.toggle("cur", b.dataset.mode === m));
   if (m !== "cards") ctSync(false);
@@ -781,7 +872,8 @@ async function ccFetch(i) {
   const id = ccId(i);
   if (CC.cards.has(id)) return CC.cards.get(id);
   const c = CT.contexts[i];
-  const r = CT.tab === "records" ? await query({ type: "record-cards", context: i }) : await query({ type: "context-cards", key: c.key });
+  const r = GEN() ? await query({ type: "domain-cards", domain: CT.tab, context: i })
+    : CT.tab === "records" ? await query({ type: "record-cards", context: i }) : await query({ type: "context-cards", key: c.key });
   const cards = r.cards || [];
   CC.cards.set(id, cards);
   return cards;
@@ -789,13 +881,14 @@ async function ccFetch(i) {
 async function ccDetail(i, ix) {
   const id = ccId(i) + ":" + ix;
   if (CC.det.has(id)) return CC.det.get(id);
-  const r = CT.tab === "records" ? await query({ type: "record-card", context: i, index: ix, limit: CC.LIMIT })
+  const r = GEN() ? await query({ type: "domain-card", domain: CT.tab, context: i, index: ix, limit: CC.LIMIT })
+    : CT.tab === "records" ? await query({ type: "record-card", context: i, index: ix, limit: CC.LIMIT })
     : await query({ type: "context-card", key: CT.contexts[i].key, index: ix, limit: CC.LIMIT });
   CC.det.set(id, r.card);
   return r.card;
 }
 function ccTree(items) {
-  if (CT.tab === "records") return items.join("\n");
+  if (CT.tab !== "files" && !items.every(p => /\/[^/ ]+\.[a-z0-9]+$/i.test(p))) return items.join("\n");
   const root = { d: new Map(), f: [] };
   for (const p of items) {
     const parts = p.split("/"); let n = root;
@@ -822,14 +915,14 @@ function ccTree(items) {
 }
 function ccCard(i, k) {
   const id = ccId(i) + ":" + k.index, open = CC.shown.has(id), d = open && CC.det.get(id);
-  const unit = CT.tab === "records" ? "зап." : "ф.";
+  const unit = CT.tab === "records" ? "зап." : CT.tab === "files" ? "ф." : "цел.";
   const eq = k.equal ? ` · = ${num(k.equal)}` : "";
   let body = "";
   if (open) {
     body = !d ? `<div class="body">загрузка…</div>` : `<div class="body">` + d.members.map((m, mi) =>
       `<div class="mem${m.wins && !m.loses ? " win" : ""}"><span class="nm" title="${esc(m.name)}"><i style="background:${m.enabled ? css("--ok") : css("--miss")}"></i>${esc(m.name)}</span>` +
       `<canvas data-t="${m.teeth}" data-cc="${id}" data-m="${mi}"></canvas><span class="wl">▲${m.wins} ▼${m.loses}</span></div>`).join("") +
-      `<details${d.items.length <= 40 ? " open" : ""}><summary>${CT.tab === "records" ? "Записи" : "Пути"}: ${num(d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary><pre>${esc(ccTree(d.items))}</pre></details></div>`;
+      `<details${d.items.length <= 40 ? " open" : ""}><summary>${CT.tab === "records" ? "Записи" : CT.tab === "files" ? "Пути" : "Цели"}: ${num(d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary><pre>${esc(ccTree(d.items))}</pre></details></div>`;
   }
   return `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
     `<div class="h"><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}">${esc(k.name)}</span>` +
@@ -843,13 +936,14 @@ async function ctCards() {
   const cur = ccCur(), q = CC.q.trim().toLowerCase(), top = box.scrollTop;
   CC.open.add(ccId(cur));
   const n = Math.min(CT.contexts.length, CC.MAXCTX);
-  let html = `<input type="search" id="ccQ" placeholder="Поиск по цепочкам, ${CT.tab === "records" ? "плагинам" : "модам"}" value="${esc(CC.q)}">`;
+  let html = `<input type="search" id="ccQ" placeholder="Поиск по цепочкам, ${CT.tab === "records" ? "плагинам" : CT.tab === "files" ? "модам" : "участникам"}" value="${esc(CC.q)}">`;
   for (let i = 0; i < n; i++) {
     const c = CT.contexts[i], id = ccId(i), open = CC.open.has(id) || !!q;
     let cards = open ? await ccFetch(i) : [];
     if (q) cards = cards.filter(k => k.name.toLowerCase().includes(q) || k.stack.some(m => m.toLowerCase().includes(q)));
     if (q && !cards.length) continue;
-    const cnt = CT.tab === "records" ? `${c.chains} цеп. · ${c.plugins} пл. · ${num(c.records)} зап.${c.blind ? ` · ⚠️ ${num(c.blind)}` : ""}`
+    const cnt = GEN() ? `${c.chains} цеп. · ${c.participants} уч. · ${num(c.targets)} цел.${c.unresolved ? ` · ⚠️ ${num(c.unresolved)}` : ""}`
+      : CT.tab === "records" ? `${c.chains} цеп. · ${c.plugins} пл. · ${num(c.records)} зап.${c.blind ? ` · ⚠️ ${num(c.blind)}` : ""}`
       : `${c.chains} цеп. · ${c.mods} модов · ${num(c.files)} ф.`;
     html += `<div class="cx${i === cur ? " cur" : ""}" data-cx="${i}" style="border-left:3px solid hsl(${c.hue} 65% 55%)"><div class="h"><span>${open ? "▾" : "▸"}</span>` +
       `<b title="${esc(c.name)}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)}</b><span class="n">${cnt}</span></div>` +
@@ -866,11 +960,10 @@ function ccTeeth(cv) {
   cv.width = w * dpr; cv.height = h * dpr;
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const tw = w / Math.max(1, t.length), gap = tw >= 4 ? 1 : 0;
-  const col = { w: css("--win"), l: css("--lose"), s: CELL.s[0], o: CELL.o[0] };
-  for (let j = 0; j < t.length; j++) { g.fillStyle = col[t[j]] || "rgba(127,127,127,.12)"; g.fillRect(j * tw, 0, Math.max(1, tw - gap), h); }
+  for (let j = 0; j < t.length; j++) { g.fillStyle = CELL[t[j]] ? cellColor(t[j]) : "rgba(127,127,127,.12)"; g.fillRect(j * tw, 0, Math.max(1, tw - gap), h); }
 }
 async function ccSelectContext(i) {
-  if (CT.tab === "records") { if (CT.rctx === i) return; CT.rctx = i; }
+  if (CT.tab !== "files") { if (CT.rctx === i) return; CT.rctx = i; }
   else { const c = CT.contexts[i]; if (!c || c.key === null || +$("ctCtx").value === i) return; CT.key = c.key; }
   CT.selChain = null; $("ctCtx").value = String(i); $("ctScroll").scrollTo(0, 0); await ctSync(false);
 }
@@ -1102,7 +1195,7 @@ async function recLoad() {
   }).join("") + (p.total > p.chains.length ? `<div class="muted" style="padding:8px">ещё ${num(p.total - p.chains.length)} — уточни фильтр по плагину</div>` : "");
 }
 function recOpen(plugin) { $("recPlugin").value = plugin || ""; if (plugin) $("recOnly").checked = false; $("rec").hidden = false; recLoad(); }
-$("recBtn").onclick = () => openRecords();
+$("recBtn").onclick = () => openFiles();
 $("recClose").onclick = () => { $("rec").hidden = true; clearTimeout(recTimer); list.focus({ preventScroll: true }); };
 $("recPlugin").oninput = () => { clearTimeout(recTimer); recTimer = setTimeout(recLoad, 250); };
 $("recOnly").onchange = () => recLoad();

@@ -299,7 +299,7 @@ pub fn reconcile(
 /// without hidden plugins.
 pub fn canon_files(canon: &PluginCanon) -> (Vec<(String, bool)>, Vec<String>) {
     let hidden: FxHashSet<String> = canon.blacklist.iter().map(|n| plugin_key(n)).collect();
-    let base: FxHashSet<String> = crate::plugins::SKYRIM_BASE
+    let base: FxHashSet<String> = crate::plugins::base_plugins()
         .iter()
         .map(|(n, _)| plugin_key(n))
         .collect();
@@ -356,7 +356,7 @@ mod tests {
     use super::*;
     use crate::facts::{ModFacts, PluginFacts};
     use crate::overwrite::Priorities;
-    use crate::plugins::{PluginVersions, SKYRIM_BASE};
+    use crate::plugins::{PluginVersions, base_plugins};
     use sat_formats::PluginHeader;
 
     fn plugin(name: &str, masters: &[&str]) -> PluginFacts {
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn cascade_turns_plugins_on_in_layers_by_masters() {
         let mut canon = PluginCanon {
-            load_order: SKYRIM_BASE.iter().map(|(n, _)| n.to_string()).collect(),
+            load_order: base_plugins().into_iter().map(|(n, _)| n).collect(),
             ..PluginCanon::default()
         };
         canon.set_blacklisted("H.esp", true);

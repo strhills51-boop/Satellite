@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -97,7 +97,7 @@ fn main() {
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
         other => Err(format!(
-            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
             other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
         )),
     };
@@ -1018,6 +1018,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
         ps.missing
     );
 
+    // the record index and its loaded plugins, for `--conflicts`
+    let mut record_ix: Option<(sat_core::records::RecordIndex, Vec<(String, PathBuf)>)> = None;
     // @sat:cli.records
     // the record layer (`@sat:records`): loaded plugins' records, overrides as conflicts, chains by plugin stack
     if has(args, "--records") {
@@ -1131,6 +1133,77 @@ fn analyze(args: &[String]) -> Result<(), String> {
             for (i, s) in by.iter().take(10).filter(|x| x.1.unchanged > 0) {
                 println!("  {:>7}  {}", s.unchanged, ix.plugins[*i]);
             }
+            record_ix = Some((ix, loaded));
+        }
+    }
+
+    // @sat:cli.conflicts
+    // every conflict domain beyond files and records (`@sat:conflict.kinds`, `@sat:conflict.fields`,
+    // `@sat:conflict.spec`): constraints, archives, the game pack's and the user's specs; with --records also
+    // dangerous records, record fields and FaceGen
+    if has(args, "--conflicts") {
+        let t = Instant::now();
+        let pack = sat_core::game::active();
+        let prio = proj.priorities();
+        let mut reports = vec![
+            sat_core::conflict_kinds::constraints(&plugin_list),
+            sat_core::conflict_kinds::archives(&table, prio, &plugin_list, pack),
+        ];
+        if let Some((ix, loaded)) = &record_ix {
+            if let Some(rules) = &pack.records {
+                reports.push(sat_core::conflict_kinds::dangerous(ix, rules));
+            }
+            let f = sat_scan::records::fields(loaded, ix);
+            reports.push(sat_core::conflict_fields::classify(ix, &f, &[]));
+            reports.push(sat_core::conflict_kinds::facegen(
+                ix,
+                &table,
+                prio,
+                &plugin_list,
+                pack,
+            ));
+        }
+        let names = table.mod_names().to_vec();
+        let read = |i: usize| -> Option<Vec<u8>> {
+            if table.is_archive(i) {
+                return None;
+            }
+            let m = &names[table.owner(i).idx()];
+            let dir = if m == OVERWRITE {
+                inst.overwrite_dir.clone()
+            } else {
+                inst.mods_dir.join(m)
+            };
+            std::fs::read(dir.join(table.path_string(table.path_of_provider(i)))).ok()
+        };
+        let user: Vec<sat_core::conflict_spec::DomainSpec> =
+            std::fs::read_to_string(inst.profile_dir().join("satellite").join("conflict-domains.json"))
+                .ok()
+                .map(|t| serde_json::from_str(&t).map_err(|e| format!("conflict-domains.json: {e}")))
+                .transpose()?
+                .unwrap_or_default();
+        for (spec, origin) in pack
+            .domains
+            .iter()
+            .map(|s| (s, sat_core::conflict::Origin::Pack))
+            .chain(user.iter().map(|s| (s, sat_core::conflict::Origin::User)))
+        {
+            reports.push(sat_core::conflict_spec::evaluate(
+                spec, origin, &table, prio, &read,
+            ));
+        }
+        timings.insert("conflicts", t.elapsed().as_millis());
+        let limit = match flag_value(args, "--limit").map(str::parse::<usize>) {
+            Some(Ok(0)) => usize::MAX,
+            Some(Ok(n)) => n,
+            _ => 10,
+        };
+        println!("conflict domains (game pack: {}):", pack.title);
+        for r in &reports {
+            print_domain(r, limit);
+        }
+        if record_ix.is_none() {
+            println!("  (dangerous records, record fields, FaceGen: add --records)");
         }
     }
 
@@ -1262,6 +1335,67 @@ fn analyze(args: &[String]) -> Result<(), String> {
 
 /// `<instance>` is an MO2 folder (with or without `ModOrganizer.ini`). `--mods DIR --profiles DIR
 /// [--overwrite DIR]` give the folders directly, like the monolith's folder pickers; then `<instance>` is optional.
+/// One conflict domain in text: its counts by kind, then its largest chains with a few targets.
+fn print_domain(r: &sat_core::conflict::DomainReport, limit: usize) {
+    println!(
+        "== {} [{}]: {} target(s), {} wanting a decision{}",
+        r.info.title,
+        r.info.id,
+        r.counts.targets,
+        r.counts.unresolved,
+        if r.counts.kinds.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " — {}",
+                r.counts
+                    .kinds
+                    .iter()
+                    .map(|(k, n)| format!("{} {n}", if k.is_empty() { "-" } else { k }))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    );
+    for n in &r.notes {
+        println!("   note: {n}");
+    }
+    for c in r.chains.iter().take(limit) {
+        let labels: Vec<&str> = c
+            .stack
+            .iter()
+            .map(|&p| r.participants[p as usize].label.as_str())
+            .collect();
+        let stack = if labels.len() <= 4 {
+            labels.join(" -> ")
+        } else {
+            format!(
+                "{} -> ... -> {} ({})",
+                labels[0],
+                labels[labels.len() - 1],
+                labels.len()
+            )
+        };
+        println!(
+            "  {:>6}  {}{}",
+            c.targets.len(),
+            if c.kind.is_empty() {
+                String::new()
+            } else {
+                format!("{}: ", c.kind)
+            },
+            stack
+        );
+        let sample: Vec<&str> = c
+            .targets
+            .iter()
+            .take(3)
+            .map(|&t| r.targets[t as usize].as_str())
+            .collect();
+        println!("          e.g. {}", sample.join(" | "));
+    }
+}
+
 fn open_instance(args: &[String]) -> Result<Instance, String> {
     let explicit = |flag: &str| flag_value(args, flag).map(PathBuf::from);
     let path = args.first().filter(|a| !a.starts_with("--"));
@@ -1275,6 +1409,8 @@ fn open_instance(args: &[String]) -> Result<Instance, String> {
         }
         (_, _, Some(path)) => {
             let mut i = Instance::load(path).map_err(|e| e.to_string())?;
+            // the game pack (`@sat:game`): what the core knows about this game
+            sat_core::game::select(&i.game_name);
             if let Some(m) = explicit("--mods") {
                 i.mods_dir = m;
             }

@@ -19,6 +19,10 @@
 //! Owns: the crate layout (which module is which layer); nothing else.
 
 pub mod canon;
+pub mod conflict;
+pub mod conflict_fields;
+pub mod conflict_kinds;
+pub mod conflict_spec;
 pub mod counters;
 pub mod decisions;
 pub mod engine;
@@ -26,6 +30,7 @@ pub mod entity;
 pub mod expr;
 pub mod factory;
 pub mod facts;
+pub mod game;
 pub mod identical;
 pub mod identity;
 pub mod ids;

@@ -344,6 +344,7 @@ mod tests {
         a.records_pending();
         assert_eq!(a.record_page(None, false, 0, 10).state, RecordState::Pending);
         let rec = |id: u32, h: u64| RecordFact {
+            flags: 0,
             form_id: id,
             signature: *b"NPC_",
             hash: Some(h),

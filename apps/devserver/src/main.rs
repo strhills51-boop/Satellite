@@ -119,6 +119,8 @@ fn load(args: &[String]) -> Result<App, String> {
         .filter(|a| !a.starts_with("--"))
         .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--port N]\n       sat-devserver --project <project.stll or its folder> [--port N]   (no build needed)")?;
     let mut inst = Instance::load(path).map_err(|e| e.to_string())?;
+    // the game pack (`@sat:game`): what the core knows about this game
+    sat_core::game::select(&inst.game_name);
     if let Some(p) = flag(args, "--profile") {
         inst.profile = p.to_string();
     }
@@ -289,6 +291,29 @@ fn load(args: &[String]) -> Result<App, String> {
     for e in app.set_counters(&counters) {
         eprintln!("{e}");
     }
+    // conflict domains described by data (`@sat:conflict.spec`): the game pack's and the user's own, reading the
+    // files they rank by from the mod folders
+    {
+        let (mods_dir, overwrite_dir) = (inst.mods_dir.clone(), inst.overwrite_dir.clone());
+        app.set_file_reader(std::sync::Arc::new(move |m: &str, rel: &str| {
+            let dir = if m == sat_core::session::OVERWRITE {
+                overwrite_dir.clone()
+            } else {
+                mods_dir.join(m)
+            };
+            std::fs::read(dir.join(rel)).ok()
+        }));
+        let user = inst.profile_dir().join("satellite").join("conflict-domains.json");
+        if let Ok(text) = std::fs::read_to_string(&user) {
+            match serde_json::from_str::<Vec<sat_core::conflict_spec::DomainSpec>>(&text) {
+                Ok(specs) => {
+                    eprintln!("conflict domains: {} from {}", specs.len(), user.display());
+                    app.set_user_domains(specs);
+                }
+                Err(e) => eprintln!("{}: {e}", user.display()),
+            }
+        }
+    }
     // @sat:devserver.records
     // the record layer (`@sat:records`): plugins are read off the request loop, the window shows it when ready
     let loaded = sat_scan::records::loaded_plugins(
@@ -305,6 +330,7 @@ fn load(args: &[String]) -> Result<App, String> {
     );
     let cache = inst.profile_dir().join("satellite").join("records");
     let (tx, rx) = std::sync::mpsc::channel();
+    let (ftx, frx) = std::sync::mpsc::channel();
     app.records_pending();
     std::thread::spawn(move || {
         let t = std::time::Instant::now();
@@ -315,9 +341,21 @@ fn load(args: &[String]) -> Result<App, String> {
             ix.plugins.len(),
             t.elapsed().as_secs_f64()
         );
-        let _ = tx.send(sat_app::records::RecordReport::from_index(ix, unread));
+        let report = sat_app::records::RecordReport::from_index(ix, unread);
+        let ix = report.index.clone();
+        let _ = tx.send(report);
+        // then the fields of the conflict records (`@sat:scan.records.fields`)
+        let t = std::time::Instant::now();
+        let f = sat_scan::records::fields(&loaded, &ix);
+        eprintln!(
+            "record fields: {} copies of conflict records in {:.1} s",
+            f.0.len(),
+            t.elapsed().as_secs_f64()
+        );
+        let _ = ftx.send(f);
     });
     RECORDS.with(|r| *r.borrow_mut() = Some(rx));
+    FIELDS.with(|r| *r.borrow_mut() = Some(frx));
     Ok(app)
 }
 
@@ -327,6 +365,9 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
     /// The record report on its way from the reading thread.
     static RECORDS: std::cell::RefCell<Option<std::sync::mpsc::Receiver<sat_app::records::RecordReport>>> =
+        const { std::cell::RefCell::new(None) };
+    /// Fields of the conflict records, after the records.
+    static FIELDS: std::cell::RefCell<Option<std::sync::mpsc::Receiver<sat_core::conflict_fields::FieldFacts>>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -361,6 +402,11 @@ fn main() {
         RECORDS.with(|r| {
             if let Some(report) = r.borrow().as_ref().and_then(|rx| rx.try_recv().ok()) {
                 app.set_records(report);
+            }
+        });
+        FIELDS.with(|r| {
+            if let Some(f) = r.borrow().as_ref().and_then(|rx| rx.try_recv().ok()) {
+                app.set_record_fields(f);
             }
         });
         HASHES.with(|h| {

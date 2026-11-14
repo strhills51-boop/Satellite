@@ -13,12 +13,14 @@ use std::sync::Arc;
 mod cards;
 mod chains;
 mod context;
+mod domains;
 pub mod find;
 pub mod records;
 pub mod sheet;
 mod sync;
 pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
+pub use domains::{DomainContextItem, DomainItem, DomainState, FileReader};
 pub use sync::{Decision, RecordView};
 
 use serde::{Deserialize, Serialize};
@@ -60,6 +62,9 @@ pub enum Command {
     Move {
         keys: Vec<Key>,
         before: Option<Key>,
+        /// Or: just after this entry (the conflict table drops a mod below a row without knowing what follows it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<Key>,
     },
     SetEnabled {
         keys: Vec<Key>,
@@ -236,6 +241,33 @@ pub enum Query {
     RecordContexts,
     /// A window of a record context's conflict table (`@sat:app.records.table`), in the file table's shape.
     RecordTable {
+        context: usize,
+        row_start: usize,
+        row_count: usize,
+        col_start: usize,
+        col_count: usize,
+    },
+    /// Every conflict domain, files and records first (`@sat:app.domains.list`).
+    ConflictDomains,
+    /// Contexts of a domain other than files and records (`@sat:app.domains.contexts`).
+    DomainContexts {
+        domain: String,
+    },
+    /// Chain cards of a context of a domain (`@sat:app.domains.cards`).
+    DomainCards {
+        domain: String,
+        context: usize,
+    },
+    /// Details of chain card `index`: members with teeth, the first `limit` targets.
+    DomainCard {
+        domain: String,
+        context: usize,
+        index: usize,
+        limit: usize,
+    },
+    /// A window of a domain's context table (`@sat:app.domains.table`).
+    DomainTable {
+        domain: String,
         context: usize,
         row_start: usize,
         row_count: usize,
@@ -588,6 +620,13 @@ pub enum Reply {
         records: Vec<RecordView>,
         plan: Box<sat_core::sync::plan::Plan>,
     },
+    Domains {
+        domains: Vec<DomainItem>,
+    },
+    /// `None` when there is no such domain.
+    DomainContexts {
+        contexts: Option<Vec<DomainContextItem>>,
+    },
     /// `None` when there is no such context.
     ChainCards {
         cards: Option<Vec<ChainCard>>,
@@ -692,6 +731,9 @@ pub struct App {
     sources: std::collections::HashMap<String, sat_core::source::ModSource>,
     /// The project's own stickers by folded mod name (`planned`, `new`).
     system_stickers: std::collections::HashMap<String, Vec<String>>,
+    /// Conflict domains beyond files and records, and what the shell hands over for them (`@sat:app.domains`).
+    domain_cache: domains::DomainCache,
+    domain_inputs: domains::DomainInputs,
 }
 
 impl App {
@@ -716,6 +758,8 @@ impl App {
             system_stickers: Default::default(),
             counters: Default::default(),
             sources: Default::default(),
+            domain_cache: Default::default(),
+            domain_inputs: Default::default(),
         }
     }
 
@@ -745,7 +789,19 @@ impl App {
             C::Run { view, id } => self.session.run(&self.registry, &id, view)?,
             C::Navigate { view, nav, select } => self.session.command(|b| b.navigate(view, nav, select))?,
             C::ShiftSelection { view, how } => self.session.command(|b| b.shift_selection(view, how))?,
-            C::Move { keys, before } => self.session.command(|b| b.move_keys(&keys, before))?,
+            C::Move { keys, before, after } => {
+                let before = match after {
+                    // the first entry after `after` that is not moving; none — the end
+                    Some(a) => {
+                        let b = self.session.book();
+                        (b.pos(a) + 1..b.len())
+                            .map(|p| b.key_at(p))
+                            .find(|k| !keys.contains(k))
+                    }
+                    None => before,
+                };
+                self.session.command(|b| b.move_keys(&keys, before))?
+            }
             C::SetEnabled { keys, enabled } => self.session.command(|b| b.set_enabled(&keys, enabled))?,
             C::SetColor { keys, color } => self.session.command(|b| b.set_color(&keys, color))?,
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
@@ -1253,6 +1309,42 @@ impl App {
                     )
                     .map(Box::new),
             },
+            Query::ConflictDomains => Reply::Domains {
+                domains: self.conflict_domains(),
+            },
+            Query::DomainContexts { domain } => Reply::DomainContexts {
+                contexts: self.domain_contexts(&domain),
+            },
+            Query::DomainCards { domain, context } => Reply::ChainCards {
+                cards: self.domain_cards(&domain, context),
+            },
+            Query::DomainCard {
+                domain,
+                context,
+                index,
+                limit,
+            } => Reply::ChainCard {
+                card: self
+                    .domain_card(&domain, context, index, limit.min(5000))
+                    .map(Box::new),
+            },
+            Query::DomainTable {
+                domain,
+                context,
+                row_start,
+                row_count,
+                col_start,
+                col_count,
+            } => Reply::ContextTable {
+                table: self
+                    .domain_table(
+                        &domain,
+                        context,
+                        (row_start, row_count.min(400)),
+                        (col_start, col_count.min(2000)),
+                    )
+                    .map(Box::new),
+            },
             Query::ContextCards { key } => Reply::ChainCards {
                 cards: self.context_cards(key),
             },
@@ -1621,9 +1713,17 @@ pub(crate) mod tests {
                 f
             })
             .collect();
+        app_from(facts)
+    }
+
+    /// An app over these mods, in this order, under one separator.
+    pub(crate) fn app_from(facts: Vec<sat_core::facts::ModFacts>) -> App {
         let table = Arc::new(ProviderTable::build(&facts));
+        let names: Vec<String> = std::iter::once("S_separator".to_string())
+            .chain(facts.iter().map(|f| f.name.clone()))
+            .collect();
         let list = Modlist::new(
-            ["S_separator", mods[0], mods[1]]
+            names
                 .iter()
                 .map(|n| Entry {
                     name: n.to_string(),
@@ -2002,6 +2102,7 @@ pub(crate) mod tests {
         a.command(Command::Move {
             keys: vec![key_a],
             before: Some(b_key),
+            after: None,
         })
         .unwrap();
         let Reply::Rows { rows: after, .. } = a

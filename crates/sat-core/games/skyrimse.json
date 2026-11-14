@@ -1,0 +1,67 @@
+{
+  "id": "skyrimse",
+  "title": "Skyrim Special Edition / Anniversary Edition",
+  "mo2_names": ["Skyrim Special Edition", "SkyrimSE", "Skyrim VR", "Skyrim Anniversary Edition"],
+  "plugins": {
+    "format": "tes4",
+    "base": [
+      { "name": "Skyrim.esm", "masters": [] },
+      { "name": "Update.esm", "masters": ["Skyrim.esm"] },
+      { "name": "Dawnguard.esm", "masters": ["Skyrim.esm", "Update.esm"] },
+      { "name": "HearthFires.esm", "masters": ["Skyrim.esm", "Update.esm"] },
+      { "name": "Dragonborn.esm", "masters": ["Skyrim.esm", "Update.esm"] }
+    ],
+    "creation_club_prefix": "cc",
+    "full_limit": 254,
+    "light_limit": 4096
+  },
+  "archives": {
+    "exts": ["bsa"],
+    "loose_over_archive": true,
+    "by_plugin": true
+  },
+  "records": {
+    "deleted_flag": 32,
+    "deleted_watch": ["REFR", "ACHR", "NAVM", "PGRE", "PHZD", "PMIS", "PARW", "PBAR", "PBEA", "PCON", "PFLA"],
+    "exclusive": ["NAVM"]
+  },
+  "facegen": {
+    "record": "NPC_",
+    "files": [
+      "meshes/actors/character/facegendata/facegeom/{plugin}/{formid}.nif",
+      "textures/actors/character/facegendata/facetint/{plugin}/{formid}.dds"
+    ]
+  },
+  "domains": [
+    {
+      "id": "oar",
+      "title": "OAR: подмоды",
+      "about": "Open Animation Replacer: подмоды заменяют одну анимацию; выигрывает больший приоритет из config.json (или user.json), пока его условия выполняются. Одинаковый приоритет — ничья.",
+      "family": "interaction",
+      "pattern": "meshes/actors/{actor}/animations/openanimationreplacer/{mod}/{submod}/{anim}",
+      "ext": ["hkx"],
+      "participant": "{mod}/{submod}",
+      "target": "{actor}/{anim}",
+      "centrality": "field",
+      "semantics": "conditional",
+      "field": {
+        "files": ["meshes/actors/{actor}/animations/openanimationreplacer/{mod}/{submod}/user.json", "meshes/actors/{actor}/animations/openanimationreplacer/{mod}/{submod}/config.json"],
+        "key": "/priority",
+        "skip_if": "/disabled"
+      }
+    },
+    {
+      "id": "dar",
+      "title": "DAR: папки условий",
+      "about": "Dynamic Animation Replacer: папки _CustomConditions/<число>; выигрывает большее число, пока условия выполняются.",
+      "family": "interaction",
+      "pattern": "meshes/actors/{actor}/animations/dynamicanimationreplacer/_customconditions/{n}/{anim}",
+      "ext": ["hkx"],
+      "participant": "{n}",
+      "target": "{actor}/{anim}",
+      "centrality": "field",
+      "semantics": "conditional",
+      "field": { "capture": "n" }
+    }
+  ]
+}

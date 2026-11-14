@@ -18,7 +18,7 @@ pub use archive::{ArchiveEntry, ArchiveKind, ArchiveManifest, read_archive};
 pub use dds::{DdsInfo, dxgi_name, texture_bytes};
 pub use plugin::{
     PluginHeader, PluginKind, RecordCounts, RecordData, monolith_plugin_type, read_plugin_header,
-    read_records, scan_records,
+    read_records, scan_records, subrecords,
 };
 
 /// Errors produced by the parsers.

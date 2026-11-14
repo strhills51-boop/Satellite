@@ -28,6 +28,9 @@ pub struct RecordFact {
     pub signature: [u8; 4],
     /// Hash of the record's (unpacked) data; `None` — it did not unpack.
     pub hash: Option<u64>,
+    /// The record header flags (deleted, persistent, …; the game pack names them).
+    #[serde(default)]
+    pub flags: u32,
 }
 
 /// A plugin's records with its masters (they resolve the FormIDs).
@@ -48,6 +51,7 @@ struct Entry {
     plugin: u32,
     signature: [u8; 4],
     hash: Option<u64>,
+    flags: u32,
 }
 
 // @sat:records.index
@@ -96,6 +100,7 @@ impl RecordIndex {
                     plugin: i as u32,
                     signature: r.signature,
                     hash: r.hash,
+                    flags: r.flags,
                 });
             }
         }
@@ -182,8 +187,75 @@ impl RecordIndex {
                 origin: self.is_origin(e),
                 hash: e.hash,
                 signature: e.signature,
+                flags: e.flags,
             })
             .collect()
+    }
+
+    /// The key of a record by its own plugin's name and its object id (`FormID & 0xFFFFFF`), if that plugin is known.
+    pub fn key_of(&self, plugin: &str, object: u32) -> Option<u64> {
+        let o = self.origins.iter().position(|x| x.eq_ignore_ascii_case(plugin))?;
+        Some((o as u64) << 32 | u64::from(object & 0x00FF_FFFF))
+    }
+
+    // @sat:records.overridden-groups
+    /// Every record more than one plugin has, with its providers in load order.
+    pub fn contested_groups(&self) -> impl Iterator<Item = (u64, Vec<Provider>)> + '_ {
+        self.contested.iter().map(|&g| {
+            let es = self.group(g);
+            (es[0].key, es.iter().map(|e| self.provider(e)).collect())
+        })
+    }
+
+    /// Overrides (not a record's own plugin) whose flags have `flag`: (key, provider).
+    pub fn overrides_flagged(&self, flag: u32) -> impl Iterator<Item = (u64, Provider)> + '_ {
+        self.entries
+            .iter()
+            .filter(move |e| e.flags & flag != 0 && !self.is_origin(e))
+            .map(|e| (e.key, self.provider(e)))
+    }
+
+    // @sat:records.field-targets
+    /// Conflict records (two overriders or more) with the plugins that have them, in load order: what field
+    /// provenance reads (`@sat:conflict.fields`).
+    pub fn field_targets(&self) -> Vec<(u64, Vec<u32>)> {
+        self.contested
+            .iter()
+            .map(|&g| self.group(g))
+            .filter(|es| self.overriders(es) >= 2)
+            .map(|es| (es[0].key, es.iter().map(|e| e.plugin).collect()))
+            .collect()
+    }
+
+    /// The FormID a plugin's file stores for a record (its master index in the top byte).
+    pub fn raw_form_id(&self, plugin: u32, key: u64) -> Option<u32> {
+        let origin = (key >> 32) as u32;
+        let p = plugin as usize;
+        let hi = if self.plugin_origin[p] == origin {
+            self.plugin_masters[p].len()
+        } else {
+            self.plugin_masters[p].iter().position(|&m| m == origin)?
+        };
+        Some(((hi as u32) << 24) | (key as u32 & 0x00FF_FFFF))
+    }
+
+    /// A plugin's master indices resolved to origin ids, its own last: what the top byte of a FormID in its
+    /// records names.
+    pub fn origin_map(&self, plugin: u32) -> Vec<u32> {
+        let p = plugin as usize;
+        let mut v = self.plugin_masters[p].clone();
+        v.push(self.plugin_origin[p]);
+        v
+    }
+
+    fn provider(&self, e: &Entry) -> Provider {
+        Provider {
+            plugin: e.plugin,
+            origin: self.is_origin(e),
+            hash: e.hash,
+            signature: e.signature,
+            flags: e.flags,
+        }
     }
 
     /// The record a conflict is about: its origin plugin and FormID within it, e.g. `Skyrim.esm:012E49`.
@@ -201,6 +273,7 @@ pub struct Provider {
     pub origin: bool,
     pub hash: Option<u64>,
     pub signature: [u8; 4],
+    pub flags: u32,
 }
 
 // @sat:records.plugin-stat
@@ -407,6 +480,7 @@ mod tests {
 
     fn rec(form_id: u32, s: &[u8; 4], hash: u64) -> RecordFact {
         RecordFact {
+            flags: 0,
             form_id,
             signature: *s,
             hash: Some(hash),

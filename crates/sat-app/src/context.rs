@@ -562,6 +562,7 @@ mod tests {
         a.command(crate::Command::Move {
             keys: vec![kc],
             before: Some(ka),
+            after: None,
         })
         .unwrap();
         // order now C, A, B (B highest): x → B, A, C; y → A, C

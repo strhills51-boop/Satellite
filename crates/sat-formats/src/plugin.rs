@@ -236,6 +236,33 @@ pub fn read_records<R: BufRead>(mut r: R, mut each: impl FnMut(RecordData<'_>)) 
     Ok(())
 }
 
+// @sat:formats.plugin.subrecords
+/// The fields (subrecords) of a record's data, in order: (signature, bytes). `XXXX` gives the size of the next
+/// field when it does not fit 16 bits; a torn tail ends the walk.
+pub fn subrecords(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    let mut big: Option<usize> = None;
+    while at + 6 <= data.len() {
+        let sig: [u8; 4] = data[at..at + 4].try_into().expect("4 bytes");
+        let mut size = u16::from_le_bytes([data[at + 4], data[at + 5]]) as usize;
+        at += 6;
+        if let Some(b) = big.take() {
+            size = b;
+        }
+        if at + size > data.len() {
+            break;
+        }
+        if &sig == b"XXXX" && size == 4 {
+            big = Some(u32le(data, at) as usize);
+        } else {
+            out.push((sig, &data[at..at + size]));
+        }
+        at += size;
+    }
+    out
+}
+
 /// Reads exactly `buf.len()` bytes; `Ok(false)` on clean EOF before the first byte, error on a torn header.
 fn read_full_or_eof<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<bool> {
     let mut n = 0;
@@ -454,5 +481,20 @@ mod monolith_type_tests {
         );
         assert_eq!(t("A.bak", true, false), "esm");
         assert_eq!(monolith_plugin_type("A.bak", None), "unknown");
+    }
+}
+
+#[cfg(test)]
+mod subrecord_tests {
+    #[test]
+    fn fields_are_walked_and_xxxx_sizes_the_next_one() {
+        let mut d = Vec::new();
+        d.extend_from_slice(b"EDID\x03\x00ab\0");
+        d.extend_from_slice(b"XXXX\x04\x00");
+        d.extend_from_slice(&5u32.to_le_bytes());
+        d.extend_from_slice(b"DATA\x00\x00hello");
+        d.extend_from_slice(b"TORN\x09\x00x");
+        let f = super::subrecords(&d);
+        assert_eq!(f, vec![(*b"EDID", &b"ab\0"[..]), (*b"DATA", &b"hello"[..])]);
     }
 }

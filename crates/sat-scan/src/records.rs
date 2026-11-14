@@ -11,8 +11,9 @@ use std::time::UNIX_EPOCH;
 use rayon::prelude::*;
 use sat_core::records::{PluginRecords, RecordFact};
 
-/// v2: the hash covers the record flags too (a flag change, e.g. persistent or disabled, is a change).
-const MAGIC: &[u8; 4] = b"SRC2";
+/// v2: the hash covers the record flags too (a flag change, e.g. persistent or disabled, is a change); v3: the flags
+/// themselves are kept (deleted references, `@sat:conflict.kinds`).
+const MAGIC: &[u8; 4] = b"SRC3";
 
 fn stamp(path: &Path) -> Option<(u64, u128)> {
     let md = std::fs::metadata(path).ok()?;
@@ -32,6 +33,7 @@ pub fn read(path: &Path) -> Result<PluginRecords, String> {
         records.push(RecordFact {
             form_id: r.form_id,
             signature: r.signature,
+            flags: r.flags,
             // the data and the record flags (not "compressed": the same record packed or not is the same)
             hash: r.data.map(|d| {
                 let mut h = xxhash_rust::xxh3::Xxh3::new();
@@ -66,6 +68,7 @@ fn encode(st: (u64, u128), r: &PluginRecords) -> Vec<u8> {
     for f in &r.records {
         out.extend_from_slice(&f.form_id.to_le_bytes());
         out.extend_from_slice(&f.signature);
+        out.extend_from_slice(&f.flags.to_le_bytes());
         out.push(u8::from(f.hash.is_some()));
         out.extend_from_slice(&f.hash.unwrap_or(0).to_le_bytes());
     }
@@ -96,11 +99,12 @@ fn decode(b: &[u8], st: (u64, u128)) -> Option<PluginRecords> {
     let n = u32::from_le_bytes(take(4)?.try_into().ok()?) as usize;
     let mut records = Vec::with_capacity(n);
     for _ in 0..n {
-        let r = take(17)?;
+        let r = take(21)?;
         records.push(RecordFact {
             form_id: u32::from_le_bytes(r[0..4].try_into().ok()?),
             signature: r[4..8].try_into().ok()?,
-            hash: (r[8] == 1).then(|| u64::from_le_bytes(r[9..17].try_into().expect("8 bytes"))),
+            flags: u32::from_le_bytes(r[8..12].try_into().ok()?),
+            hash: (r[12] == 1).then(|| u64::from_le_bytes(r[13..21].try_into().expect("8 bytes"))),
         });
     }
     Some(PluginRecords { masters, records })
@@ -182,6 +186,80 @@ pub fn index(
     (sat_core::records::RecordIndex::build(&ok), unread, read)
 }
 
+/// A field's hash with references mapped to their plugins: every aligned 4-byte word whose top byte names one of
+/// the plugin's masters (or itself) is hashed as (that plugin, object id), so the same reference through different
+/// master lists hashes the same.
+fn field_hash(bytes: &[u8], map: &[u32]) -> u64 {
+    let mut h = xxhash_rust::xxh3::Xxh3::new();
+    h.update(&(bytes.len() as u32).to_le_bytes());
+    if bytes.len().is_multiple_of(4) {
+        for w in bytes.as_chunks::<4>().0 {
+            let v = u32::from_le_bytes(*w);
+            match map.get((v >> 24) as usize) {
+                // object ids below 0x800 are the engine's own (and most small numbers): they stay raw
+                Some(&o) if v & 0x00FF_FFFF >= 0x800 => {
+                    h.update(&[1]);
+                    h.update(&o.to_le_bytes());
+                    h.update(&(v & 0x00FF_FFFF).to_le_bytes());
+                }
+                _ => {
+                    h.update(&[0]);
+                    h.update(w);
+                }
+            }
+        }
+    } else {
+        h.update(bytes);
+    }
+    h.digest()
+}
+
+// @sat:scan.records.fields
+/// Fields of the conflict records (`@sat:conflict.fields`): every plugin of every record two overriders share is
+/// read again, only those records kept.
+pub fn fields(
+    loaded: &[(String, PathBuf)],
+    ix: &sat_core::records::RecordIndex,
+) -> sat_core::conflict_fields::FieldFacts {
+    use std::collections::HashMap;
+    let mut wanted: Vec<HashMap<u32, u64>> = vec![HashMap::new(); ix.plugins.len()];
+    for (key, plugins) in ix.field_targets() {
+        for p in plugins {
+            if let Some(raw) = ix.raw_form_id(p, key) {
+                wanted[p as usize].insert(raw, key);
+            }
+        }
+    }
+    // the index holds only the plugins that were read: find each one's file by name
+    let path_of: HashMap<String, &PathBuf> = loaded.iter().map(|(n, p)| (n.to_lowercase(), p)).collect();
+    let parts: Vec<Vec<((u32, u64), sat_core::conflict_fields::Fields)>> = ix
+        .plugins
+        .par_iter()
+        .enumerate()
+        .filter(|(i, _)| !wanted[*i].is_empty())
+        .filter_map(|(i, n)| path_of.get(&n.to_lowercase()).map(|p| (i, *p)))
+        .map(|(i, path)| {
+            let want = &wanted[i];
+            let map = ix.origin_map(i as u32);
+            let mut out = Vec::new();
+            let Ok(f) = std::fs::File::open(path) else {
+                return out;
+            };
+            let _ = sat_formats::read_records(BufReader::with_capacity(1 << 20, f), |r| {
+                let Some(&key) = want.get(&r.form_id) else { return };
+                let Some(d) = r.data else { return };
+                let fields = sat_formats::subrecords(d)
+                    .into_iter()
+                    .map(|(sig, b)| (sig, field_hash(b, &map)))
+                    .collect();
+                out.push(((i as u32, key), fields));
+            });
+            out
+        })
+        .collect();
+    sat_core::conflict_fields::FieldFacts(parts.into_iter().flatten().collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +295,24 @@ mod tests {
         let (missing, _) = load_all(&[d.join("nope.esp")], &cache);
         assert!(missing[0].is_err());
         std::fs::remove_dir_all(&d).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod field_tests {
+    use super::*;
+
+    #[test]
+    fn a_reference_through_different_master_lists_hashes_the_same() {
+        // plugin 1 has [A, B] as masters, plugin 2 has [B]: B's object 0x1234 is 01001234 in one, 00001234 in the other
+        let one = field_hash(&0x0100_1234u32.to_le_bytes(), &[10, 11, 12]);
+        let two = field_hash(&0x0000_1234u32.to_le_bytes(), &[11, 13]);
+        assert_eq!(one, two);
+        assert_ne!(one, field_hash(&0x0000_1234u32.to_le_bytes(), &[10, 13]));
+        // small numbers stay numbers
+        assert_eq!(
+            field_hash(&5u32.to_le_bytes(), &[10]),
+            field_hash(&5u32.to_le_bytes(), &[11])
+        );
     }
 }
