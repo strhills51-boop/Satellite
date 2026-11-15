@@ -19,6 +19,8 @@ pub struct Card<'a> {
     pub mods: &'a [u32],
     pub files: u32,
     pub done: bool,
+    /// Put off by the user for now: not a candidate, and not "settled" either (it adds no weight to its mods).
+    pub skipped: bool,
 }
 
 /// How many chains have each mod (a chain's mods are distinct).
@@ -71,7 +73,7 @@ pub fn pick(cards: &[Card<'_>], last: Option<usize>) -> Option<usize> {
         s
     };
     (0..cards.len())
-        .filter(|&i| !cards[i].done)
+        .filter(|&i| !cards[i].done && !cards[i].skipped)
         .map(|i| (score(i), cards[i].files, std::cmp::Reverse(i)))
         .max()
         .map(|(_, _, std::cmp::Reverse(i))| i)
@@ -89,21 +91,25 @@ mod tests {
                 mods: &a,
                 files: 10,
                 done: false,
+                skipped: false,
             },
             Card {
                 mods: &b,
                 files: 1,
                 done: false,
+                skipped: false,
             },
             Card {
                 mods: &c,
                 files: 400,
                 done: false,
+                skipped: false,
             },
             Card {
                 mods: &d,
                 files: 1,
                 done: false,
+                skipped: false,
             },
         ];
         // b shares a mod with a and with d: 20 + 2
@@ -122,6 +128,10 @@ mod tests {
         cards[0].done = true;
         assert_eq!(pick(&cards, Some(0)), Some(3));
         cards[3].done = true;
+        assert_eq!(pick(&cards, None), None);
+        // a card put off is passed by and weighs nothing
+        cards[3].done = false;
+        cards[3].skipped = true;
         assert_eq!(pick(&cards, None), None);
     }
 }

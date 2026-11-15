@@ -262,6 +262,13 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .cc .tag { font: 10px var(--mono); border-radius: 999px; padding: 0 6px; border: 1px solid; white-space: nowrap; }
 .cc .tag.chg { color: #f59e0b; border-color: #f59e0b; } .cc .tag.was { color: var(--muted); border-color: var(--line); } .cc .tag.lost { color: var(--l-txt); border-color: var(--lose); }
 .cx .common { padding: 2px 10px 4px; font-size: 11px; color: var(--muted); }
+.frbar { position: sticky; top: 0; z-index: 2; background: var(--panel); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 10px 6px; font-size: 12px; color: var(--muted); }
+.frbar .prog { flex: 1; min-width: 160px; display: flex; align-items: center; gap: 8px; }
+.frbar .bar { flex: 1; height: 6px; background: var(--bg2); border-radius: 3px; overflow: hidden; max-width: 220px; }
+.frbar .bar i { display: block; height: 100%; background: var(--win); }
+.frbar button.on { background: #f59e0b; color: #111; border-color: #f59e0b; }
+.frbar .solved { color: var(--w-txt); font-weight: 600; }
+.cc.skipped { opacity: .55; }
 .orph { font-size: 12px; color: #f59e0b; display: flex; gap: 6px; align-items: center; padding: 4px 8px; }
 .ccbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 8px; align-items: center; padding: 6px 8px; background: var(--panel); border: 1px solid #f59e0b; border-radius: 8px; font-size: 12px; }
 .ccbar span { flex: 1; }
@@ -796,7 +803,7 @@ async function ctSync(pickCtx) {
     const rec = CT.tab !== "files", gen = GEN();
     const rep = gen ? await query({ type: "domain-table", domain: CT.tab, context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
       : rec ? await query({ type: "record-table", context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
-      : await query({ type: "context-table", key: CT.key, order: CT.order, focus: CT.order === "activity" && CT.selChain != null ? CT.selChain : undefined, row_start: r0, row_count: rc, col_start: c0, col_count: cc });
+      : await query({ type: "context-table", key: CT.key, order: CT.order, focus: CT.order === "activity" && CT.selChain != null ? CT.selChain : undefined, only: CT.only ?? undefined, row_start: r0, row_count: rc, col_start: c0, col_count: cc });
     const t = rep.table;
     if (!t) { $("ctTitle").textContent = rec ? "Нет такого контекста" : "Мод ни с кем не конфликтует"; CT.data = null; return; }
     CT.data = { t, r0, c0 };
@@ -1009,7 +1016,10 @@ $("ctList").onclick = () => recOpen("");
 // ---------------------------------------------------------------- chain cards (monolith conflict modal "Карточки")
 // Contexts as buckets, each with its chains as cards; a card opens to its members with a teeth row (one tooth per path
 // or record) and the tree of its paths. A card leads the table to its chain band.
-const CC = { open: new Set(), cards: new Map(), det: new Map(), shown: new Set(), sel: null, q: "", LIMIT: 600, MAXCTX: 400, picked: new Set(), prevIx: null };
+const CC = { open: new Set(), cards: new Map(), det: new Map(), shown: new Set(), sel: null, q: "", LIMIT: 600, MAXCTX: 400, picked: new Set(), prevIx: null, front: new Map() };
+// the solution front per context (monolith v667, `conflictSolutionFront.contexts`): on, the chain settled last, the
+// chains put off, show settled ones. Page state: the devserver keeps nothing anyway.
+function ccFront(i) { const id = ccId(i); if (!CC.front.has(id)) CC.front.set(id, { on: false, last: null, skip: new Set(), showDone: false }); return CC.front.get(id); }
 const ccId = i => CT.tab + ":" + i;
 const ccCur = () => CT.tab !== "files" ? CT.rctx : +$("ctCtx").value;
 function ctMode(m) {
@@ -1021,7 +1031,7 @@ async function ccFetch(i) {
   if (CC.cards.has(id)) return CC.cards.get(id);
   const c = CT.contexts[i];
   const r = GEN() ? await query({ type: "domain-cards", domain: CT.tab, context: i })
-    : CT.tab === "records" ? await query({ type: "record-cards", context: i }) : await query({ type: "context-cards", key: c.key, last: CC.last || undefined });
+    : CT.tab === "records" ? await query({ type: "record-cards", context: i }) : await query({ type: "context-cards", key: c.key, last: ccFront(i).last || undefined, skip: [...ccFront(i).skip] });
   const cards = r.cards || [];
   CC.cards.set(id, cards);
   return cards;
@@ -1056,7 +1066,7 @@ function ccCard(i, k) {
   // to which; the user merges, splits, gives back to the system (`@sat:layout`)
   const files = CT.tab === "files", prev = CC.prevIx;
   let bridge = "";
-  if (files && k.link && !CC.q.trim()) {
+  if (files && k.link && !CC.q.trim() && !ccFront(i).on) {
     const near = k.link.to === prev;
     bridge = `<div class="br${near ? "" : " far"}" title="Мост: эти моды есть и в цепочке №${k.link.to + 1}, и в этой">${near ? "⛓" : `↳ к №${k.link.to + 1}`} <b>${esc(k.link.mods.join(", "))}</b>` +
       `<button data-merge="${k.signature}" data-with="${k.link.to}" data-cx="${i}" title="Объединить эту цепочку с №${k.link.to + 1} в одну карточку">объединить</button></div>`;
@@ -1065,13 +1075,15 @@ function ccCard(i, k) {
     `<input type="checkbox" class="pick" data-pick="${k.signature}" ${CC.picked.has(k.signature) ? "checked" : ""} title="выбрать для объединения">` +
     (k.sources > 1 ? `<button class="lay" data-split="${k.signature}" title="Разъединить на точные цепочки (${k.sources})">разъединить</button>` : "") +
     (k.user ? `<button class="lay" data-reset="${k.signature}" title="Вернуть как сгруппировала система">как было</button>` : "");
+  const fr = files ? ccFront(i) : null;
+  const skipBtn = fr && fr.on && k.front ? `<button data-skip="${k.signature}" data-cx="${i}" title="Отложить: фронт перейдёт к следующей, эта вернётся по «отложено ↺»">отложить</button>` : "";
   return bridge + `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}${k.front ? " front" : ""}${bridge && k.link.to === prev ? " linked" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
     `<div class="h">${lay}<span class="no">№${k.index + 1}</span><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}${k.sources > 1 ? `\nточных цепочек: ${k.sources}${k.user ? " (объединил ты)" : " (объединила система)"}` : ""}">${esc(k.name)}</span>` + (k.front ? `<span class="fr" title="Фронт решений: следующая нерешённая цепочка — больше всего связана с уже решёнными">дальше</span>` : "") +
     `<span class="n">${k.stack.length} × ${num(k.files)} ${unit}${eq}</span>` +
     (k.changed ? `<span class="tag chg" title="Решена, но с тех пор изменилась: ${esc(k.changed)}. «подтвердить» — снова решена как есть">изменилась</span><button data-done="${k.signature}" data-v="1" title="Подтвердить: решена как есть сейчас">подтвердить</button>` : "") +
     (k.was_done ? `<span class="tag was" title="Состав модов изменился — была решена до этого. Посмотри и отметь снова">была решена</span>` : "") +
     (k.lost ? `<span class="tag lost" title="Из твоего объединения пропало цепочек: ${k.lost} (их модов больше нет в конфликте). «Сироты» вверху — убрать записи">−${k.lost} из объединения</span>` : "") +
-    (CT.tab === "files" ? `<button data-done="${k.signature}" data-v="${k.done ? 0 : 1}" title="${k.done ? "Снять «решено»" : "Отметить решённой"}">${k.done ? "✓" : "○"}</button>` : "") +
+    skipBtn + (CT.tab === "files" ? `<button data-done="${k.signature}" data-v="${k.done ? 0 : 1}" title="${k.done ? "Снять «решено»" : "Отметить решённой"}">${k.done ? "✓" : "○"}</button>` : "") +
     `<span>${open ? "▾" : "▸"}</span></div>${files && k.bridges && k.bridges.length ? `<div class="brg" title="Моды-мосты: участвуют и в других цепочках контекста">мосты: ${esc(k.bridges.join(", "))}</div>` : ""}${k.idle && k.idle.length ? `<div class="idle" title="${esc(k.idle.join(", "))}">выключены, но владеют: ${esc(k.idle.join(", "))}</div>` : ""}${body}</div>`;
 }
 async function ctCards() {
@@ -1090,13 +1102,26 @@ async function ctCards() {
     let cards = open ? await ccFetch(i) : [];
     if (q) cards = cards.filter(k => k.name.toLowerCase().includes(q) || k.stack.some(m => m.toLowerCase().includes(q)));
     if (q && !cards.length) continue;
+    // the solution front: one card at a time (and the settled ones, if asked); search is a look-around, not a step
+    // of the process — it shows everything (monolith)
+    const fr = CT.tab === "files" ? ccFront(i) : null, all = cards;
+    let frbar = "";
+    if (fr && open && all.length) {
+      const done = all.filter(k => k.done).length, total = all.length, pct = Math.round(done / total * 100);
+      const solved = done === total, frontOn = fr.on && !q;
+      frbar = `<div class="frbar"><span class="prog"><span>решено ${done} из ${total}</span><span class="bar"><i style="width:${pct}%"></i></span>${solved ? `<span class="solved">контекст решён ✓</span>` : ""}</span>` +
+        `<button data-front="${i}" class="${fr.on ? "on" : ""}" title="Фронт решений: по одной цепочке за раз — следующая та, что больше всего связана с уже решёнными. Решил — открывается следующая">${fr.on ? "■ фронт решений" : "▶ фронт решений"}</button>` +
+        (fr.on ? `<button data-front-done="${i}" class="${fr.showDone ? "on" : ""}" title="Показывать и решённые цепочки">✓ решённые</button>` : "") +
+        (fr.on && fr.skip.size ? `<button data-front-unskip="${i}" title="Вернуть отложенные во фронт">отложено: ${fr.skip.size} ↺</button>` : "") + `</div>`;
+      if (frontOn) cards = all.filter(k => k.front || (fr.showDone && k.done));
+    }
     const cnt = GEN() ? `${c.chains} цеп. · ${c.participants} уч. · ${num(c.targets)} цел.${c.unresolved ? ` · ⚠️ ${num(c.unresolved)}` : ""}`
       : CT.tab === "records" ? `${c.chains} цеп. · ${c.plugins} пл. · ${num(c.records)} зап.${c.blind ? ` · ⚠️ ${num(c.blind)}` : ""}`
       : `${c.chains} цеп. · ${c.mods} модов · ${num(c.files)} ф.`;
     html += `<div class="cx${i === cur ? " cur" : ""}" data-cx="${i}" style="border-left:3px solid hsl(${c.hue} 65% 55%)"><div class="h"><span>${open ? "▾" : "▸"}</span>` +
       `<b title="${esc(c.name)}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)}</b><span class="n">${cnt}</span></div>` +
       (open && CT.tab === "files" ? (() => { const cm = [...new Set(cards.flatMap(k => k.common || []))]; return cm.length ? `<div class="common" title="Моды больше чем в четверти цепочек контекста: связывают почти всё со всем, поэтому мостами не считаются">общие для контекста (не мосты): ${esc(cm.join(", "))}</div>` : ""; })() : "") +
-      (open ? `<div class="cards">${cards.map(k => { const h = ccCard(i, k); CC.prevIx = k.index; return h; }).join("")}</div>` : "") + `</div>`;
+      frbar + (open ? `<div class="cards">${cards.map(k => { const h = ccCard(i, k); CC.prevIx = k.index; return h; }).join("")}</div>` : "") + `</div>`;
     CC.prevIx = null;
   }
   if (CT.contexts.length > n) html += `<div class="n" style="color:var(--muted);font-size:12px">ещё ${CT.contexts.length - n} контекстов — в списке «Контекст» сверху</div>`;
@@ -1130,7 +1155,22 @@ function ccTeeth(cv) {
 async function ccSelectContext(i) {
   if (CT.tab !== "files") { if (CT.rctx === i) return; CT.rctx = i; }
   else { const c = CT.contexts[i]; if (!c || c.key === null || +$("ctCtx").value === i) return; CT.key = c.key; }
-  CT.selChain = null; $("ctCtx").value = String(i); $("ctScroll").scrollTo(0, 0); await ctSync(false);
+  CT.selChain = null; CT.only = ccFront(i).on ? CT.only : null; $("ctCtx").value = String(i); $("ctScroll").scrollTo(0, 0); await ctSync(false);
+}
+// Open and select the card the front points to in context `i`; with the front on, the table shows only its mods.
+async function ccFocusFront(i) {
+  await ccSelectContext(i);
+  CC.open.add(ccId(i));
+  const cards = await ccFetch(i), f = cards.find(k => k.front), fr = ccFront(i);
+  CT.only = fr.on && f ? f.index : null;
+  // the monolith's matrix: the focused chain's columns first, the rest by activity around it
+  if (fr.on && CT.order !== "activity") { CT.order = "activity"; $("ctOrder").value = "activity"; }
+  if (!f) { CC.sel = null; CT.selChain = null; await ctCards(); ctSync(false); return; }
+  const id = ccId(i) + ":" + f.index;
+  CC.shown.add(id); CC.sel = id;
+  await ccDetail(i, f.index); await ctCards();
+  const el = $("ctCards").querySelector(`.cc[data-cx="${i}"][data-ix="${f.index}"]`); if (el) el.scrollIntoView({ block: "nearest" });
+  await ccGoChain(i, f.index);
 }
 async function ccGoChain(i, ix) {
   await ccSelectContext(i);
@@ -1167,11 +1207,22 @@ $("ctCards").addEventListener("click", async ev => {
   if (done) {
     ev.stopPropagation();
     await run({ type: "set-chain-done", signature: done.dataset.done, done: done.dataset.v === "1" });
-    if (done.dataset.v === "1") { CC.last = done.dataset.done; const c = done.closest(".cc"); if (c) CC.shown.delete(ccId(+c.dataset.cx) + ":" + c.dataset.ix); }
-    CC.cards.clear(); await ctCards(); ctSync(false);
+    const c = done.closest(".cc"), ci = c ? +c.dataset.cx : ccCur();
+    if (done.dataset.v === "1") { ccFront(ci).last = done.dataset.done; if (c) CC.shown.delete(ccId(ci) + ":" + c.dataset.ix); }
+    CC.cards.clear(); CC.det.clear(); await ctCards(); ctSync(false);
     // the solution front: open the next card it points to
-    if (done.dataset.v === "1") { const f = $("ctCards").querySelector(".cc.front > .h"); if (f) { f.click(); f.scrollIntoView({ block: "nearest" }); } }
+    if (done.dataset.v === "1") await ccFocusFront(ci);
     return;
+  }
+  const fb = ev.target.closest("button[data-front],button[data-front-done],button[data-front-unskip],button[data-skip]");
+  if (fb) {
+    ev.stopPropagation();
+    if (fb.dataset.skip) { const ci = +fb.dataset.cx; ccFront(ci).skip.add(fb.dataset.skip); CC.cards.delete(ccId(ci)); CC.shown.clear(); await ccFocusFront(ci); return; }
+    const ci = +(fb.dataset.front ?? fb.dataset.frontDone ?? fb.dataset.frontUnskip), fr = ccFront(ci);
+    if (fb.dataset.front !== undefined) { fr.on = !fr.on; if (fr.on) { CC.shown.clear(); await ccFocusFront(ci); return; } CT.only = null; ctSync(false); }
+    else if (fb.dataset.frontDone !== undefined) fr.showDone = !fr.showDone;
+    else { fr.skip.clear(); CC.cards.delete(ccId(ci)); if (fr.on) { await ccFocusFront(ci); return; } }
+    await ctCards();
   }
   const stk = ev.target.closest(".stk");
   if (stk) {

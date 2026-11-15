@@ -141,7 +141,12 @@ impl App {
     // @sat:app.cards.files
     /// Cards of the file context of mod `key`; `last` — the signature of the chain settled last, which steers the
     /// solution front.
-    pub(crate) fn context_cards(&mut self, key: Key, last: Option<&str>) -> Option<Vec<ChainCard>> {
+    pub(crate) fn context_cards(
+        &mut self,
+        key: Key,
+        last: Option<&str>,
+        skip: &[String],
+    ) -> Option<Vec<ChainCard>> {
         let cx = self.context_of(key)?;
         let ow = self.session.overwrite();
         let table = self.session.table().clone();
@@ -225,6 +230,7 @@ impl App {
                 mods: u,
                 files: c.files,
                 done: c.done,
+                skipped: skip.contains(&c.signature),
             })
             .collect();
         let last = last.and_then(|l| cards.iter().position(|c| c.signature == l));
@@ -458,7 +464,13 @@ mod tests {
 
     fn cards(a: &mut crate::App) -> Vec<super::ChainCard> {
         let key = a.session().book().key_of("A").unwrap();
-        let Reply::ChainCards { cards: Some(c) } = a.query(Query::ContextCards { key, last: None }).unwrap()
+        let Reply::ChainCards { cards: Some(c) } = a
+            .query(Query::ContextCards {
+                key,
+                last: None,
+                skip: vec![],
+            })
+            .unwrap()
         else {
             panic!()
         };
@@ -547,6 +559,56 @@ mod tests {
     }
 
     #[test]
+    fn the_front_shows_only_the_focused_chains_mods_and_passes_put_off_cards_by() {
+        let mut a = crate::tests::app_from(vec![
+            mk("A", &["x.dds", "y.dds"]),
+            mk("B", &["x.dds"]),
+            mk("C", &["y.dds", "z.dds"]),
+            mk("D", &["z.dds"]),
+        ]);
+        let key = a.session().book().key_of("A").unwrap();
+        let rows = |a: &mut crate::App, only: Option<u32>| {
+            let Reply::ContextTable { table: Some(t) } = a
+                .query(Query::ContextTable {
+                    key,
+                    order: crate::ColumnOrder::Chain,
+                    focus: None,
+                    only,
+                    row_start: 0,
+                    row_count: 99,
+                    col_start: 0,
+                    col_count: 99,
+                })
+                .unwrap()
+            else {
+                panic!()
+            };
+            t.rows
+                .iter()
+                .filter(|r| !r.header)
+                .map(|r| r.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rows(&mut a, None), ["A", "B", "C", "D"]);
+        assert_eq!(rows(&mut a, Some(2)), ["C", "D"], "card 3 (z): its mods only");
+        // the front points at a card; putting it off moves the front on
+        let c = cards(&mut a);
+        let f = c.iter().find(|k| k.front).unwrap().signature.clone();
+        let Reply::ChainCards { cards: Some(c2) } = a
+            .query(Query::ContextCards {
+                key,
+                last: None,
+                skip: vec![f.clone()],
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        let f2 = c2.iter().find(|k| k.front).unwrap();
+        assert_ne!(f2.signature, f);
+    }
+
+    #[test]
     fn bridged_chains_sit_together_and_the_user_merges_splits_and_resets() {
         // x: B over A, y: C over A, z: D over C — three winners, bridges A (x–y) and C (y–z)
         let mut a = crate::tests::app_from(vec![
@@ -609,8 +671,13 @@ mod tests {
     fn a_file_context_gives_one_card_per_chain_with_teeth_per_path() {
         let mut a = crate::tests::app_of(["A", "B"]);
         let key = a.session.book().key_of("A").unwrap();
-        let Reply::ChainCards { cards: Some(cards) } =
-            a.query(Query::ContextCards { key, last: None }).unwrap()
+        let Reply::ChainCards { cards: Some(cards) } = a
+            .query(Query::ContextCards {
+                key,
+                last: None,
+                skip: vec![],
+            })
+            .unwrap()
         else {
             panic!()
         };

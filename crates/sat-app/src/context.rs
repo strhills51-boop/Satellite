@@ -298,6 +298,7 @@ impl App {
         key: Key,
         order: ColumnOrder,
         focus: Option<u32>,
+        only: Option<u32>,
         rows: (usize, usize),
         cols: (usize, usize),
     ) -> Option<ContextTable> {
@@ -340,12 +341,35 @@ impl App {
             cols.0.saturating_add(cols.1).min(oc.cols.len()),
         );
         let window = &oc.cols[c0..c1];
+        // the solution front: only the mods of the focused chain (monolith: rows in focus)
+        let kept: Option<Vec<RowItem>> = only.map(|f| {
+            let mut members: rustc_hash::FxHashSet<ModId> = Default::default();
+            for (_, ci, st) in &oc.cols {
+                if *ci == f {
+                    members.extend(st.members(&ow));
+                }
+            }
+            let mut out: Vec<RowItem> = Vec::new();
+            let mut header: Option<RowItem> = None;
+            for &r in &oc.rows {
+                match r {
+                    RowItem::Header(_) => header = Some(r),
+                    RowItem::Mod(m, ..) if members.contains(&m) => {
+                        out.extend(header.take());
+                        out.push(r);
+                    }
+                    RowItem::Mod(..) => {}
+                }
+            }
+            out
+        });
+        let all_rows: &[RowItem] = kept.as_deref().unwrap_or(&oc.rows);
         let (r0, r1) = (
-            rows.0.min(oc.rows.len()),
-            rows.0.saturating_add(rows.1).min(oc.rows.len()),
+            rows.0.min(all_rows.len()),
+            rows.0.saturating_add(rows.1).min(all_rows.len()),
         );
         let sep_name = |k: Key| book.name(k).trim_end_matches("_separator").to_string();
-        let row_views = oc.rows[r0..r1]
+        let row_views = all_rows[r0..r1]
             .iter()
             .map(|&item| {
                 let (rm, wins, loses, owned) = match item {
@@ -386,7 +410,7 @@ impl App {
         Some(ContextTable {
             name: self.context_name(&ow, context),
             hue: id.hue,
-            rows_total: oc.rows.len(),
+            rows_total: all_rows.len(),
             cols_total: oc.cols.len(),
             chains: {
                 let mut ids: Vec<u32> = window.iter().map(|(_, ci, _)| *ci).collect();
@@ -670,6 +694,7 @@ mod tests {
                 key,
                 order,
                 focus: None,
+                only: None,
                 row_start: 0,
                 row_count: 10,
                 col_start: cols.0,

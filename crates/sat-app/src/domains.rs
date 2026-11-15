@@ -919,6 +919,7 @@ mod tests {
                 key,
                 order: crate::ColumnOrder::Chain,
                 focus: None,
+                only: None,
                 row_start: 0,
                 row_count: 10,
                 col_start: 0,

@@ -321,6 +321,9 @@ pub enum Query {
         /// The chain settled last (its signature): the solution front picks the next card near it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last: Option<String>,
+        /// Chains put off for now (signatures): the front passes them by as if settled.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        skip: Vec<String>,
     },
     /// Details of chain card `index` of the file context of mod `key`: members with teeth, the first `limit` paths.
     ContextCard {
@@ -346,6 +349,9 @@ pub enum Query {
         /// The selected chain (index into the context's chains): `Activity` puts its stacks first.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         focus: Option<u32>,
+        /// Only the rows of this chain's mods (the solution front).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        only: Option<u32>,
         row_start: usize,
         row_count: usize,
         col_start: usize,
@@ -1533,8 +1539,8 @@ impl App {
                     )
                     .map(Box::new),
             },
-            Query::ContextCards { key, last } => Reply::ChainCards {
-                cards: self.context_cards(key, last.as_deref()),
+            Query::ContextCards { key, last, skip } => Reply::ChainCards {
+                cards: self.context_cards(key, last.as_deref(), &skip),
             },
             Query::OrderAdvice {
                 key,
@@ -1570,13 +1576,21 @@ impl App {
                 key,
                 order,
                 focus,
+                only,
                 row_start,
                 row_count,
                 col_start,
                 col_count,
             } => Reply::ContextTable {
                 table: self
-                    .context_table(key, order, focus, (row_start, row_count), (col_start, col_count))
+                    .context_table(
+                        key,
+                        order,
+                        focus,
+                        only,
+                        (row_start, row_count),
+                        (col_start, col_count),
+                    )
                     .map(Box::new),
             },
             // @sat:app.decoration

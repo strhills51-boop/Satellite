@@ -57,7 +57,14 @@ impl App {
         current_truth: bool,
         locked: &[Key],
     ) -> Option<OrderAdvice> {
-        let t = self.context_table(key, crate::ColumnOrder::Chain, None, (0, usize::MAX), (0, 0))?;
+        let t = self.context_table(
+            key,
+            crate::ColumnOrder::Chain,
+            None,
+            None,
+            (0, usize::MAX),
+            (0, 0),
+        )?;
         let rows: Vec<crate::TableRow> = t.rows.into_iter().filter(|r| !r.header).collect();
         // warnings from the paths each mod has in the context
         let cx = self.context_of(key)?;
