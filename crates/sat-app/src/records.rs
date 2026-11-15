@@ -277,6 +277,7 @@ impl App {
                     wins: st.wins,
                     loses: st.loses,
                     cells,
+                    owned: 0,
                 }
             })
             .collect();

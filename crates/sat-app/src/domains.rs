@@ -443,6 +443,7 @@ impl App {
             stack: labels.iter().map(|s| s.to_string()).collect(),
             blind: false,
             equal: None,
+            ..Default::default()
         }
     }
 
@@ -488,6 +489,7 @@ impl App {
                     teeth,
                     wins,
                     loses,
+                    ..Default::default()
                 }
             })
             .collect();
@@ -523,8 +525,8 @@ impl App {
                 let table = self.session.table().clone();
                 let heads = self.heads();
                 let g = *crate::context::context_groups(&ow, &heads, cx).get(chain)?;
-                let c = *crate::context::group_stacks(&ow, &heads[g as usize]).get(stack)?;
-                Some(cut(crate::context::stack_paths(&ow, &table, c)))
+                let st = crate::participants::head_stacks(&ow, &table, &heads[g as usize], None);
+                Some(cut(st.get(stack)?.path_strings(&table)))
             }
             "records" => {
                 let r = &self.records;
@@ -640,6 +642,7 @@ impl App {
                         wins: 0,
                         loses: 0,
                         cells: String::new(),
+                        owned: 0,
                     }
                 }
                 Some(p) => {
@@ -678,6 +681,7 @@ impl App {
                         wins,
                         loses,
                         cells,
+                        owned: 0,
                     }
                 }
             })
@@ -910,6 +914,7 @@ mod tests {
             .query(Query::ContextTable {
                 key,
                 order: crate::ColumnOrder::Chain,
+                focus: None,
                 row_start: 0,
                 row_count: 10,
                 col_start: 0,

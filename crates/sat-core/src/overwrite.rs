@@ -958,6 +958,50 @@ impl OverwriteProjection {
         sets.iter().map(|s| s.len() as u32).collect()
     }
 
+    // @sat:overwrite.owners
+    /// Owners of path `p` that are **not** in its stack: mods that provide it but are disabled (or out of the list),
+    /// as units, in table order. The monolith counts them as owners of the path (its `route` holds every owner, the
+    /// winner is the last enabled one, `08-conflicts.md` §4.2–4.3); NG keeps conflicts on the active stack — chain
+    /// identity does not flip when a mod is switched — and shows these owners beside it (`@sat:app.participants`).
+    pub fn idle_owners(&self, table: &ProviderTable, p: PathId) -> Vec<ModId> {
+        let stack: &[ModId] = self.path_chain(p).map_or(&[], |c| self.chain_mods(c));
+        let mut out: Vec<ModId> = Vec::new();
+        for i in table.path_providers(p) {
+            let raw = table.owner(i);
+            let m = self.units.rep(raw);
+            if !self.priorities.is_active(raw) && !stack.contains(&m) && !out.contains(&m) {
+                out.push(m);
+            }
+        }
+        out
+    }
+
+    /// Contested paths mod `m` provides, whatever its state (the monolith's `conflictPaths` of a mod; a chain
+    /// participant's "extra" is this minus what it owns in the chain).
+    pub fn contested_of(&self, m: ModId) -> usize {
+        self.index.slots_of(m).len()
+    }
+
+    /// The paths of every chain of context `cx` in one pass over its mods' contested paths (`chain_paths` per chain
+    /// would scan a big winner's paths once per chain).
+    pub fn context_chain_paths(&self, cx: ContextId) -> rustc_hash::FxHashMap<ChainId, Vec<PathId>> {
+        let mut out: rustc_hash::FxHashMap<ChainId, Vec<PathId>> = Default::default();
+        let Some(context) = self.contexts().get(cx.idx()) else {
+            return out;
+        };
+        for &m in &context.mods {
+            for &s in self.index.slots_of(m) {
+                let c = self.slot_chain[s as usize];
+                if c != NONE && self.chain_mods(ChainId(c)).first() == Some(&m) {
+                    out.entry(ChainId(c))
+                        .or_default()
+                        .push(self.index.contested[s as usize]);
+                }
+            }
+        }
+        out
+    }
+
     /// Stack of the chain, winner first.
     pub fn chain_mods(&self, c: ChainId) -> &[ModId] {
         let r = &self.chains[c.idx()];

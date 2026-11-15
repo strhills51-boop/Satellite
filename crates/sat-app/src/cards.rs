@@ -10,12 +10,13 @@
 
 use serde::{Deserialize, Serialize};
 
+use sat_core::ids::ModId;
 use sat_core::order::Key;
 
 use crate::App;
 
 /// One chain of a context.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ChainCard {
     /// Place in the context's chain order (the table's chain band).
     pub index: u32,
@@ -29,6 +30,12 @@ pub struct ChainCard {
     pub bytes: u64,
     /// Members, the lowest first, the winner last.
     pub stack: Vec<String>,
+    /// Disabled mods that own paths of the chain (`@sat:app.participants`), list order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub idle: Vec<String>,
+    /// The solution front points here: the unsettled chain to look at next (`@sat:front`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub front: bool,
     /// Records: a later plugin overrides an earlier one without having it as a master.
     #[serde(default)]
     pub blind: bool,
@@ -38,16 +45,25 @@ pub struct ChainCard {
 }
 
 /// A member of a chain with one tooth per path or record of the chain (in the details' order).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CardMember {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<Key>,
     pub enabled: bool,
-    /// `w` wins, `l` loses, `s` equal to the winner, `o` the record's own plugin, `-` not there.
+    /// `w` wins, `l` loses, `u` owns it while disabled, `s` equal to the winner, `o` the record's own plugin, `-`
+    /// not there (the monolith's `m`, missing).
     pub teeth: String,
     pub wins: u32,
     pub loses: u32,
+    /// The monolith's chain participant (`08-conflicts.md` §3.4): targets of the chain it has, has not, and its
+    /// conflict targets outside the chain. Files only; other domains leave them zero.
+    #[serde(default)]
+    pub owned: u32,
+    #[serde(default)]
+    pub missing: u32,
+    #[serde(default)]
+    pub extra: u32,
 }
 
 /// What a card shows open.
@@ -84,45 +100,73 @@ pub(crate) fn tally(teeth: &str, counts: &[u32]) -> (u32, u32) {
 
 impl App {
     // @sat:app.cards.files
-    /// Cards of the file context of mod `key`.
-    pub(crate) fn context_cards(&mut self, key: Key) -> Option<Vec<ChainCard>> {
+    /// Cards of the file context of mod `key`; `last` — the signature of the chain settled last, which steers the
+    /// solution front.
+    pub(crate) fn context_cards(&mut self, key: Key, last: Option<&str>) -> Option<Vec<ChainCard>> {
         let cx = self.context_of(key)?;
         let ow = self.session.overwrite();
         let table = self.session.table().clone();
         let heads = self.heads();
         let decisions = self.session.decisions();
         let groups = crate::context::context_groups(&ow, &heads, cx);
-        Some(
-            groups
-                .iter()
-                .enumerate()
-                .map(|(i, &g)| {
-                    let h = &heads[g as usize];
-                    ChainCard {
-                        index: i as u32,
-                        signature: h.hex(),
-                        done: h.done(decisions),
-                        emoji: h.emoji.clone(),
-                        hue: h.hue,
-                        name: h.name.clone(),
-                        files: h.files,
-                        bytes: h.bytes,
-                        stack: h
-                            .route
-                            .iter()
-                            .rev()
-                            .map(|&m| self.session.unit_label(m).to_string())
-                            .collect(),
-                        blind: false,
-                        equal: crate::chains::chain_content(&table, &self.content_hashes, &ow, &h.chains)
-                            .map(|c| c.equal_files),
-                    }
-                })
-                .collect(),
-        )
+        let paths_of = ow.context_chain_paths(cx);
+        let book = self.session.book();
+        let pos_of = |m: ModId| book.key_of(table.mod_name(m)).map_or(usize::MAX, |k| book.pos(k));
+        let mut cards: Vec<ChainCard> = Vec::with_capacity(groups.len());
+        let mut units: Vec<Vec<u32>> = Vec::with_capacity(groups.len());
+        for (i, &g) in groups.iter().enumerate() {
+            let h = &heads[g as usize];
+            let stacks = crate::participants::head_stacks(&ow, &table, h, Some(&paths_of));
+            let mut idle: Vec<ModId> = stacks.iter().flat_map(|s| s.idle.iter().copied()).collect();
+            idle.sort_by_key(|&m| (pos_of(m), m));
+            idle.dedup();
+            let mut us: Vec<u32> = h.route.iter().chain(&idle).map(|m| m.0).collect();
+            us.sort_unstable();
+            units.push(us);
+            cards.push(ChainCard {
+                index: i as u32,
+                signature: h.hex(),
+                done: h.done(decisions),
+                emoji: h.emoji.clone(),
+                hue: h.hue,
+                name: h.name.clone(),
+                files: h.files,
+                bytes: h.bytes,
+                stack: h
+                    .route
+                    .iter()
+                    .rev()
+                    .map(|&m| self.session.unit_label(m).to_string())
+                    .collect(),
+                idle: idle
+                    .iter()
+                    .map(|&m| self.session.unit_label(m).to_string())
+                    .collect(),
+                front: false,
+                blind: false,
+                equal: crate::chains::chain_content(&table, &self.content_hashes, &ow, &h.chains)
+                    .map(|c| c.equal_files),
+            });
+        }
+        // @sat:app.cards.front
+        let front: Vec<sat_core::front::Card<'_>> = cards
+            .iter()
+            .zip(&units)
+            .map(|(c, u)| sat_core::front::Card {
+                mods: u,
+                files: c.files,
+                done: c.done,
+            })
+            .collect();
+        let last = last.and_then(|l| cards.iter().position(|c| c.signature == l));
+        if let Some(f) = sat_core::front::pick(&front, last) {
+            cards[f].front = true;
+        }
+        Some(cards)
     }
 
-    /// Details of card `index` of the file context of mod `key`.
+    /// Details of card `index` of the file context of mod `key`: members in list order — the active stack and the
+    /// disabled owners — with a tooth per owner stack and the monolith's W / L / M / X.
     pub(crate) fn context_card(&mut self, key: Key, index: usize, limit: usize) -> Option<ChainCardDetail> {
         let cx = self.context_of(key)?;
         let ow = self.session.overwrite();
@@ -130,25 +174,19 @@ impl App {
         let heads = self.heads();
         let g = *crate::context::context_groups(&ow, &heads, cx).get(index)?;
         let h = &heads[g as usize];
-        // a tooth per stack: an exact chain's paths go through the chain the same way
-        let stacks = crate::context::group_stacks(&ow, h);
+        let stacks = crate::participants::head_stacks(&ow, &table, h, None);
         let shown = &stacks[..stacks.len().min(limit)];
-        let counts: Vec<u32> = shown.iter().map(|&c| ow.chain(c).files).collect();
+        let counts: Vec<u32> = shown.iter().map(|s| s.files()).collect();
         let book = self.session.book();
-        let members = h
-            .route
+        let pos_of = |m: ModId| book.key_of(table.mod_name(m)).map_or(usize::MAX, |k| book.pos(k));
+        let mut all: Vec<ModId> = stacks.iter().flat_map(|s| s.members(&ow)).collect();
+        all.sort_by_key(|&m| (pos_of(m), m));
+        all.dedup();
+        let members = all
             .iter()
-            .rev()
             .map(|&m| {
-                let teeth: String = shown
-                    .iter()
-                    .map(|&c| match ow.chain_mods(c).iter().position(|&x| x == m) {
-                        Some(0) => 'w',
-                        Some(_) => 'l',
-                        None => '-',
-                    })
-                    .collect();
-                let (wins, loses) = tally(&teeth, &counts);
+                let teeth: String = shown.iter().map(|s| s.cell(&ow, m)).collect();
+                let t = crate::participants::tally(&ow, &stacks, m, h.files);
                 let name = self.session.unit_label(m).to_string();
                 let key = book.key_of(table.mod_name(m));
                 CardMember {
@@ -156,8 +194,11 @@ impl App {
                     key,
                     name,
                     teeth,
-                    wins,
-                    loses,
+                    wins: t.wins,
+                    loses: t.loses,
+                    owned: t.owned,
+                    missing: t.missing,
+                    extra: t.extra,
                 }
             })
             .collect();
@@ -166,7 +207,7 @@ impl App {
             members,
             items: shown
                 .iter()
-                .map(|&c| crate::context::stack_label(&crate::context::stack_paths(&ow, &table, c)))
+                .map(|s| crate::context::stack_label(&s.path_strings(&table)))
                 .collect(),
             counts,
             items_total: stacks.len(),
@@ -206,6 +247,7 @@ impl App {
                         stack: c.stack.clone(),
                         blind: c.blind,
                         equal: Some(c.equal_to_winner),
+                        ..Default::default()
                     }
                 })
                 .collect(),
@@ -232,6 +274,7 @@ impl App {
                     teeth,
                     wins,
                     loses,
+                    ..Default::default()
                 }
             })
             .collect();
@@ -288,7 +331,9 @@ mod tests {
     fn a_file_context_gives_one_card_per_chain_with_teeth_per_path() {
         let mut a = crate::tests::app_of(["A", "B"]);
         let key = a.session.book().key_of("A").unwrap();
-        let Reply::ChainCards { cards: Some(cards) } = a.query(Query::ContextCards { key }).unwrap() else {
+        let Reply::ChainCards { cards: Some(cards) } =
+            a.query(Query::ContextCards { key, last: None }).unwrap()
+        else {
             panic!()
         };
         assert_eq!(cards.len(), 1);

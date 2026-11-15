@@ -10,16 +10,25 @@
 
 use std::sync::Arc;
 
+mod advisor;
 mod cards;
 mod chains;
 mod context;
 mod domains;
 pub mod find;
+mod participants;
 pub mod records;
 pub mod sheet;
 mod sync;
+mod tree;
+pub use advisor::{AdviceRow, OrderAdvice};
 pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
+pub use tree::TreeEntry;
+
+fn yes() -> bool {
+    true
+}
 pub use domains::{DomainContextItem, DomainItem, DomainState, FileReader};
 pub use sync::{Decision, RecordView};
 
@@ -58,6 +67,11 @@ pub enum Command {
     ShiftSelection {
         view: ViewId,
         how: Shift,
+    },
+    /// Puts mods in this relative order among their own places, separator by separator (the order advisor's
+    /// plan, `@sat:app.reorder`); one undo step.
+    Reorder {
+        keys: Vec<Key>,
     },
     Move {
         keys: Vec<Key>,
@@ -290,6 +304,9 @@ pub enum Query {
     /// Chain cards of the file context of mod `key` (`@sat:app.cards.files`).
     ContextCards {
         key: Key,
+        /// The chain settled last (its signature): the solution front picks the next card near it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last: Option<String>,
     },
     /// Details of chain card `index` of the file context of mod `key`: members with teeth, the first `limit` paths.
     ContextCard {
@@ -312,10 +329,31 @@ pub enum Query {
         key: Key,
         #[serde(default)]
         order: ColumnOrder,
+        /// The selected chain (index into the context's chains): `Activity` puts its stacks first.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focus: Option<u32>,
         row_start: usize,
         row_count: usize,
         col_start: usize,
         col_count: usize,
+    },
+    /// The order advisor for the file context of mod `key` (`@sat:app.advisor`).
+    OrderAdvice {
+        key: Key,
+        #[serde(default)]
+        strictness: sat_core::advisor::Strictness,
+        /// Blend the current order into the score (the monolith's default).
+        #[serde(default = "yes")]
+        current_truth: bool,
+        /// Mods that keep their places.
+        #[serde(default)]
+        locked: Vec<Key>,
+    },
+    /// One folder of a mod's files with the conflict overlay (`@sat:app.tree`).
+    ModTree {
+        key: Key,
+        #[serde(default)]
+        dir: String,
     },
     /// What the decoration editor edits: the mods of the view's selection (the focused one when none) and
     /// their distinct styles with counts, so the editor can mark fields that differ ("mixed").
@@ -648,6 +686,12 @@ pub enum Reply {
     ChainCards {
         cards: Option<Vec<ChainCard>>,
     },
+    OrderAdvice {
+        advice: Option<OrderAdvice>,
+    },
+    ModTree {
+        entries: Vec<TreeEntry>,
+    },
     ChainCard {
         card: Option<Box<ChainCardDetail>>,
     },
@@ -818,6 +862,10 @@ impl App {
                     None => before,
                 };
                 self.session.command(|b| b.move_keys(&keys, before))?
+            }
+            C::Reorder { keys } => {
+                let items = self.reorder_items(&keys);
+                self.session.command(|b| b.place_keys(&items))?
             }
             C::SetEnabled { keys, enabled } => self.session.command(|b| b.set_enabled(&keys, enabled))?,
             C::SetColor { keys, color } => self.session.command(|b| b.set_color(&keys, color))?,
@@ -1376,8 +1424,19 @@ impl App {
                     )
                     .map(Box::new),
             },
-            Query::ContextCards { key } => Reply::ChainCards {
-                cards: self.context_cards(key),
+            Query::ContextCards { key, last } => Reply::ChainCards {
+                cards: self.context_cards(key, last.as_deref()),
+            },
+            Query::OrderAdvice {
+                key,
+                strictness,
+                current_truth,
+                locked,
+            } => Reply::OrderAdvice {
+                advice: self.order_advice(key, strictness, current_truth, &locked),
+            },
+            Query::ModTree { key, dir } => Reply::ModTree {
+                entries: self.mod_tree(key, &dir).unwrap_or_default(),
             },
             Query::ContextCard { key, index, limit } => Reply::ChainCard {
                 card: self.context_card(key, index, limit.min(5000)).map(Box::new),
@@ -1398,13 +1457,14 @@ impl App {
             Query::ContextTable {
                 key,
                 order,
+                focus,
                 row_start,
                 row_count,
                 col_start,
                 col_count,
             } => Reply::ContextTable {
                 table: self
-                    .context_table(key, order, (row_start, row_count), (col_start, col_count))
+                    .context_table(key, order, focus, (row_start, row_count), (col_start, col_count))
                     .map(Box::new),
             },
             // @sat:app.decoration

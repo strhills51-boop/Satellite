@@ -1,8 +1,9 @@
 //! The conflict context table (monolith "Модалка конфликтов" with the colour-types flag). @sat:app.context-table
 //!
 //! Owns: the list of contexts for the selector, and the table window of one context — rows are the context's mods
-//! (priority order, grouped by separator), columns are its conflict paths (by chain or by strength), a cell says
-//! whether the row's mod wins that path, loses it, or does not take part.
+//! and the disabled mods that own its paths (list order, grouped by separator), columns are its owner stacks
+//! (`@sat:app.participants`: by chain, by strength, or by the monolith's activity score around a selected chain), a
+//! cell says whether the row's mod wins the stack, loses it, owns it while disabled, or does not take part.
 //! Not here: chains, contexts and stacks (`@sat:overwrite.projection`), colours of file types (the page).
 //!
 //! Both axes come in windows: a context of 300 mods × 40 000 paths is never sent whole. A chain is one exact stack,
@@ -11,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use sat_core::ids::{ChainId, ContextId, ModId};
+use sat_core::ids::{ContextId, ModId};
 use sat_core::order::Key;
 
 use crate::App;
@@ -25,6 +26,11 @@ pub enum ColumnOrder {
     Chain,
     /// Deeper stacks first (more mods fight for the path), then by chain.
     Strength,
+    /// The monolith's matrix around a selected chain (S17 147 956, `activityScore`): the selected chain's stacks
+    /// first, then every stack by `strong·100 + linked·70 + owned·30 + present·10` — strong are wins and losses
+    /// inside the selected chain, linked outside it, owned the disabled owners, present everyone in the stack.
+    /// Without a selection every cell is strong.
+    Activity,
 }
 
 /// One context in the selector.
@@ -68,7 +74,10 @@ pub struct TableRow {
     /// Paths of the context this mod wins / loses (whole row, not the window).
     pub wins: u32,
     pub loses: u32,
-    /// One char per column of the window: `w` wins, `l` loses, `-` not in the path's stack.
+    /// Paths of the context it owns while disabled.
+    #[serde(default)]
+    pub owned: u32,
+    /// One char per column of the window: `w` wins, `l` loses, `u` owns it while disabled, `-` not there.
     pub cells: String,
 }
 
@@ -170,9 +179,11 @@ pub(crate) struct OpenContext {
     order: ColumnOrder,
     /// Normalized chains in column order, and their headings.
     heads: Vec<TableChain>,
-    /// Columns: (the stack's place in its normalized chain, index into `heads`, the exact chain — its stack gives
-    /// the cells).
-    cols: Vec<(u32, u32, ChainId)>,
+    /// Selected chain (index into `heads`) the `Activity` order was computed for.
+    focus: Option<u32>,
+    /// Columns: (the stack's place in its normalized chain, index into `heads`, the owner stack — it gives the
+    /// cells).
+    cols: Vec<(u32, u32, crate::participants::OwnerStack)>,
     chain_starts: Vec<u32>,
     /// Rows: separator headings and context mods with wins / loses.
     rows: Vec<RowItem>,
@@ -181,7 +192,8 @@ pub(crate) struct OpenContext {
 #[derive(Debug, Clone, Copy)]
 enum RowItem {
     Header(Option<Key>),
-    Mod(ModId, u32, u32),
+    /// A mod with its wins, losses and owned-while-disabled paths in the context.
+    Mod(ModId, u32, u32, u32),
 }
 
 impl App {
@@ -288,22 +300,40 @@ impl App {
         &mut self,
         key: Key,
         order: ColumnOrder,
+        focus: Option<u32>,
         rows: (usize, usize),
         cols: (usize, usize),
     ) -> Option<ContextTable> {
         let ow = self.session.overwrite();
         let table = self.session.table().clone();
         let cx = self.context_of(key)?;
-        let fresh = self
-            .open_context
-            .as_ref()
-            .is_some_and(|o| o.revision == self.revision && o.context == cx && o.order == order);
+        let fresh = self.open_context.as_ref().is_some_and(|o| {
+            o.revision == self.revision
+                && o.context == cx
+                && o.order == order
+                && (order != ColumnOrder::Activity || o.focus == focus)
+        });
         if !fresh {
             let heads = self.heads();
             let decisions = self.session.decisions();
             let book = self.session.book();
             let sep_of = |m: ModId| book.key_of(table.mod_name(m)).and_then(|k| book.separator_of(k));
-            self.open_context = Some(open(&ow, &heads, decisions, &sep_of, cx, order, self.revision));
+            let pos_of = |m: ModId| book.key_of(table.mod_name(m)).map_or(usize::MAX, |k| book.pos(k));
+            let lists = Lists {
+                sep_of: &sep_of,
+                pos_of: &pos_of,
+            };
+            self.open_context = Some(open(
+                &ow,
+                &table,
+                &heads,
+                decisions,
+                &lists,
+                cx,
+                order,
+                focus,
+                self.revision,
+            ));
         }
         let oc = self.open_context.as_ref().expect("opened");
         let context = &ow.contexts()[cx.idx()];
@@ -321,8 +351,8 @@ impl App {
         let row_views = oc.rows[r0..r1]
             .iter()
             .map(|&item| {
-                let (rm, wins, loses) = match item {
-                    RowItem::Mod(m, w, l) => (m, w, l),
+                let (rm, wins, loses, owned) = match item {
+                    RowItem::Mod(m, w, l, u) => (m, w, l, u),
                     RowItem::Header(k) => {
                         return TableRow {
                             header: true,
@@ -333,22 +363,14 @@ impl App {
                             enabled: true,
                             wins: 0,
                             loses: 0,
+                            owned: 0,
                             cells: String::new(),
                         };
                     }
                 };
                 let name = table.mod_name(rm).to_string();
                 let key = book.key_of(&name);
-                let cells = window
-                    .iter()
-                    .map(
-                        |&(_, _, c)| match ow.chain_mods(c).iter().position(|&x| x == rm) {
-                            Some(0) => 'w',
-                            Some(_) => 'l',
-                            None => '-',
-                        },
-                    )
-                    .collect();
+                let cells = window.iter().map(|(_, _, st)| st.cell(&ow, rm)).collect();
                 TableRow {
                     header: false,
                     pos: key.map(|k| book.pos(k) as u32),
@@ -358,6 +380,7 @@ impl App {
                     name,
                     wins,
                     loses,
+                    owned,
                     cells,
                 }
             })
@@ -369,7 +392,7 @@ impl App {
             rows_total: oc.rows.len(),
             cols_total: oc.cols.len(),
             chains: {
-                let mut ids: Vec<u32> = window.iter().map(|&(_, ci, _)| ci).collect();
+                let mut ids: Vec<u32> = window.iter().map(|(_, ci, _)| *ci).collect();
                 ids.sort_unstable();
                 ids.dedup();
                 ids.into_iter().map(|i| oc.heads[i as usize].clone()).collect()
@@ -379,11 +402,11 @@ impl App {
             rows: row_views,
             cols: window
                 .iter()
-                .map(|&(k, ci, c)| TableCol {
-                    path: stack_label(&stack_paths(&ow, &table, c)),
-                    chain: ci,
-                    count: ow.chain(c).files,
-                    stack: k,
+                .map(|(k, ci, st)| TableCol {
+                    path: stack_label(&st.path_strings(&table)),
+                    chain: *ci,
+                    count: st.files(),
+                    stack: *k,
                 })
                 .collect(),
         })
@@ -409,80 +432,91 @@ pub(crate) fn context_groups(
     groups
 }
 
-/// The exact chains (stacks) of a normalized chain, larger first: its columns and its teeth.
-pub(crate) fn group_stacks(
-    ow: &sat_core::overwrite::OverwriteProjection,
-    head: &crate::chains::Head,
-) -> Vec<ChainId> {
-    let mut v = head.chains.clone();
-    v.sort_by_key(|&c| (std::cmp::Reverse(ow.chain(c).files), c));
-    v
-}
-
-/// The paths of an exact chain, sorted.
-pub(crate) fn stack_paths(
-    ow: &sat_core::overwrite::OverwriteProjection,
-    table: &sat_core::table::ProviderTable,
-    c: ChainId,
-) -> Vec<String> {
-    let mut v: Vec<String> = ow
-        .chain_paths(c)
-        .into_iter()
-        .map(|p| table.path_string(p))
-        .collect();
-    v.sort_unstable();
-    v
+/// How the list places a mod: its separator and its position.
+pub(crate) struct Lists<'a> {
+    pub sep_of: &'a dyn Fn(ModId) -> Option<Key>,
+    pub pos_of: &'a dyn Fn(ModId) -> usize,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn open(
     ow: &sat_core::overwrite::OverwriteProjection,
+    table: &sat_core::table::ProviderTable,
     heads: &[crate::chains::Head],
     decisions: &sat_core::decisions::ChainDecisions,
-    sep_of: &dyn Fn(ModId) -> Option<Key>,
+    lists: &Lists<'_>,
     cx: ContextId,
     order: ColumnOrder,
+    focus: Option<u32>,
     revision: u64,
 ) -> OpenContext {
     let context = &ow.contexts()[cx.idx()];
     let groups = context_groups(ow, heads, cx);
-    let mut cols: Vec<(u32, u32, ChainId)> = Vec::new();
+    let paths_of = ow.context_chain_paths(cx);
+    let mut cols: Vec<(u32, u32, crate::participants::OwnerStack)> = Vec::new();
     let mut chain_starts = Vec::with_capacity(groups.len());
-    // one column per stack (exact chain): its paths go through the chain the same way
+    // one column per owner stack: its paths go through the chain the same way, disabled owners included
     for (i, &g) in groups.iter().enumerate() {
         chain_starts.push(cols.len() as u32);
-        let st = group_stacks(ow, &heads[g as usize]);
+        let st = crate::participants::head_stacks(ow, table, &heads[g as usize], Some(&paths_of));
         cols.extend(st.into_iter().enumerate().map(|(k, c)| (k as u32, i as u32, c)));
     }
-    if order == ColumnOrder::Strength {
-        // deeper stacks first; stable, so within a depth the chain order stays
-        cols.sort_by_key(|&(_, _, c)| std::cmp::Reverse(ow.chain_mods(c).len()));
-        chain_starts.clear();
+    match order {
+        ColumnOrder::Chain => {}
+        ColumnOrder::Strength => {
+            // deeper stacks first; stable, so within a depth the chain order stays
+            cols.sort_by_key(|(_, _, st)| std::cmp::Reverse(ow.chain_mods(st.chain).len() + st.idle.len()));
+            chain_starts.clear();
+        }
+        ColumnOrder::Activity => {
+            let score = |ci: u32, st: &crate::participants::OwnerStack| {
+                let active = ow.chain_mods(st.chain).len() as u64;
+                let idle = st.idle.len() as u64;
+                let inside = focus.is_none_or(|f| f == ci);
+                let (strong, linked) = if inside { (active, 0) } else { (0, active) };
+                strong * 100 + linked * 70 + idle * 30 + (active + idle) * 10
+            };
+            cols.sort_by_cached_key(|(_, ci, st)| {
+                (
+                    focus.is_some_and(|f| f != *ci),
+                    std::cmp::Reverse(score(*ci, st)),
+                    std::cmp::Reverse(st.files()),
+                )
+            });
+            chain_starts.clear();
+        }
     }
-    // wins / loses per member over the whole context (exact stacks)
-    let mut tally: std::collections::HashMap<ModId, (u32, u32)> = Default::default();
-    for &c in &context.chains {
-        let files = ow.chain(c).files;
-        for (i, &m) in ow.chain_mods(c).iter().enumerate() {
-            let e = tally.entry(m).or_insert((0, 0));
+    // wins / losses / owned-while-disabled per member over the whole context
+    let mut tally: std::collections::HashMap<ModId, (u32, u32, u32)> = Default::default();
+    for (_, _, st) in &cols {
+        let files = st.files();
+        for (i, &m) in ow.chain_mods(st.chain).iter().enumerate() {
+            let e = tally.entry(m).or_default();
             if i == 0 {
                 e.0 += files;
             } else {
                 e.1 += files;
             }
         }
+        for &m in &st.idle {
+            tally.entry(m).or_default().2 += files;
+        }
     }
-    // context mods are in priority order = list order, so a separator's mods are contiguous
-    let mut rows = Vec::with_capacity(context.mods.len() + 8);
+    // rows in list order (disabled owners where they sit), a separator heading before each block
+    let mut members: Vec<ModId> = context.mods.clone();
+    members.extend(tally.keys().copied().filter(|m| !context.mods.contains(m)));
+    members.sort_by_key(|&m| ((lists.pos_of)(m), m));
+    members.dedup();
+    let mut rows = Vec::with_capacity(members.len() + 8);
     let mut last: Option<Option<Key>> = None;
-    for &m in &context.mods {
-        let sep = sep_of(m);
+    for &m in &members {
+        let sep = (lists.sep_of)(m);
         if last != Some(sep) {
             rows.push(RowItem::Header(sep));
             last = Some(sep);
         }
-        let (w, l) = tally.get(&m).copied().unwrap_or((0, 0));
-        rows.push(RowItem::Mod(m, w, l));
+        let (w, l, u) = tally.get(&m).copied().unwrap_or_default();
+        rows.push(RowItem::Mod(m, w, l, u));
     }
     let heads: Vec<TableChain> = groups
         .iter()
@@ -506,6 +540,7 @@ fn open(
         revision,
         context: cx,
         order,
+        focus,
         cols,
         chain_starts,
         rows,
@@ -569,6 +604,7 @@ mod tests {
             .query(Query::ContextTable {
                 key,
                 order,
+                focus: None,
                 row_start: 0,
                 row_count: 10,
                 col_start: cols.0,

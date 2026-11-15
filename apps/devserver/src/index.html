@@ -243,6 +243,29 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .cc .mem .wl { font: 11px var(--mono); color: var(--muted); text-align: right; }
 .cc .mem canvas { width: 100%; height: 12px; display: block; }
 .cc .mem.win .nm { color: var(--win); }
+.cc .mem.off .nm { color: var(--muted); font-style: italic; }
+.cc .mem { grid-template-columns: 150px minmax(0, 1fr) 128px; }
+.cc .wlmx { font: 11px var(--mono); text-align: right; white-space: nowrap; }
+.cc .wlmx .w { color: #86efac; } .cc .wlmx .l { color: #fca5a5; } .cc .wlmx .m { color: #94a3b8; } .cc .wlmx .x { color: #fcd34d; }
+.cc .idle { padding: 0 8px 4px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc.front { border-color: #f59e0b; box-shadow: 0 0 0 1px #f59e0b inset; }
+.cc .fr { font: 10px var(--mono); color: #f59e0b; border: 1px solid #f59e0b; border-radius: 999px; padding: 0 6px; }
+#ctAdv { position: absolute; right: 18px; top: 140px; bottom: 18px; width: min(860px, 92%); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); padding: 10px 12px; z-index: 6; font-size: 12px; }
+#ctAdv .h { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+#ctAdv .h b { flex: 1; font-size: 14px; }
+#ctAdv table { width: 100%; border-collapse: collapse; font: 12px var(--mono); }
+#ctAdv td, #ctAdv th { padding: 2px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+#ctAdv td.n, #ctAdv th.n { text-align: left; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+#ctAdv tr.sep td { color: var(--muted); text-align: left; background: var(--bg2); }
+#ctAdv tr.mv td.to { color: #f59e0b; font-weight: 600; }
+#ctAdv .warn { color: #f59e0b; }
+#ctAdv .note { color: var(--muted); margin: 6px 0; }
+.tree { font: 12px/1.6 var(--mono); }
+.tree .te { display: flex; gap: 6px; cursor: default; padding-left: calc(var(--d) * 14px); border-left: 3px solid transparent; }
+.tree .te.dir { cursor: pointer; }
+.tree .te.lose { border-left-color: var(--lose); } .tree .te.win { border-left-color: var(--win); } .tree .te.own { border-left-color: rgb(66,128,153); }
+.tree .te .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree .te .c { color: var(--muted); } .tree .te .w { color: var(--w-txt); } .tree .te .l { color: var(--l-txt); }
 .cc details { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .cc pre { margin: 4px 0 0; font: 11px/1.45 var(--mono); color: var(--fg); max-height: 260px; overflow: auto; white-space: pre; }
 #ctScroll { flex: 1; overflow: auto; position: relative; overscroll-behavior: contain; }
@@ -280,6 +303,7 @@ footer b { color: var(--accent2); font-weight: 500; }
     <div class="block empty" id="bDecor"><h3>Декорация мода</h3><div class="muted">Выдели один или несколько модов.</div></div>
     <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
     <div class="block empty" id="bPlug"><h3>Плагины</h3></div>
+    <div class="block empty" id="bTree"><h3>Файлы мода</h3></div>
   </section>
 </main>
 <footer id="stats">загрузка…</footer>
@@ -298,7 +322,8 @@ footer b { color: var(--accent2); font-weight: 500; }
     <div class="t1"><span class="tabs" id="ctTabs"></span>
       <b id="ctTitle"></b><span class="modes"><button class="tab" data-mode="cards">Карточки</button><button class="tab" data-mode="table">Таблица</button><button class="tab cur" data-mode="both">2 области</button></span><button id="ctList" hidden title="Все цепочки записей списком, с правками">Списком</button><button id="ctClose">Закрыть</button></div>
     <div class="t2"><span>Контекст:</span><select id="ctCtx"></select>
-      <select id="ctOrder"><option value="chain">Релевантность цепочке</option><option value="strength">Сила конфликта</option></select>
+      <select id="ctOrder"><option value="chain">Релевантность цепочке</option><option value="strength">Сила конфликта</option><option value="activity">Активность вокруг выбранной цепочки</option></select>
+      <button id="ctAdvBtn" title="Мастер порядка перезаписи: куда поставить моды контекста">Порядок</button>
       <span id="ctStats"></span></div>
     <div class="about" id="ctAbout"></div>
     <div class="legend" id="ctLegend"></div>
@@ -306,6 +331,7 @@ footer b { color: var(--accent2); font-weight: 500; }
   <div id="ctBody"><div id="ctCards"></div><div id="ctPane">
   <div id="ctScroll"><div id="ctView"><canvas id="ctCanvas"></canvas></div><div id="ctSpacer"></div></div>
   <div id="ctStatus">наведи на клетку: путь, цепочка, стек</div><div id="ctStack" hidden></div></div></div>
+  <div id="ctAdv" hidden></div>
 </div>
 <script>
 "use strict";
@@ -533,7 +559,43 @@ async function detail(key) {
       `${p.records.unchanged ? ` · без изменений (ITM) ${num(p.records.unchanged)}` : ""}` +
       `${p.records.wins + p.records.loses + p.records.overridden ? ` · <a data-recplug="${esc(p.name)}">цепочки</a>` : ""}</span>` : "") + `</div>`).join("")
     : `<div class="muted">Нет плагинов.</div>`);
+  treeDraw(key);
 }
+
+// ---------------------------------------------------------------- mod file tree with the conflict overlay (`@sat:app.tree`)
+// As in the monolith: a folder carries what is under it; a row that loses anything is red before green.
+const TREE = { key: null, open: new Set(), kids: new Map() };
+async function treeKids(dir) {
+  if (TREE.kids.has(dir)) return TREE.kids.get(dir);
+  const { entries } = await query({ type: "mod-tree", key: TREE.key, dir });
+  TREE.kids.set(dir, entries); return entries;
+}
+async function treeHtml(dir, depth) {
+  const kids = await treeKids(dir); let h = "";
+  for (const e of kids.slice(0, 400)) {
+    const path = dir ? dir + "/" + e.name : e.name, open = e.dir && TREE.open.has(path);
+    const st = e.loses ? "lose" : e.wins ? "win" : e.owned ? "own" : "";
+    h += `<div class="te${e.dir ? " dir" : ""} ${st}" style="--d:${depth}" data-dir="${e.dir ? esc(path) : ""}"><span>${e.dir ? (open ? "▾" : "▸") : "·"}</span><span class="nm">${esc(e.name)}</span>` +
+      `${e.wins ? `<span class="w">▲${num(e.wins)}</span>` : ""}${e.loses ? `<span class="l">▼${num(e.loses)}</span>` : ""}${e.owned ? `<span style="color:rgb(66,128,153)">◆${num(e.owned)}</span>` : ""}${e.dir ? `<span class="c">${num(e.files)}</span>` : ""}</div>`;
+    if (open) h += await treeHtml(path, depth + 1);
+  }
+  if (kids.length > 400) h += `<div class="te" style="--d:${depth}"><span class="c">… ещё ${kids.length - 400}</span></div>`;
+  return h;
+}
+async function treeDraw(key) {
+  const box = $("bTree");
+  if (key !== TREE.key) { TREE.key = key; TREE.open.clear(); TREE.kids.clear(); }
+  let inner;
+  try { inner = await treeHtml("", 0); } catch (_) { return; }
+  if (TREE.key !== key) return;
+  box.className = inner ? "block ok" : "block empty";
+  box.innerHTML = `<h3>Файлы мода</h3>` + (inner ? `<div class="muted" style="margin:0 2px 4px">▲ выигрывает · ▼ проигрывает · ◆ владеет, но выключен; папка — сумма под ней</div><div class="tree">${inner}</div>` : `<div class="muted">Файлов нет.</div>`);
+}
+$("bTree").addEventListener("click", ev => {
+  const r = ev.target.closest(".te.dir"); if (!r) return;
+  const d = r.dataset.dir; if (TREE.open.has(d)) TREE.open.delete(d); else TREE.open.add(d);
+  treeDraw(TREE.key);
+});
 
 // ---------------------------------------------------------------- decoration editor (monolith: summary block)
 const EMOJIS = "✨🔥⚔️🛡️🏹🐉🌲🏔️🌙☀️❄️💀👑💎🧪📜🗡️🏰🌊⚡🎯🧩🔧🎨".match(/\p{Extended_Pictographic}\uFE0F?/gu);
@@ -630,7 +692,7 @@ $("bDecor").addEventListener("click", ev => {
 
 // ---------------------------------------------------------------- conflict context table
 const CT = { tab: "files", key: null, rctx: 0, order: "chain", data: null, busy: false, again: false, LW: 300, HH: 44, CW: 12, RH: 26 };
-const CELL = { w: ["--win", "выигрывает"], l: ["--lose", "проигрывает"], s: ["#d4a017", "равна победителю"], o: ["#4f7fd6", "источник"],
+const CELL = { w: ["--win", "выигрывает"], l: ["--lose", "проигрывает"], u: ["rgb(66,128,153)", "владеет, но выключен"], s: ["#d4a017", "равна победителю"], o: ["#4f7fd6", "источник"],
   t: ["#f59e0b", "ничья за верх"], x: ["#a855f7", "нарушает"], m: ["#64748b", "участвует (без порядка)"] };
 const cellColor = ch => { const c = CELL[ch]; return !c ? "rgba(127,127,127,.07)" : c[0].startsWith("--") ? css(c[0]) : c[0]; };
 // a domain other than files and records: the generic projections (`@sat:app.domains`)
@@ -653,14 +715,15 @@ function ctTabsDraw() {
   $("ctAbout").textContent = d ? d.about + (d.notes && d.notes.length ? " · " + d.notes.join(" · ") : "") : "";
 }
 function ctLegend() {
-  const keys = CT.tab === "files" ? ["w", "l"] : CT.tab === "records" ? ["w", "l", "s", "o"] : ["w", "l", "s", "o", "t", "x", "m"];
+  const keys = CT.tab === "files" ? ["w", "l", "u"] : CT.tab === "records" ? ["w", "l", "s", "o"] : ["w", "l", "s", "o", "t", "x", "m"];
   $("ctLegend").innerHTML = keys.map(k => `<span><i style="background:${cellColor(k)}"></i>${CELL[k][1]}</span>`).join("") +
     (CT.tab === "records" ? `<span>полоса над столбцами — цепочка (стек плагинов); ⚠️ — вслепую: плагин ниже не держит плагин выше в мастерах</span>` : "") +
-    `<span>полоска слева у строки: зелёная — только выигрывает, красная — только проигрывает, жёлтая — и то и другое; потяни за имя — переставить</span>`;
+    (CT.tab === "files" ? `<span>выбрана цепочка: её столбцы яркие, остальные — «связанные» (бледнее), как в монолите</span>` : "") +
+    `<span>полоска слева у строки: зелёная — только выигрывает, красная — только проигрывает, жёлтая — и то и другое, синяя — выключен, но владеет; потяни за имя — переставить</span>`;
 }
 function ctTab(tab) {
   CT.tab = tab; ctTabsDraw(); ctDomains(); $("ctStatus").textContent = "наведи на клетку: цель, цепочка, участник";
-  $("ctOrder").hidden = tab !== "files"; $("ctList").hidden = tab !== "records"; CT.data = null; ctLegend();
+  $("ctOrder").hidden = tab !== "files"; $("ctAdvBtn").hidden = tab !== "files"; $("ctAdv").hidden = true; $("ctList").hidden = tab !== "records"; CT.data = null; ctLegend();
   CC.det.clear(); CC.cards.clear(); CC.shown.clear(); CC.sel = null; CT.selChain = null;
 }
 async function openRecords(plugin) {
@@ -716,7 +779,7 @@ async function ctSync(pickCtx) {
     const rec = CT.tab !== "files", gen = GEN();
     const rep = gen ? await query({ type: "domain-table", domain: CT.tab, context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
       : rec ? await query({ type: "record-table", context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
-      : await query({ type: "context-table", key: CT.key, order: CT.order, row_start: r0, row_count: rc, col_start: c0, col_count: cc });
+      : await query({ type: "context-table", key: CT.key, order: CT.order, focus: CT.order === "activity" && CT.selChain != null ? CT.selChain : undefined, row_start: r0, row_count: rc, col_start: c0, col_count: cc });
     const t = rep.table;
     if (!t) { $("ctTitle").textContent = rec ? "Нет такого контекста" : "Мод ни с кем не конфликтует"; CT.data = null; return; }
     CT.data = { t, r0, c0 };
@@ -756,15 +819,14 @@ function ctDraw() {
       // as in the monolith: a square per stack, a little taller with every step of its size
       const n = (t.cols[j] && t.cols[j].count) || 1, sq = CW - 2;
       const hh = Math.min(RH - 4, Math.round(sq + Math.log2(n) * 1.5)), yy = y + (RH - hh) / 2;
+      // the monolith's seven states: inside the selected chain exact, outside it "linked" (win-linked, lose-linked,
+      // owned → extra); without a selection every cell is exact
+      const linked = CT.selChain != null && t.cols[j] && t.cols[j].chain !== CT.selChain;
+      g.globalAlpha = ch === "-" ? 1 : linked ? .38 : 1;
       g.fillStyle = ch === "w" ? win : ch === "l" ? lose : cellColor(ch);
-      g.fillRect(x + 1, yy, sq, hh);
+      g.fillRect(x + 1, yy, sq, hh); g.globalAlpha = 1;
     }
   });
-  // the chain of the selected card stays lit, the rest dims
-  if (CT.selChain != null) {
-    g.fillStyle = "rgba(10,14,20,.6)";
-    t.cols.forEach((c, j) => { if (c.chain !== CT.selChain) g.fillRect(LW + ox + j * CW, HH, CW, h - HH); });
-  }
   g.restore();
   // column heads: chain band (its hue) and a file-type tile (colour by extension)
   g.save(); g.beginPath(); g.rect(LW, 0, w - LW, HH); g.clip();
@@ -794,7 +856,7 @@ function ctDraw() {
     g.fillStyle = CT.tab === "files" && r.key === CT.key ? "rgba(34,197,94,.18)" : "transparent"; g.fillRect(0, y, LW, RH);
     // the side stripe: what the row does in the context — wins only, loses only, both — or, with a chain
     // selected, whether it takes part in it
-    let stripe = r.wins && !r.loses ? win : r.loses && !r.wins ? lose : r.wins && r.loses ? "#f59e0b" : muted;
+    let stripe = r.wins && !r.loses ? win : r.loses && !r.wins ? lose : r.wins && r.loses ? "#f59e0b" : r.owned ? cellColor("u") : muted;
     if (CT.selChain != null) {
       const inSel = t.cols.some((c, j) => c.chain === CT.selChain && r.cells[j] && r.cells[j] !== "-");
       stripe = inSel ? css("--accent") : "rgba(127,127,127,.25)";
@@ -804,7 +866,7 @@ function ctDraw() {
     g.fillStyle = r.enabled ? css("--ok") : css("--miss"); g.beginPath(); g.arc(16, y + RH / 2, 4, 0, 7); g.fill();
     g.fillStyle = fg; g.fillText(clip(g, r.name, LW - 110), 28, y + RH / 2);
     g.fillStyle = muted; g.font = `11px ${css("--mono") || "monospace"}`; g.textAlign = "right";
-    g.fillText(`▲${r.wins} ▼${r.loses} ${r.pos ?? ""}`, LW - 8, y + RH / 2); g.textAlign = "left"; g.font = `13px ${css("--ui") || "sans-serif"}`;
+    g.fillText(`${r.owned ? `◆${r.owned} ` : ""}▲${r.wins} ▼${r.loses} ${r.pos ?? ""}`, LW - 8, y + RH / 2); g.textAlign = "left"; g.font = `13px ${css("--ui") || "sans-serif"}`;
   });
   g.restore();
   g.fillStyle = line; g.fillRect(LW - 1, 0, 1, h); g.fillRect(0, HH - 1, w, 1);
@@ -824,7 +886,8 @@ $("ctScroll").addEventListener("mousemove", ev => {
   if (hit.col) { const ch = t.chains.find(c => c.index === hit.col.chain);
     parts.push(hit.col.count > 1 ? `<b>стак ×${num(hit.col.count)}</b> ${esc(hit.col.path)} (нажми на шапку — список)` : `<b>${esc(hit.col.path)}</b>`); if (ch) parts.push(`${ch.emoji} ${esc(ch.name)} · участников ${ch.depth} · ${ch.files} ${CT.tab === "records" ? "зап." : CT.tab === "files" ? "ф." : "цел."}${ch.done ? " · решено" : ""}`); }
   if (hit.row && !hit.row.header) { const c = hit.col && hit.row.cells[hit.ci];
-    parts.push(`${esc(hit.row.name)}${c && CELL[c] ? " — " + CELL[c][1] : c === "-" ? " — не участвует" : ""}`); }
+    const lk = c && c !== "-" && CT.selChain != null && hit.col.chain !== CT.selChain ? " (связанная)" : "";
+    parts.push(`${esc(hit.row.name)}${c && CELL[c] ? " — " + CELL[c][1] + lk : c === "-" ? " — не участвует (нет файла)" : ""}`); }
   $("ctStatus").innerHTML = parts.join(" · ") || "&nbsp;";
 });
 // a stack's targets: what one column stands for (`@sat:app.domains.stack`)
@@ -873,8 +936,47 @@ window.addEventListener("mouseup", async () => {
   } catch (e) { $("ctStatus").textContent = e.message; }
   CC.cards.clear(); CC.det.clear(); await ctDomains(); await ctSync(false); ctCards();
 });
+// ---------------------------------------------------------------- order advisor (monolith «Мастер порядка перезаписи», S16 145 040)
+// A plan for the open file context: per mod a score (name: base −22, patch +26, output +42; how it fares ±6), blended
+// with its current place; moves only inside its separator. «Применить» is one step, undone by Ctrl+Z.
+const ADV = { strict: "normal", truth: true, locked: new Set(), plan: null };
+async function advOpen() {
+  const box = $("ctAdv"); box.hidden = false;
+  box.innerHTML = `<div class="note">считаю…</div>`;
+  const key = CT.key; if (key == null) { box.innerHTML = `<div class="note">Открой контекст файлов.</div>`; return; }
+  let r;
+  try { r = await query({ type: "order-advice", key, strictness: ADV.strict, current_truth: ADV.truth, locked: [...ADV.locked] }); }
+  catch (e) { box.innerHTML = `<div class="note">${esc(e.message)}</div>`; return; }
+  const a = r.advice; ADV.plan = a;
+  if (!a) { box.innerHTML = `<div class="note">Мод ни с кем не конфликтует.</div>`; return; }
+  const moved = a.rows.filter(x => x.action === "reorder").length;
+  let rows = "", sep;
+  a.rows.forEach((x, i) => {
+    if (x.separator !== sep) { sep = x.separator; rows += `<tr class="sep"><td colspan="9">▾ ${esc(sep ?? "—")}</td></tr>`; }
+    rows += `<tr class="${x.action === "reorder" ? "mv" : ""}"><td><input type="checkbox" data-lock="${x.key ?? ""}" ${x.action === "locked" ? "checked" : ""} ${x.key == null ? "disabled" : ""} title="не двигать"></td>` +
+      `<td class="n" title="${esc(x.name)}">${x.enabled ? "" : "◌ "}${esc(x.name)}</td><td style="color:var(--w-txt)">▲${num(x.wins)}</td><td style="color:var(--l-txt)">▼${num(x.loses)}</td>` +
+      `<td>${x.heuristic}</td><td>${x.score}</td><td>${i + 1}</td><td class="to">${x.to + 1}</td><td class="n warn">${esc((x.warnings || []).join(", "))}</td></tr>`;
+  });
+  box.innerHTML = `<div class="h"><b>Порядок · ${esc(CT.data ? CT.data.t.name : "")}</b>` +
+    `<select id="advStrict">${[["inspect", "только оценки"], ["safe", "осторожно"], ["normal", "обычно (Δ ≥ 26)"], ["aggressive", "смело (Δ ≥ 14)"]].map(([v, t]) => `<option value="${v}"${v === ADV.strict ? " selected" : ""}>${t}</option>`).join("")}</select>` +
+    `<label><input type="checkbox" id="advTruth"${ADV.truth ? " checked" : ""}> учитывать текущий порядок</label>` +
+    `<button id="advApply"${a.reorder ? "" : " disabled"}>Применить (${moved})</button><button id="advClose">✕</button></div>` +
+    ((a.warnings || []).length ? `<div class="note warn">${esc(a.warnings.join(" · "))}</div>` : "") +
+    `<div class="note">Меньше оценка — раньше в списке (перекрывается). Имя: base/framework/core −22, patch/compat/fix +26, output/generated/nemesis/dyndolod +42; проигрывает втрое — −6, выигрывает втрое — +6. ` +
+    `С текущим порядком: 0,45·оценка + 0,55·место. Моды двигаются только внутри своего разделителя; отмена — Ctrl+Z.</div>` +
+    `<table><tr><th></th><th class="n">мод</th><th>▲</th><th>▼</th><th title="эвристика">имя</th><th title="по ней сортировка">оценка</th><th>сейчас</th><th>станет</th><th class="n">внимание</th></tr>${rows}</table>`;
+  $("advClose").onclick = () => { box.hidden = true; };
+  $("advStrict").onchange = ev => { ADV.strict = ev.target.value; advOpen(); };
+  $("advTruth").onchange = ev => { ADV.truth = ev.target.checked; advOpen(); };
+  box.querySelectorAll("[data-lock]").forEach(c => { c.onchange = () => { const k = +c.dataset.lock; if (c.checked) ADV.locked.add(k); else ADV.locked.delete(k); advOpen(); }; });
+  $("advApply").onclick = async () => {
+    try { await run({ type: "reorder", keys: ADV.plan.order }); } catch (e) { $("ctStatus").textContent = e.message; return; }
+    CC.cards.clear(); CC.det.clear(); await ctDomains(); await ctSync(false); ctCards(); advOpen();
+  };
+}
+$("ctAdvBtn").onclick = () => { if (!$("ctAdv").hidden) { $("ctAdv").hidden = true; return; } ADV.locked.clear(); advOpen(); };
 $("ctClose").onclick = () => { $("ct").hidden = true; list.focus({ preventScroll: true }); };
-$("ctOrder").onchange = ev => { CT.order = ev.target.value; CT.selChain = null; ctSync(false); };
+$("ctOrder").onchange = ev => { CT.order = ev.target.value; if (CT.order === "strength") CT.selChain = null; $("ctScroll").scrollLeft = 0; ctSync(false); };
 $("ctCtx").onchange = ev => {
   CT.selChain = null;
   if (CT.tab !== "files") { CT.rctx = +ev.target.value; $("ctScroll").scrollTo(0, 0); ctSync(false); ctCards(); return; }
@@ -902,7 +1004,7 @@ async function ccFetch(i) {
   if (CC.cards.has(id)) return CC.cards.get(id);
   const c = CT.contexts[i];
   const r = GEN() ? await query({ type: "domain-cards", domain: CT.tab, context: i })
-    : CT.tab === "records" ? await query({ type: "record-cards", context: i }) : await query({ type: "context-cards", key: c.key });
+    : CT.tab === "records" ? await query({ type: "record-cards", context: i }) : await query({ type: "context-cards", key: c.key, last: CC.last || undefined });
   const cards = r.cards || [];
   CC.cards.set(id, cards);
   return cards;
@@ -922,17 +1024,22 @@ function ccCard(i, k) {
   const eq = k.equal ? ` · = ${num(k.equal)}` : "";
   let body = "";
   if (open) {
+    // files: the monolith's participant — W wins, L loses, M missing (chain files it has not), X extra (its conflict
+    // files outside the chain); other domains: wins / losses
+    const wl = m => CT.tab === "files"
+      ? `<span class="wlmx" title="files=${d.targets_total} · есть ${m.owned} · W выигрывает ${m.wins} · L проигрывает ${m.loses} · M нет файла цепочки ${m.missing} · X конфликтных файлов вне цепочки ${m.extra}"><span class="w">${num(m.wins)}</span> <span class="l">${num(m.loses)}</span> <span class="m">${num(m.missing)}</span> <span class="x">${num(m.extra)}</span></span>`
+      : `<span class="wl">▲${m.wins} ▼${m.loses}</span>`;
     body = !d ? `<div class="body">загрузка…</div>` : `<div class="body">` + d.members.map((m, mi) =>
-      `<div class="mem${m.wins && !m.loses ? " win" : ""}"><span class="nm" title="${esc(m.name)}"><i style="background:${m.enabled ? css("--ok") : css("--miss")}"></i>${esc(m.name)}</span>` +
-      `<canvas data-t="${m.teeth}" data-cc="${id}" data-m="${mi}"></canvas><span class="wl">▲${m.wins} ▼${m.loses}</span></div>`).join("") +
+      `<div class="mem${m.wins && !m.loses ? " win" : ""}${m.enabled ? "" : " off"}"><span class="nm" title="${esc(m.name)}${m.enabled ? "" : " — выключен"}"><i style="background:${m.enabled ? css("--ok") : css("--miss")}"></i>${esc(m.name)}</span>` +
+      `<canvas data-t="${m.teeth}" data-cc="${id}" data-m="${mi}"></canvas>${wl(m)}</div>`).join("") +
       `<details${d.items.length <= 40 ? " open" : ""}><summary>Стаки: ${num(d.items_total)} · ${CT.tab === "records" ? "записей" : CT.tab === "files" ? "путей" : "целей"}: ${num(d.targets_total || d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary>` +
       d.items.map((it, k) => `<div class="stk" data-cc="${id}" data-k="${k}" title="нажми — список"><b>×${num((d.counts || [])[k] || 1)}</b><span>${esc(it)}</span></div>`).join("") + `</details></div>`;
   }
-  return `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
-    `<div class="h"><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}">${esc(k.name)}</span>` +
+  return `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}${k.front ? " front" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
+    `<div class="h"><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}">${esc(k.name)}</span>` + (k.front ? `<span class="fr" title="Фронт решений: следующая нерешённая цепочка — больше всего связана с уже решёнными">дальше</span>` : "") +
     `<span class="n">${k.stack.length} × ${num(k.files)} ${unit}${eq}</span>` +
     (CT.tab === "files" ? `<button data-done="${k.signature}" data-v="${k.done ? 0 : 1}" title="${k.done ? "Снять «решено»" : "Отметить решённой"}">${k.done ? "✓" : "○"}</button>` : "") +
-    `<span>${open ? "▾" : "▸"}</span></div>${body}</div>`;
+    `<span>${open ? "▾" : "▸"}</span></div>${k.idle && k.idle.length ? `<div class="idle" title="${esc(k.idle.join(", "))}">выключены, но владеют: ${esc(k.idle.join(", "))}</div>` : ""}${body}</div>`;
 }
 async function ctCards() {
   const box = $("ctCards");
@@ -988,6 +1095,7 @@ async function ccSelectContext(i) {
 }
 async function ccGoChain(i, ix) {
   await ccSelectContext(i);
+  if (CT.tab === "files" && CT.order === "activity") { CT.selChain = ix; $("ctScroll").scrollLeft = 0; await ctSync(false); return; }
   if (CT.tab === "files" && CT.order !== "chain") { CT.order = "chain"; $("ctOrder").value = "chain"; await ctSync(false); }
   const t = CT.data && CT.data.t; if (!t || !t.chain_starts.length) return;
   CT.selChain = ix; $("ctScroll").scrollLeft = t.chain_starts[ix] * CT.CW; ctDraw();
@@ -997,7 +1105,11 @@ $("ctCards").addEventListener("click", async ev => {
   if (done) {
     ev.stopPropagation();
     await run({ type: "set-chain-done", signature: done.dataset.done, done: done.dataset.v === "1" });
-    CC.cards.clear(); await ctCards(); ctSync(false); return;
+    if (done.dataset.v === "1") { CC.last = done.dataset.done; const c = done.closest(".cc"); if (c) CC.shown.delete(ccId(+c.dataset.cx) + ":" + c.dataset.ix); }
+    CC.cards.clear(); await ctCards(); ctSync(false);
+    // the solution front: open the next card it points to
+    if (done.dataset.v === "1") { const f = $("ctCards").querySelector(".cc.front > .h"); if (f) { f.click(); f.scrollIntoView({ block: "nearest" }); } }
+    return;
   }
   const stk = ev.target.closest(".stk");
   if (stk) {

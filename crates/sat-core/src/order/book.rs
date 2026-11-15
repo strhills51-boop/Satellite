@@ -690,6 +690,30 @@ impl OrderBook {
         Ok(Some(self.finish(out)))
     }
 
+    // @sat:order.book.place
+    /// Reorders mods among their own places: `items` gives each mod its new position, and the positions are the
+    /// ones these mods hold now (a permutation — nothing else moves, separators keep their blocks). One undo step.
+    /// The order advisor applies its plan this way (monolith: reorder inside each separator, slots kept).
+    pub fn place_keys(&mut self, items: &[(Key, usize)]) -> Result<Option<Change>, OrderError> {
+        for &(k, _) in items {
+            self.check_key(k)?;
+            if self.items[k as usize].kind != EntryKind::Mod || !self.seq.contains(k) {
+                return Err(OrderError::Immovable(self.items[k as usize].name.clone()));
+            }
+        }
+        let mut now: Vec<usize> = items.iter().map(|&(k, _)| self.seq.pos(k)).collect();
+        let mut want: Vec<usize> = items.iter().map(|x| x.1).collect();
+        now.sort_unstable();
+        want.sort_unstable();
+        if now != want || now.windows(2).any(|w| w[0] == w[1]) {
+            return Err(OrderError::Group("new places must be the mods' own places"));
+        }
+        if items.iter().all(|&(k, p)| self.seq.pos(k) == p) {
+            return Ok(None);
+        }
+        self.apply_recorded(Op::Place(items.to_vec()))
+    }
+
     /// Sets (or toggles with `None`) the enabled flag of mods; other entries are ignored.
     pub fn set_enabled(&mut self, keys: &[Key], enabled: Option<bool>) -> Result<Option<Change>, OrderError> {
         let mut each = Vec::new();

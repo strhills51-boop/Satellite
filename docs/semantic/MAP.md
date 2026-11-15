@@ -50,6 +50,10 @@
 | Бейджи перезаписи на карточке (модель «коллекция цепочек» монолита): по контексту, значки крупнейших цепочек, `+N` | `@sat:app.badges` (`Query::Rows { badges }`) | модель `OW N` — та же выдача, другой показ на странице |
 | Таблица конфликтов контекста (монолит, флажок «цветные типы»): моды × файлы окнами по обеим осям, группы по разделителям, порядок «цепочка / сила» | `@sat:app.context-table` (`Query::Contexts`), `@sat:app.context-table.window` (`Query::ContextTable`), порядок цепочек контекста — `@sat:app.context-table.groups` | цепочки и стеки — `@sat:overwrite.projection`; цвет типа файла — страница |
 | Карточки цепочек контекста (модалка монолита «Карточки» / «2 области»): контексты-бакеты, в каждом карточки цепочек; открытая карточка — участники с «зубным рядом» (зуб на путь или запись) и дерево путей; карточка ведёт таблицу к своей полосе | `@sat:app.cards`: файлы — `@sat:app.cards.files` (`ContextCards`, `ContextCard`), записи — `@sat:app.cards.records` (`RecordCards`, `RecordCard`) | `index` карточки = место цепочки в порядке контекста = полоса таблицы; детали окном (`limit`) |
+| Участники цепочки как в монолите: выключенные владельцы (`u`), стеки владельцев, W / L / M / X относительно цепочки | `@sat:app.participants`; владельцы пути вне стека — `@sat:overwrite.owners` (`idle_owners`, `contested_of`, `context_chain_paths`) | конфликт и цепочка — по активному стеку (`@sat:overwrite.projection`) |
+| Фронт решений (v667): какую нерешённую цепочку смотреть дальше | `@sat:front` (`connectivity`, `pick`); в карточках — `@sat:app.cards.front` (`ChainCard.front`, `ContextCards.last`) | решения — `@sat:decisions` |
+| Мастер порядка перезаписи (монолит S16 145 040): оценка, план, применение внутри разделителей | `@sat:advisor` (`heuristic`, `plan`, `Strictness`); строки и предупреждения — `@sat:app.advisor` (`OrderAdvice`); применение — `@sat:app.reorder` (`Command::Reorder`) → `@sat:order.book.place` | контекст — `@sat:app.context-table` |
+| Дерево файлов мода с наложением конфликтов (монолит 82 930) | `@sat:app.tree` (`Query::ModTree`) | цвет — страница: проигрыш важнее выигрыша |
 | Единая архитектура конфликтов: домен — адаптер с общей формой вывода (централь — откуда порядок, семантика, цепочки, клетки, контексты, счётчики) | общая форма — `@sat:conflict` (сборщик `@sat:conflict.builder`, случай — `@sat:conflict.contest`, контексты — `@sat:conflict.contexts`); пакет игры — `@sat:game` (`@sat:game.pack`, встроенный `games/skyrimse.json`, выбор по `gameName`) | ADR 0018; файлы и записи — специализированные адаптеры, отвечают на те же запросы окна |
 | Стаки: цели, которые проходят цепочку одинаково (у каждого участника та же клетка), — одна единица: считаются, вычисляются и показываются одним столбцом / зубом с числом | сборка — `@sat:conflict.stacks` (`Chain::stacks`, `Counts::stacks`), вычисление один раз на форму поставщиков — `@sat:conflict.stacks.compute` (архивы); файлы — точная цепочка = стак (`group_stacks`), записи — `RecordChain::stacks`; подпись стака — `@sat:app.stack-label`, его цели — `@sat:app.domains.stack` (`StackTargets`) | в таблице столбец — стак (квадрат клетки выше с размером, клик по шапке — список), в карточке зуб шириной по логарифму числа |
 | Домены описанием (пользовательские централи): шаблон пути с захватами, участник, цель, централь (`mod_order` / `field` / `name` / `none`), семантика | форма — `@sat:conflict.spec.shape`, вычисление — `@sat:conflict.spec.evaluate`; OAR и DAR — спецификации пакета Skyrim; свои — `<profile>/satellite/conflict-domains.json` | ранг поля — JSON-указатель или `Раздел.ключ` INI, или захват-число; без ранга участник не угадывается, а пишется в заметки |
@@ -89,6 +93,7 @@
 | Живой порядок: операции, строки, патчи, undo/redo (ADR 0008) | `@sat:order.book` | — |
 | Патч строк вида | `@sat:order.book.patch` | набор изменений истины — `@sat:engine.change` |
 | Перемещение записей (блоки разделителей, группы) | `@sat:order.book.move` | — |
+| Перестановка модов на их же местах, одним шагом отмены (план мастера порядка) | `@sat:order.book.place` | `@sat:app.reorder` |
 | Вставка, удаление, переименование записей канона | `@sat:order.book.insert`, `@sat:order.book.remove`, `@sat:order.book.rename` | — |
 | Логические группы (создание, роспуск) | `@sat:order.book.group` | маркеры `⟦MLT-LG⟧` — `@sat:order.decor.markers` |
 | Приглушение («не мешает») | `@sat:order.book.muted` | технический игнор `meta.ini` — `ScanOptions::ignore_root_files` (`@sat:scan`) |
@@ -173,6 +178,8 @@
 - `crates/sat-core/src/plugin_edit.rs` — `@sat:plugins.edit`: правка канона плагинов и файлы менеджера.
 - `crates/sat-core/src/plugins.rs` — `@sat:plugins`: канон плагинов, версии по модам, список плагинов как его видит игра.
 - `crates/sat-core/src/routes.rs` — `@sat:routes`: нормализованные цепочки (группы маршрутов точных цепочек).
+- `crates/sat-core/src/advisor.rs` — `@sat:advisor`: мастер порядка перезаписи (оценка, план).
+- `crates/sat-core/src/front.rs` — `@sat:front`: фронт решений (следующая цепочка).
 - `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`, `apply_plan`, запланированные моды, системные стикеры.
 - `crates/sat-core/src/run.rs` — `@sat:run`: статусы пробега, `Authority`, `seal`.
 - `crates/sat-core/src/session.rs` — `@sat:session`: книга порядка + таблица фактов + граф проекций; ленивые `priorities()` / `overwrite()`.
@@ -204,6 +211,9 @@
 - `crates/sat-app/src/chains.rs` — `@sat:app.chains`: заголовки нормализованных цепочек (значок, имя, «решено»).
 - `crates/sat-app/src/domains.rs` — `@sat:app.domains`: домены конфликтов в окне — список (вкладки), карточки и таблица по любому домену.
 - `crates/sat-app/src/cards.rs` — `@sat:app.cards`: карточки цепочек контекста (файлы и записи одной формой), детали карточки с зубами.
+- `crates/sat-app/src/participants.rs` — `@sat:app.participants`: выключенные владельцы, стеки владельцев, W / L / M / X.
+- `crates/sat-app/src/advisor.rs` — `@sat:app.advisor`: мастер порядка контекста, `Reorder`.
+- `crates/sat-app/src/tree.rs` — `@sat:app.tree`: дерево файлов мода с наложением конфликтов.
 - `crates/sat-app/src/context.rs` — `@sat:app.context-table`: таблица конфликтов контекста, окно строк × столбцов.
 - `crates/sat-app/src/sync.rs` — `@sat:app.sync`: записи SYNC в приложении — решения командой, план запросом.
 - `crates/sat-app/src/sheet.rs` — `@sat:app.sheet`: карточка мода — схема, уровни, слои наблюдённого и пользователя.
