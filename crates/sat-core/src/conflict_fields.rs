@@ -309,7 +309,7 @@ mod tests {
         f.0.insert((2, key), vec![(*b"AIDT", 20), (*b"DATA", 5)]);
         let r = classify(&ix, &f, &[]);
         assert_eq!(r.chains[0].kind, "сливаемый");
-        assert_eq!(r.chains[0].cells, b"olw");
+        assert_eq!(r.chains[0].cells(), b"olw");
         assert_eq!(r.targets[0], "skyrim.esm:000010 NPC_ · AIDT");
         assert_eq!(ix.raw_form_id(1, key), Some(0x0000_0010));
         assert_eq!(ix.raw_form_id(0, key), Some(0x0000_0010));

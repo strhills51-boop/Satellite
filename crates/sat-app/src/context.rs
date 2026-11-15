@@ -11,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use sat_core::ids::{ChainId, ContextId, ModId, PathId};
+use sat_core::ids::{ChainId, ContextId, ModId};
 use sat_core::order::Key;
 
 use crate::App;
@@ -72,12 +72,78 @@ pub struct TableRow {
     pub cells: String,
 }
 
-/// One column: a path.
+/// One column: a stack — targets that go through their chain the same way (`@sat:conflict.stacks`); a single
+/// target is a stack of one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableCol {
+    /// The target, or what the stack's targets share (`textures/armor/iron/ … 118 .dds`).
     pub path: String,
     /// Index into `chains` of the reply.
     pub chain: u32,
+    /// Targets in the stack.
+    #[serde(default = "one")]
+    pub count: u32,
+    /// The stack's place in its chain (for `StackTargets`).
+    #[serde(default)]
+    pub stack: u32,
+}
+
+fn one() -> u32 {
+    1
+}
+
+// @sat:app.stack-label
+/// What a stack's targets share: the one target, or their common folder with the extensions by count.
+pub fn stack_label(targets: &[String]) -> String {
+    match targets {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first, ..] if !targets.iter().all(|t| t.contains('/')) => format!("{first} …"),
+        [first, rest @ ..] => {
+            let mut common: Vec<&str> = first.split('/').collect();
+            common.pop();
+            for t in rest {
+                let segs: Vec<&str> = t.split('/').collect();
+                let n = common
+                    .iter()
+                    .zip(&segs[..segs.len().saturating_sub(1)])
+                    .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+                    .count();
+                common.truncate(n);
+            }
+            let mut ext: std::collections::BTreeMap<String, u32> = Default::default();
+            for t in targets {
+                let name = t.rsplit('/').next().unwrap_or(t);
+                let e = name
+                    .rsplit_once('.')
+                    .map_or(String::new(), |x| format!(".{}", x.1.to_lowercase()));
+                *ext.entry(e).or_default() += 1;
+            }
+            let mut ext: Vec<(String, u32)> = ext.into_iter().collect();
+            ext.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            let kinds: Vec<String> = ext
+                .iter()
+                .take(3)
+                .map(|(e, n)| {
+                    if e.is_empty() {
+                        format!("{n}")
+                    } else {
+                        format!("{n} {e}")
+                    }
+                })
+                .collect();
+            let head = if common.is_empty() {
+                String::new()
+            } else {
+                format!("{}/ ", common.join("/"))
+            };
+            format!(
+                "{head}… {}{}",
+                kinds.join(", "),
+                if ext.len() > 3 { ", …" } else { "" }
+            )
+        }
+    }
 }
 
 /// A window of the context table.
@@ -104,8 +170,9 @@ pub(crate) struct OpenContext {
     order: ColumnOrder,
     /// Normalized chains in column order, and their headings.
     heads: Vec<TableChain>,
-    /// Columns: (path, index into `heads`, the path's exact chain — its stack gives the cells).
-    cols: Vec<(PathId, u32, ChainId)>,
+    /// Columns: (the stack's place in its normalized chain, index into `heads`, the exact chain — its stack gives
+    /// the cells).
+    cols: Vec<(u32, u32, ChainId)>,
     chain_starts: Vec<u32>,
     /// Rows: separator headings and context mods with wins / loses.
     rows: Vec<RowItem>,
@@ -236,16 +303,7 @@ impl App {
             let decisions = self.session.decisions();
             let book = self.session.book();
             let sep_of = |m: ModId| book.key_of(table.mod_name(m)).and_then(|k| book.separator_of(k));
-            self.open_context = Some(open(
-                &ow,
-                &table,
-                &heads,
-                decisions,
-                &sep_of,
-                cx,
-                order,
-                self.revision,
-            ));
+            self.open_context = Some(open(&ow, &heads, decisions, &sep_of, cx, order, self.revision));
         }
         let oc = self.open_context.as_ref().expect("opened");
         let context = &ow.contexts()[cx.idx()];
@@ -321,9 +379,11 @@ impl App {
             rows: row_views,
             cols: window
                 .iter()
-                .map(|&(p, ci, _)| TableCol {
-                    path: table.path_string(p),
+                .map(|&(k, ci, c)| TableCol {
+                    path: stack_label(&stack_paths(&ow, &table, c)),
                     chain: ci,
+                    count: ow.chain(c).files,
+                    stack: k,
                 })
                 .collect(),
         })
@@ -349,26 +409,34 @@ pub(crate) fn context_groups(
     groups
 }
 
-/// The sorted paths of a normalized chain with their exact chain: the column order inside its band.
-pub(crate) fn group_paths(
+/// The exact chains (stacks) of a normalized chain, larger first: its columns and its teeth.
+pub(crate) fn group_stacks(
+    ow: &sat_core::overwrite::OverwriteProjection,
+    head: &crate::chains::Head,
+) -> Vec<ChainId> {
+    let mut v = head.chains.clone();
+    v.sort_by_key(|&c| (std::cmp::Reverse(ow.chain(c).files), c));
+    v
+}
+
+/// The paths of an exact chain, sorted.
+pub(crate) fn stack_paths(
     ow: &sat_core::overwrite::OverwriteProjection,
     table: &sat_core::table::ProviderTable,
-    head: &crate::chains::Head,
-) -> Vec<(String, PathId, ChainId)> {
-    let mut ps: Vec<(String, PathId, ChainId)> = head
-        .chains
-        .iter()
-        .flat_map(|&c| ow.chain_paths(c).into_iter().map(move |p| (p, c)))
-        .map(|(p, c)| (table.path_string(p), p, c))
+    c: ChainId,
+) -> Vec<String> {
+    let mut v: Vec<String> = ow
+        .chain_paths(c)
+        .into_iter()
+        .map(|p| table.path_string(p))
         .collect();
-    ps.sort_unstable();
-    ps
+    v.sort_unstable();
+    v
 }
 
 #[allow(clippy::too_many_arguments)]
 fn open(
     ow: &sat_core::overwrite::OverwriteProjection,
-    table: &sat_core::table::ProviderTable,
     heads: &[crate::chains::Head],
     decisions: &sat_core::decisions::ChainDecisions,
     sep_of: &dyn Fn(ModId) -> Option<Key>,
@@ -378,12 +446,13 @@ fn open(
 ) -> OpenContext {
     let context = &ow.contexts()[cx.idx()];
     let groups = context_groups(ow, heads, cx);
-    let mut cols: Vec<(PathId, u32, ChainId)> = Vec::new();
+    let mut cols: Vec<(u32, u32, ChainId)> = Vec::new();
     let mut chain_starts = Vec::with_capacity(groups.len());
+    // one column per stack (exact chain): its paths go through the chain the same way
     for (i, &g) in groups.iter().enumerate() {
         chain_starts.push(cols.len() as u32);
-        let ps = group_paths(ow, table, &heads[g as usize]);
-        cols.extend(ps.into_iter().map(|(_, p, c)| (p, i as u32, c)));
+        let st = group_stacks(ow, &heads[g as usize]);
+        cols.extend(st.into_iter().enumerate().map(|(k, c)| (k as u32, i as u32, c)));
     }
     if order == ColumnOrder::Strength {
         // deeper stacks first; stable, so within a depth the chain order stays

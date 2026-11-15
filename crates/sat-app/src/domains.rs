@@ -19,6 +19,7 @@ use sat_core::conflict_spec::DomainSpec;
 use crate::App;
 use crate::cards::{CardMember, ChainCard, ChainCardDetail};
 use crate::context::{ContextTable, TableChain, TableCol, TableRow};
+use sat_core::order::Key;
 
 /// Reads a loose file of a mod: (mod name, path inside the mod).
 pub type FileReader = Arc<dyn Fn(&str, &str) -> Option<Vec<u8>> + Send + Sync>;
@@ -467,19 +468,17 @@ impl App {
     ) -> Option<ChainCardDetail> {
         let d = self.domain(id)?;
         let c = &d.chains[*d.contexts.get(context)?.chains.get(index)? as usize];
-        let n = c.targets.len().min(limit);
+        // a tooth per stack
+        let shown = &c.stacks[..c.stacks.len().min(limit)];
+        let counts: Vec<u32> = shown.iter().map(|s| s.len).collect();
         let book = self.session.book();
         let members = c
             .stack
             .iter()
             .enumerate()
             .map(|(m, &p)| {
-                let teeth: String = c.row(m)[..n].iter().map(|&x| x as char).collect();
-                let wins = teeth.bytes().filter(|&b| b == cell::WIN).count() as u32;
-                let loses = teeth
-                    .bytes()
-                    .filter(|&b| matches!(b, cell::LOSE | cell::SAME | cell::TIE | cell::BREAKS))
-                    .count() as u32;
+                let teeth: String = shown.iter().map(|s| s.cells[m] as char).collect();
+                let (wins, loses) = crate::cards::tally(&teeth, &counts);
                 let part = &d.participants[p as usize];
                 let key = part.owner.as_deref().and_then(|o| book.key_of(o));
                 CardMember {
@@ -495,12 +494,65 @@ impl App {
         Some(ChainCardDetail {
             index: index as u32,
             members,
-            items: c.targets[..n]
-                .iter()
-                .map(|&t| d.targets[t as usize].clone())
-                .collect(),
-            items_total: c.targets.len(),
+            items: shown.iter().map(|s| stack_label_of(&d, c, s)).collect(),
+            counts,
+            items_total: c.stacks.len(),
+            targets_total: c.targets.len(),
         })
+    }
+
+    // @sat:app.domains.stack
+    /// The targets of one stack of a chain (a window): what a column or a tooth stands for.
+    pub(crate) fn stack_targets(
+        &mut self,
+        id: &str,
+        key: Option<Key>,
+        context: usize,
+        chain: usize,
+        stack: usize,
+        window: (usize, usize),
+    ) -> Option<(Vec<String>, usize)> {
+        let cut = |v: Vec<String>| {
+            let total = v.len();
+            (v.into_iter().skip(window.0).take(window.1).collect(), total)
+        };
+        match id {
+            "files" => {
+                let cx = self.context_of(key?)?;
+                let ow = self.session.overwrite();
+                let table = self.session.table().clone();
+                let heads = self.heads();
+                let g = *crate::context::context_groups(&ow, &heads, cx).get(chain)?;
+                let c = *crate::context::group_stacks(&ow, &heads[g as usize]).get(stack)?;
+                Some(cut(crate::context::stack_paths(&ow, &table, c)))
+            }
+            "records" => {
+                let r = &self.records;
+                let c = &r.chains[*r.contexts.get(context)?.chains.get(chain)?];
+                let at: usize = c.stacks[..stack].iter().map(|s| s.1 as usize).sum();
+                let n = c.stacks.get(stack)?.1 as usize;
+                let keys = &c.keys[at..at + n];
+                let total = keys.len();
+                Some((
+                    keys.iter()
+                        .skip(window.0)
+                        .take(window.1)
+                        .map(|&k| crate::cards::record_stack_label(&r.index, &[k]))
+                        .collect(),
+                    total,
+                ))
+            }
+            _ => {
+                let d = self.domain(id)?;
+                let c = &d.chains[*d.contexts.get(context)?.chains.get(chain)? as usize];
+                let s = c.stacks.get(stack)?;
+                Some(cut(c
+                    .stack_targets(s)
+                    .iter()
+                    .map(|&t| d.targets[t as usize].clone())
+                    .collect()))
+            }
+        }
     }
 
     // @sat:app.domains.table
@@ -517,13 +569,13 @@ impl App {
         let cx = d.contexts.get(context)?;
         let items = self.domain_contexts(id)?;
         let meta = &items[context];
-        // columns: (chain position, member index by participant, target position in chain)
+        // columns: (chain position, stack position) — one column per stack
         let mut all_cols: Vec<(u32, usize)> = Vec::new();
         let mut chain_starts = Vec::new();
         for (ci, &c) in cx.chains.iter().enumerate() {
             chain_starts.push(all_cols.len() as u32);
-            for t in 0..d.chains[c as usize].targets.len() {
-                all_cols.push((ci as u32, t));
+            for k in 0..d.chains[c as usize].stacks.len() {
+                all_cols.push((ci as u32, k));
             }
         }
         // rows: participants, grouped by owner when that says more
@@ -553,7 +605,6 @@ impl App {
         let col_window = &all_cols[cols.0.min(all_cols.len())..(cols.0 + cols.1).min(all_cols.len())];
         let mut chains_in: Vec<u32> = col_window.iter().map(|c| c.0).collect();
         chains_in.dedup();
-        let local = |ci: u32| chains_in.iter().position(|&x| x == ci).unwrap_or(0) as u32;
         let book = self.session.book();
         let mut header_owner: Vec<Option<String>> = Vec::new();
         {
@@ -598,10 +649,10 @@ impl App {
                     for &c in &cx.chains {
                         let ch = &d.chains[c as usize];
                         if let Some(m) = member_in(ch) {
-                            for &x in ch.row(m) {
-                                match x {
-                                    cell::WIN => wins += 1,
-                                    cell::LOSE | cell::SAME | cell::TIE | cell::BREAKS => loses += 1,
+                            for st in &ch.stacks {
+                                match st.cells[m] {
+                                    cell::WIN => wins += st.len,
+                                    cell::LOSE | cell::SAME | cell::TIE | cell::BREAKS => loses += st.len,
                                     _ => {}
                                 }
                             }
@@ -609,9 +660,9 @@ impl App {
                     }
                     let cells: String = col_window
                         .iter()
-                        .map(|&(ci, t)| {
+                        .map(|&(ci, k)| {
                             let ch = &d.chains[cx.chains[ci as usize] as usize];
-                            member_in(ch).map_or('-', |m| ch.cell(m, t) as char)
+                            member_in(ch).map_or('-', |m| ch.stacks[k].cells[m] as char)
                         })
                         .collect();
                     let key = book
@@ -659,16 +710,30 @@ impl App {
             rows: rows_out,
             cols: col_window
                 .iter()
-                .map(|&(ci, t)| {
+                .map(|&(ci, k)| {
                     let c = &d.chains[cx.chains[ci as usize] as usize];
+                    let st = &c.stacks[k];
                     TableCol {
-                        path: d.targets[c.targets[t] as usize].clone(),
-                        chain: local(ci),
+                        path: stack_label_of(&d, c, st),
+                        chain: ci,
+                        count: st.len,
+                        stack: k as u32,
                     }
                 })
                 .collect(),
         })
     }
+}
+
+/// What a stack's targets share.
+fn stack_label_of(d: &DomainReport, c: &sat_core::conflict::Chain, s: &sat_core::conflict::Stack) -> String {
+    let t: Vec<String> = c
+        .stack_targets(s)
+        .iter()
+        .take(2000)
+        .map(|&t| d.targets[t as usize].clone())
+        .collect();
+    crate::context::stack_label(&t)
 }
 
 fn placeholder(id: &str, title: &str) -> DomainInfo {
@@ -832,6 +897,71 @@ mod tests {
         assert_eq!(found(&mut a, "cases == 1"), 2);
         assert_eq!(found(&mut a, "unresolved_cases > 0"), 0);
         assert_eq!(found(&mut a, "opponents > 0"), 0);
+    }
+
+    #[test]
+    fn paths_that_go_through_a_chain_the_same_way_are_one_stack() {
+        let mut a = crate::tests::app_from(vec![
+            files("A", &["x/a.dds", "x/b.dds", "y/c.nif"]),
+            files("B", &["x/a.dds", "x/b.dds", "y/c.nif"]),
+        ]);
+        let key = a.session.book().key_of("A").unwrap();
+        let Reply::ContextTable { table: Some(t) } = a
+            .query(Query::ContextTable {
+                key,
+                order: crate::ColumnOrder::Chain,
+                row_start: 0,
+                row_count: 10,
+                col_start: 0,
+                col_count: 10,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(t.cols_total, 1, "three paths, one stack");
+        assert_eq!(
+            (t.cols[0].count, t.cols[0].path.as_str()),
+            (3, "… 2 .dds, 1 .nif")
+        );
+        let Reply::ChainCard { card: Some(d) } = a
+            .query(Query::ContextCard {
+                key,
+                index: 0,
+                limit: 10,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (d.items_total, d.targets_total, d.counts.clone()),
+            (1, 3, vec![3])
+        );
+        assert_eq!(d.members[1].teeth, "w");
+        assert_eq!(
+            (d.members[1].wins, d.members[0].loses),
+            (3, 3),
+            "a stack counts by its targets"
+        );
+        let Reply::StackTargets { targets, total } = a
+            .query(Query::StackTargets {
+                domain: "files".into(),
+                key: Some(key),
+                context: 0,
+                chain: 0,
+                stack: 0,
+                offset: 1,
+                limit: 10,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (targets, total),
+            (vec!["x/b.dds".to_string(), "y/c.nif".to_string()], 3)
+        );
     }
 
     #[test]

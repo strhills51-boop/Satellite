@@ -56,14 +56,29 @@ pub struct ChainCardDetail {
     pub index: u32,
     /// Lowest first, the winner last.
     pub members: Vec<CardMember>,
-    /// Paths or records (`plugin:FormID SIG`), the first `limit`.
+    /// Stacks (`@sat:conflict.stacks`): what each stack's targets share, the first `limit` stacks; a tooth per
+    /// stack.
     pub items: Vec<String>,
+    /// Targets in each of `items`.
+    #[serde(default)]
+    pub counts: Vec<u32>,
+    /// Stacks in the chain.
     pub items_total: usize,
+    /// Targets in the chain.
+    #[serde(default)]
+    pub targets_total: usize,
 }
 
-fn tally(teeth: &str) -> (u32, u32) {
-    let w = teeth.bytes().filter(|&b| b == b'w').count() as u32;
-    let l = teeth.bytes().filter(|&b| b == b'l' || b == b's').count() as u32;
+/// Wins and losses of a member over its stacks, each counted by its targets.
+pub(crate) fn tally(teeth: &str, counts: &[u32]) -> (u32, u32) {
+    let (mut w, mut l) = (0, 0);
+    for (b, &n) in teeth.bytes().zip(counts) {
+        match b {
+            b'w' => w += n,
+            b'l' | b's' | b't' | b'x' => l += n,
+            _ => {}
+        }
+    }
     (w, l)
 }
 
@@ -115,8 +130,10 @@ impl App {
         let heads = self.heads();
         let g = *crate::context::context_groups(&ow, &heads, cx).get(index)?;
         let h = &heads[g as usize];
-        let paths = crate::context::group_paths(&ow, &table, h);
-        let shown = &paths[..paths.len().min(limit)];
+        // a tooth per stack: an exact chain's paths go through the chain the same way
+        let stacks = crate::context::group_stacks(&ow, h);
+        let shown = &stacks[..stacks.len().min(limit)];
+        let counts: Vec<u32> = shown.iter().map(|&c| ow.chain(c).files).collect();
         let book = self.session.book();
         let members = h
             .route
@@ -125,13 +142,13 @@ impl App {
             .map(|&m| {
                 let teeth: String = shown
                     .iter()
-                    .map(|&(_, _, c)| match ow.chain_mods(c).iter().position(|&x| x == m) {
+                    .map(|&c| match ow.chain_mods(c).iter().position(|&x| x == m) {
                         Some(0) => 'w',
                         Some(_) => 'l',
                         None => '-',
                     })
                     .collect();
-                let (wins, loses) = tally(&teeth);
+                let (wins, loses) = tally(&teeth, &counts);
                 let name = self.session.unit_label(m).to_string();
                 let key = book.key_of(table.mod_name(m));
                 CardMember {
@@ -147,8 +164,13 @@ impl App {
         Some(ChainCardDetail {
             index: index as u32,
             members,
-            items: shown.iter().map(|x| x.0.clone()).collect(),
-            items_total: paths.len(),
+            items: shown
+                .iter()
+                .map(|&c| crate::context::stack_label(&crate::context::stack_paths(&ow, &table, c)))
+                .collect(),
+            counts,
+            items_total: stacks.len(),
+            targets_total: h.files as usize,
         })
     }
 
@@ -190,34 +212,21 @@ impl App {
         )
     }
 
-    /// Details of card `index` of record context `context`.
+    /// Details of card `index` of record context `context`: a tooth per stack of records.
     pub(crate) fn record_card(&self, context: usize, index: usize, limit: usize) -> Option<ChainCardDetail> {
         let r = &self.records;
-        let ix = &r.index;
         let c = &r.chains[*r.contexts.get(context)?.chains.get(index)?];
-        let keys = &c.keys[..c.keys.len().min(limit)];
-        let providers: Vec<Vec<sat_core::records::Provider>> =
-            keys.iter().map(|&k| ix.providers(k)).collect();
+        let shown = &c.stacks[..c.stacks.len().min(limit)];
+        let counts: Vec<u32> = shown.iter().map(|s| s.1).collect();
         let members = c
             .stack_ids
             .iter()
-            .map(|&p| {
-                let teeth: String = providers
-                    .iter()
-                    .map(|pr| {
-                        let last = pr.last().map(|x| (x.plugin, x.hash));
-                        match pr.iter().find(|x| x.plugin == p) {
-                            None => '-',
-                            Some(x) if x.origin => 'o',
-                            Some(x) if Some(x.plugin) == last.map(|l| l.0) => 'w',
-                            Some(x) if x.hash.is_some() && x.hash == last.and_then(|l| l.1) => 's',
-                            Some(_) => 'l',
-                        }
-                    })
-                    .collect();
-                let (wins, loses) = tally(&teeth);
+            .enumerate()
+            .map(|(m, &p)| {
+                let teeth: String = shown.iter().map(|s| s.0.as_bytes()[m] as char).collect();
+                let (wins, loses) = tally(&teeth, &counts);
                 CardMember {
-                    name: ix.plugins[p as usize].clone(),
+                    name: r.index.plugins[p as usize].clone(),
                     key: None,
                     enabled: true,
                     teeth,
@@ -226,24 +235,48 @@ impl App {
                 }
             })
             .collect();
+        let mut at = 0usize;
+        let items = c
+            .stacks
+            .iter()
+            .map(|s| {
+                let keys = &c.keys[at..at + s.1 as usize];
+                at += s.1 as usize;
+                record_stack_label(&r.index, keys)
+            })
+            .take(shown.len())
+            .collect();
         Some(ChainCardDetail {
             index: index as u32,
             members,
-            items: keys
-                .iter()
-                .zip(&providers)
-                .map(|(&k, pr)| {
-                    format!(
-                        "{} {}",
-                        ix.label(k),
-                        pr.last()
-                            .map(|x| String::from_utf8_lossy(&x.signature).into_owned())
-                            .unwrap_or_default()
-                    )
-                })
-                .collect(),
-            items_total: c.keys.len(),
+            items,
+            counts,
+            items_total: c.stacks.len(),
+            targets_total: c.keys.len(),
         })
+    }
+}
+
+/// What a stack of records is: the record (one), or its signatures by count (`REFR 4803, CELL 48`).
+pub(crate) fn record_stack_label(ix: &sat_core::records::RecordIndex, keys: &[u64]) -> String {
+    let sig = |k: u64| {
+        ix.providers(k)
+            .last()
+            .map(|x| String::from_utf8_lossy(&x.signature).into_owned())
+            .unwrap_or_default()
+    };
+    match keys {
+        [k] => format!("{} {}", ix.label(*k), sig(*k)),
+        _ => {
+            let mut by: std::collections::BTreeMap<String, u32> = Default::default();
+            for &k in keys.iter().take(5000) {
+                *by.entry(sig(k)).or_default() += 1;
+            }
+            let mut v: Vec<(String, u32)> = by.into_iter().collect();
+            v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            let parts: Vec<String> = v.iter().take(4).map(|(s, n)| format!("{s} {n}")).collect();
+            format!("{} … {}", ix.label(keys[0]), parts.join(", "))
+        }
     }
 }
 

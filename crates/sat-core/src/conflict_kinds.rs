@@ -233,49 +233,104 @@ pub fn archives_in(
             Source::Loose => None,
         }
     };
+    // @sat:conflict.stacks.compute
+    // paths whose copies come from the same mods the same way (loose / which archive) go the same way: computed
+    // once per such stack, not per path
+    type Outcome = Option<(usize, Option<usize>, &'static str, Severity, Vec<(u32, u8)>)>;
+    let mut memo: FxHashMap<Vec<(u32, u32)>, Outcome> = FxHashMap::default();
     for &p in paths {
         let r = table.path_providers(p);
         let active: Vec<usize> = r.filter(|&i| prio.is_active(table.owner(i))).collect();
-        if active.len() < 2 || !active.iter().any(|&i| table.is_archive(i)) {
-            continue;
-        }
-        // what the mod order shows
-        let Some(&shown) = active
+        let shape: Vec<(u32, u32)> = active
             .iter()
-            .max_by_key(|&&i| (prio.get(table.owner(i)), !table.is_archive(i)))
-        else {
-            continue;
-        };
-        // what the game takes: loose by mod order above every archive, archives by plugin order
-        let game = active
-            .iter()
-            .filter_map(|&i| {
-                if table.is_archive(i) {
-                    archive_pos(i).map(|pos| (i, (0u8, pos as i64)))
-                } else {
-                    Some((
-                        i,
-                        (
-                            u8::from(rules.loose_over_archive),
-                            i64::from(prio.get(table.owner(i))),
-                        ),
-                    ))
-                }
+            .map(|&i| {
+                let src = match table.source(i) {
+                    Source::Archive(a) => a.0 + 1,
+                    Source::Loose => 0,
+                };
+                (table.owner(i).0, src)
             })
-            .max_by_key(|x| x.1)
-            .map(|x| x.0);
-        let shown_mod = table.owner(shown);
-        if game.map(|g| table.owner(g)) == Some(shown_mod) {
-            continue;
-        }
-        let (kind, sev) = match game {
-            None => ("архив не грузится", Severity::Error),
-            Some(_) if table.is_archive(shown) && archive_pos(shown).is_none() => {
-                ("архив не грузится", Severity::Error)
+            .collect();
+        let outcome = match memo.get(&shape) {
+            Some(o) => o.clone(),
+            None => {
+                let o = (|| -> Outcome {
+                    if active.len() < 2 || !active.iter().any(|&i| table.is_archive(i)) {
+                        return None;
+                    }
+                    // what the mod order shows
+                    let &shown = active
+                        .iter()
+                        .max_by_key(|&&i| (prio.get(table.owner(i)), !table.is_archive(i)))?;
+                    // what the game takes: loose by mod order above every archive, archives by plugin order
+                    let game = active
+                        .iter()
+                        .filter_map(|&i| {
+                            if table.is_archive(i) {
+                                archive_pos(i).map(|pos| (i, (0u8, pos as i64)))
+                            } else {
+                                Some((
+                                    i,
+                                    (
+                                        u8::from(rules.loose_over_archive),
+                                        i64::from(prio.get(table.owner(i))),
+                                    ),
+                                ))
+                            }
+                        })
+                        .max_by_key(|x| x.1)
+                        .map(|x| x.0);
+                    let shown_mod = table.owner(shown);
+                    if game.map(|g| table.owner(g)) == Some(shown_mod) {
+                        return None;
+                    }
+                    let (kind, sev) = match game {
+                        None => ("архив не грузится", Severity::Error),
+                        Some(_) if table.is_archive(shown) && archive_pos(shown).is_none() => {
+                            ("архив не грузится", Severity::Error)
+                        }
+                        Some(g) if !table.is_archive(g) && table.is_archive(shown) => {
+                            ("файл бьёт архив", Severity::Warn)
+                        }
+                        _ => ("архивы по порядку плагинов", Severity::Warn),
+                    };
+
+                    // one cell per mod, mods by priority
+                    let mut mods: Vec<ModId> = active.iter().map(|&i| table.owner(i)).collect();
+                    mods.sort_by_key(|&m| (prio.get(m), m));
+                    mods.dedup();
+                    let members: Vec<(u32, u8)> = mods
+                        .iter()
+                        .map(|&m| {
+                            let label = table.mod_name(m);
+                            let id = b.participant(label, Some(label), i64::from(prio.get(m)));
+                            let c = if game.map(|g| table.owner(g)) == Some(m) {
+                                cell::WIN
+                            } else if active
+                                .iter()
+                                .filter(|&&i| table.owner(i) == m)
+                                .all(|&i| table.is_archive(i) && archive_pos(i).is_none())
+                            {
+                                cell::BREAKS
+                            } else {
+                                cell::LOSE
+                            };
+                            (id, c)
+                        })
+                        .collect();
+
+                    let shown_i = active.iter().position(|&x| x == shown)?;
+                    let game_i = game.and_then(|g| active.iter().position(|&x| x == g));
+                    Some((shown_i, game_i, kind, sev, members))
+                })();
+                memo.insert(shape, o.clone());
+                o
             }
-            Some(g) if !table.is_archive(g) && table.is_archive(shown) => ("файл бьёт архив", Severity::Warn),
-            _ => ("архивы по порядку плагинов", Severity::Warn),
         };
+        let Some((shown_i, game_i, kind, sev, members)) = outcome else {
+            continue;
+        };
+        let (shown, game) = (active[shown_i], game_i.map(|g| active[g]));
         // the game's copy and the shown one hold the same bytes: the order does not matter here
         let same = game.is_some_and(|g| {
             hashes.is_some_and(|h| crate::identical::same(table, h, g, shown) == Some(true))
@@ -292,29 +347,6 @@ pub fn archives_in(
         } else {
             (kind, sev)
         };
-        // one cell per mod, mods by priority
-        let mut mods: Vec<ModId> = active.iter().map(|&i| table.owner(i)).collect();
-        mods.sort_by_key(|&m| (prio.get(m), m));
-        mods.dedup();
-        let members: Vec<(u32, u8)> = mods
-            .iter()
-            .map(|&m| {
-                let label = table.mod_name(m);
-                let id = b.participant(label, Some(label), i64::from(prio.get(m)));
-                let c = if game.map(|g| table.owner(g)) == Some(m) {
-                    cell::WIN
-                } else if active
-                    .iter()
-                    .filter(|&&i| table.owner(i) == m)
-                    .all(|&i| table.is_archive(i) && archive_pos(i).is_none())
-                {
-                    cell::BREAKS
-                } else {
-                    cell::LOSE
-                };
-                (id, c)
-            })
-            .collect();
         b.contest(&table.path_string(p), &members, kind, sev, sev != Severity::Info);
     }
     b.finish()
@@ -907,12 +939,7 @@ mod tests {
                 .iter()
                 .all(|c| c.unresolved && c.severity == Severity::Error)
         );
-        assert!(
-            r.chains
-                .iter()
-                .flat_map(|c| c.cells.iter())
-                .all(|&x| x == cell::BREAKS)
-        );
+        assert!(r.chains.iter().flat_map(|c| c.cells()).all(|x| x == cell::BREAKS));
     }
 
     #[test]
@@ -1011,7 +1038,7 @@ mod tests {
             "{}",
             r.targets[0]
         );
-        assert_eq!(r.chains[0].cells, b"mx");
+        assert_eq!(r.chains[0].cells(), b"mx");
     }
 
     #[test]
@@ -1078,7 +1105,7 @@ mod tests {
             .iter()
             .find(|c| c.kind == "правят двое и больше")
             .unwrap();
-        assert_eq!(nav.cells, b"oxx");
+        assert_eq!(nav.cells(), b"oxx");
     }
 }
 

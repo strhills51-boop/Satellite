@@ -1147,8 +1147,13 @@ fn analyze(args: &[String]) -> Result<(), String> {
                     sigs.sort_by_key(|x| std::cmp::Reverse(*x.1));
                     let sigs: Vec<String> = sigs.iter().take(4).map(|(k, n)| format!("{k} {n}")).collect();
                     println!(
-                        "  {:>7}  {}{}   [{}]{}",
+                        "  {:>7}  {}{}{}   [{}]{}",
                         c.records,
+                        if c.stacks.len() > 1 {
+                            format!("in {} stacks  ", c.stacks.len())
+                        } else {
+                            String::new()
+                        },
                         match (c.conflict, c.blind) {
                             (true, true) => "BLIND  ",
                             (true, false) => "on top ",
@@ -1446,10 +1451,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
 /// One conflict domain in text: its counts by kind, then its largest chains with a few targets.
 fn print_domain(r: &sat_core::conflict::DomainReport, limit: usize) {
     println!(
-        "== {} [{}]: {} target(s), {} wanting a decision{}",
+        "== {} [{}]: {} target(s) in {} stack(s), {} wanting a decision{}",
         r.info.title,
         r.info.id,
         r.counts.targets,
+        r.counts.stacks,
         r.counts.unresolved,
         if r.counts.kinds.is_empty() {
             String::new()
@@ -1485,8 +1491,13 @@ fn print_domain(r: &sat_core::conflict::DomainReport, limit: usize) {
             )
         };
         println!(
-            "  {:>6}  {}{}",
+            "  {:>6}  {}{}{}",
             c.targets.len(),
+            if c.stacks.len() > 1 {
+                format!("in {} stacks  ", c.stacks.len())
+            } else {
+                String::new()
+            },
             if c.kind.is_empty() {
                 String::new()
             } else {

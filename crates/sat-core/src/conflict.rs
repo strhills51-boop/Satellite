@@ -141,14 +141,26 @@ pub struct Participant {
     pub rank: i64,
 }
 
+/// Targets of a chain that go through it the same way: every member has the same cell at each of them. They are
+/// counted, computed and shown as one (the owner's "стак").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stack {
+    /// How many targets (they are `Chain::targets[start..start + len]`).
+    pub start: u32,
+    pub len: u32,
+    /// One cell per member of the chain.
+    pub cells: Vec<u8>,
+}
+
 /// One stack of participants over its targets.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Chain {
     /// Participants, the lowest first, the winner (if any) last.
     pub stack: Vec<u32>,
+    /// Targets, stack by stack (the largest stack first).
     pub targets: Vec<u32>,
-    /// Row-major: `cells[m * targets.len() + t]` for member `m` of the stack and target `t`.
-    pub cells: Vec<u8>,
+    /// Targets grouped by their cells.
+    pub stacks: Vec<Stack>,
     /// What kind of case it is, in words (`ничья`, `нет мастера`, `вслепую`, …).
     pub kind: String,
     pub severity: Severity,
@@ -157,14 +169,40 @@ pub struct Chain {
 }
 
 impl Chain {
-    pub fn cell(&self, member: usize, target: usize) -> u8 {
-        self.cells[member * self.targets.len() + target]
+    /// The stack a target position falls in.
+    pub fn stack_of(&self, target: usize) -> &Stack {
+        let i = self
+            .stacks
+            .partition_point(|s| (s.start + s.len) as usize <= target);
+        &self.stacks[i]
     }
 
-    /// Cells of one member, one per target.
-    pub fn row(&self, member: usize) -> &[u8] {
-        let n = self.targets.len();
-        &self.cells[member * n..(member + 1) * n]
+    pub fn cell(&self, member: usize, target: usize) -> u8 {
+        self.stack_of(target).cells[member]
+    }
+
+    /// Cells of one member, one per target (expanded).
+    pub fn row(&self, member: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.targets.len());
+        for s in &self.stacks {
+            out.extend(std::iter::repeat_n(s.cells[member], s.len as usize));
+        }
+        out
+    }
+
+    /// Cells of one member, one per stack.
+    pub fn stack_row(&self, member: usize) -> Vec<u8> {
+        self.stacks.iter().map(|s| s.cells[member]).collect()
+    }
+
+    /// Every cell, row-major per member (expanded; for small chains and tests).
+    pub fn cells(&self) -> Vec<u8> {
+        (0..self.stack.len()).flat_map(|m| self.row(m)).collect()
+    }
+
+    /// Targets of one stack.
+    pub fn stack_targets(&self, s: &Stack) -> &[u32] {
+        &self.targets[s.start as usize..(s.start + s.len) as usize]
     }
 }
 
@@ -185,6 +223,9 @@ pub struct Context {
 pub struct Counts {
     /// Targets with a case.
     pub targets: u32,
+    /// Stacks of them: targets that go through their chain the same way count once here.
+    #[serde(default)]
+    pub stacks: u32,
     /// Targets whose case wants a decision.
     pub unresolved: u32,
     /// Targets by kind.
@@ -243,9 +284,20 @@ pub struct Builder {
     participants: Vec<Participant>,
     by_label: FxHashMap<String, u32>,
     targets: Vec<String>,
-    chains: Vec<Chain>,
+    chains: Vec<Pending>,
     by_key: FxHashMap<ChainKey, u32>,
     notes: Vec<String>,
+}
+
+/// A chain while contests come in: its stacks by their cells.
+#[derive(Debug)]
+struct Pending {
+    stack: Vec<u32>,
+    kind: String,
+    severity: Severity,
+    unresolved: bool,
+    stacks: Vec<(Vec<u8>, Vec<u32>)>,
+    by_cells: FxHashMap<Vec<u8>, u32>,
 }
 
 impl Builder {
@@ -300,28 +352,31 @@ impl Builder {
         let c = match self.by_key.get(&key) {
             Some(&c) => c as usize,
             None => {
-                self.chains.push(Chain {
+                self.chains.push(Pending {
                     stack,
-                    targets: Vec::new(),
-                    cells: Vec::new(),
                     kind: kind.to_string(),
                     severity,
                     unresolved,
+                    stacks: Vec::new(),
+                    by_cells: FxHashMap::default(),
                 });
                 self.by_key.insert(key, (self.chains.len() - 1) as u32);
                 self.chains.len() - 1
             }
         };
         let ch = &mut self.chains[c];
-        // cells are row-major per member: widen every row by one
-        let n = ch.targets.len();
-        let mut cells = Vec::with_capacity(ch.cells.len() + members.len());
-        for (m, member) in members.iter().enumerate() {
-            cells.extend_from_slice(&ch.cells[m * n..(m + 1) * n]);
-            cells.push(member.1);
-        }
-        ch.cells = cells;
-        ch.targets.push(t);
+        let cells: Vec<u8> = members.iter().map(|m| m.1).collect();
+        // @sat:conflict.stacks
+        // targets that go through the chain the same way join one stack
+        let k = match ch.by_cells.get(&cells) {
+            Some(&k) => k as usize,
+            None => {
+                ch.by_cells.insert(cells.clone(), ch.stacks.len() as u32);
+                ch.stacks.push((cells, Vec::new()));
+                ch.stacks.len() - 1
+            }
+        };
+        ch.stacks[k].1.push(t);
     }
 
     pub fn finish(self) -> DomainReport {
@@ -329,10 +384,36 @@ impl Builder {
             info,
             participants,
             targets,
-            mut chains,
+            chains,
             notes,
             ..
         } = self;
+        let mut chains: Vec<Chain> = chains
+            .into_iter()
+            .map(|mut p| {
+                p.stacks
+                    .sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
+                let mut ts = Vec::new();
+                let stacks = p
+                    .stacks
+                    .into_iter()
+                    .map(|(cells, t)| {
+                        let start = ts.len() as u32;
+                        let len = t.len() as u32;
+                        ts.extend(t);
+                        Stack { start, len, cells }
+                    })
+                    .collect();
+                Chain {
+                    stack: p.stack,
+                    targets: ts,
+                    stacks,
+                    kind: p.kind,
+                    severity: p.severity,
+                    unresolved: p.unresolved,
+                }
+            })
+            .collect();
         chains.sort_by(|a, b| {
             b.severity
                 .cmp(&a.severity)
@@ -346,6 +427,7 @@ impl Builder {
         for c in &chains {
             let n = c.targets.len() as u32;
             counts.targets += n;
+            counts.stacks += c.stacks.len() as u32;
             if c.unresolved {
                 counts.unresolved += n;
                 match c.severity {

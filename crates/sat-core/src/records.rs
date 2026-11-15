@@ -363,11 +363,21 @@ pub struct RecordChain {
     pub keys: Vec<u64>,
     #[serde(skip)]
     pub stack_ids: Vec<u32>,
+    /// Its records grouped by how they go through the chain (`@sat:conflict.stacks`): one cell per stack member
+    /// (`o` own plugin, `w` winner, `s` equal to the winner, `l` loses) and how many records; `keys` lie stack by
+    /// stack, the largest first.
+    #[serde(default)]
+    pub stacks: Vec<(String, u32)>,
 }
+
+/// A chain's records by their cells, while chains are built.
+type StacksOf = HashMap<Vec<u8>, Vec<u64>>;
 
 /// Chains: blind conflicts first, then conflicts on purpose, then overrides, each largest first.
 pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
     let mut by_stack: HashMap<(Vec<u32>, bool), RecordChain> = HashMap::new();
+    // per chain: cells → keys
+    let mut stacks_of: HashMap<(Vec<u32>, bool), StacksOf> = HashMap::new();
     for &g in &ix.contested {
         let es = ix.group(g);
         let stack: Vec<u32> = es.iter().map(|e| e.plugin).collect();
@@ -386,6 +396,7 @@ pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
                 samples: Vec::new(),
                 keys: Vec::new(),
                 stack_ids: stack.clone(),
+                stacks: Vec::new(),
             });
         let winner = es[es.len() - 1];
         c.records += 1;
@@ -395,9 +406,37 @@ pub fn chains(ix: &RecordIndex) -> Vec<RecordChain> {
         } else if es.iter().all(|e| e.hash == winner.hash) {
             c.equal_to_winner += 1;
         }
-        c.keys.push(winner.key);
         if c.samples.len() < 5 {
             c.samples.push(ix.label(winner.key));
+        }
+        let cells: Vec<u8> = es
+            .iter()
+            .map(|e| {
+                if ix.is_origin(e) {
+                    b'o'
+                } else if e.plugin == winner.plugin {
+                    b'w'
+                } else if e.hash.is_some() && e.hash == winner.hash {
+                    b's'
+                } else {
+                    b'l'
+                }
+            })
+            .collect();
+        stacks_of
+            .entry((stack, conflict))
+            .or_default()
+            .entry(cells)
+            .or_default()
+            .push(winner.key);
+    }
+    for (k, c) in by_stack.iter_mut() {
+        let mut st: Vec<(Vec<u8>, Vec<u64>)> = stacks_of.remove(k).unwrap_or_default().into_iter().collect();
+        st.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
+        for (cells, keys) in st {
+            c.stacks
+                .push((String::from_utf8_lossy(&cells).into_owned(), keys.len() as u32));
+            c.keys.extend(keys);
         }
     }
     let mut v: Vec<RecordChain> = by_stack.into_values().collect();

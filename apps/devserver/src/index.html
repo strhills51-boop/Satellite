@@ -208,6 +208,14 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #ct .legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
 #ct .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 #ctBody { flex: 1; display: flex; min-height: 0; }
+#ctPane { position: relative; }
+#ctStack { position: absolute; right: 12px; top: 52px; width: min(560px, 70%); max-height: 70%; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.4); padding: 8px 10px; z-index: 5; }
+#ctStack .h { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+#ctStack .h span { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ctStack pre { font: 11px/1.45 var(--mono); margin: 6px 0 0; white-space: pre; }
+.cc .stk { display: flex; gap: 8px; font: 11px/1.5 var(--mono); cursor: pointer; color: var(--fg); }
+.cc .stk b { color: var(--muted); font-weight: 500; min-width: 54px; text-align: right; }
+.cc .stk span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ctPane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #ctCards { width: 470px; flex: none; overflow: auto; border-right: 1px solid var(--line); padding: 8px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 6px; }
 #ct.m-cards #ctPane, #ct.m-table #ctCards { display: none; }
@@ -297,7 +305,7 @@ footer b { color: var(--accent2); font-weight: 500; }
   </div>
   <div id="ctBody"><div id="ctCards"></div><div id="ctPane">
   <div id="ctScroll"><div id="ctView"><canvas id="ctCanvas"></canvas></div><div id="ctSpacer"></div></div>
-  <div id="ctStatus">наведи на клетку: путь, цепочка, стек</div></div></div>
+  <div id="ctStatus">наведи на клетку: путь, цепочка, стек</div><div id="ctStack" hidden></div></div></div>
 </div>
 <script>
 "use strict";
@@ -713,9 +721,11 @@ async function ctSync(pickCtx) {
     if (!t) { $("ctTitle").textContent = rec ? "Нет такого контекста" : "Мод ни с кем не конфликтует"; CT.data = null; return; }
     CT.data = { t, r0, c0 };
     $("ctTitle").textContent = "△ " + t.name;
-    $("ctStats").textContent = gen ? `Цепочек: ${t.chains_total} · Строк: ${t.rows_total} · Целей: ${t.cols_total}`
-      : rec ? `Цепочек: ${t.chains_total} · Плагинов: ${t.rows_total} · Записей: ${t.cols_total}`
-      : `Цепочек: ${t.chains_total} · Строк: ${t.rows_total} · Файлов: ${t.cols_total}`;
+    // columns are stacks: targets that go through their chain the same way are one column
+    const cx = CT.contexts && CT.contexts[CT.tab === "files" ? +$("ctCtx").value : CT.rctx];
+    const many = cx ? (gen ? cx.targets : rec ? cx.records : cx.files) : null;
+    const unit = gen ? "целей" : rec ? "записей" : "файлов";
+    $("ctStats").textContent = `Цепочек: ${t.chains_total} · ${rec && !gen ? "Плагинов" : "Строк"}: ${t.rows_total} · Стаков: ${num(t.cols_total)}${many != null ? ` (${unit} ${num(many)})` : ""}`;
     if (pickCtx && CT.contexts && !rec) { const i = CT.contexts.findIndex(c => c.name === t.name); if (i >= 0) $("ctCtx").value = String(i); }
     const sp = $("ctSpacer");
     sp.style.width = (CT.LW + t.cols_total * CT.CW) + "px"; sp.style.height = (CT.HH + t.rows_total * CT.RH) + "px";
@@ -760,7 +770,11 @@ function ctDraw() {
     const x = LW + ox + j * CW, ch = chains.get(c.chain);
     if (ch) { g.fillStyle = `hsl(${ch.hue} 65% 55%)`; g.fillRect(x, 6, CW, 4); }
     const pathLike = CT.tab === "files" || (GEN() && /\/[^/ ]+\.[a-z0-9]+$/i.test(c.path));
-    g.fillStyle = `hsl(${pathLike ? extHue(c.path) : sigHue(c.path)} 70% 55%)`; g.fillRect(x + 1, 18, CW - 2, 14);
+    const hue = pathLike ? extHue(c.path) : sigHue(c.path);
+    // a stack is a pile: the more targets go through the chain the same way, the higher the pile
+    const layers = c.count > 1 ? Math.min(5, 1 + Math.floor(Math.log10(c.count) * 1.6)) : 0;
+    for (let k = layers; k > 0; k--) { g.fillStyle = `hsl(${hue} 55% ${38 + k * 4}%)`; g.fillRect(x + 1, 18 - k * 3, CW - 2, 14); }
+    g.fillStyle = `hsl(${hue} 70% 55%)`; g.fillRect(x + 1, 18, CW - 2, 14);
     const starts = t.chain_starts.length && (j > 0 ? t.cols[j - 1].chain !== c.chain : t.chain_starts.includes(c0));
     if (starts) {
       g.fillStyle = muted; g.fillRect(x, 4, 1, HH - 8);
@@ -808,14 +822,24 @@ $("ctScroll").addEventListener("mousemove", ev => {
   const hit = ctHit(ev); if (!hit) return;
   const { t } = CT.data, parts = [];
   if (hit.col) { const ch = t.chains.find(c => c.index === hit.col.chain);
-    parts.push(`<b>${esc(hit.col.path)}</b>`); if (ch) parts.push(`${ch.emoji} ${esc(ch.name)} · стек ${ch.depth} · ${ch.files} ${CT.tab === "records" ? "зап." : CT.tab === "files" ? "ф." : "цел."}${ch.done ? " · решено" : ""}`); }
+    parts.push(hit.col.count > 1 ? `<b>стак ×${num(hit.col.count)}</b> ${esc(hit.col.path)} (нажми на шапку — список)` : `<b>${esc(hit.col.path)}</b>`); if (ch) parts.push(`${ch.emoji} ${esc(ch.name)} · участников ${ch.depth} · ${ch.files} ${CT.tab === "records" ? "зап." : CT.tab === "files" ? "ф." : "цел."}${ch.done ? " · решено" : ""}`); }
   if (hit.row && !hit.row.header) { const c = hit.col && hit.row.cells[hit.ci];
     parts.push(`${esc(hit.row.name)}${c && CELL[c] ? " — " + CELL[c][1] : c === "-" ? " — не участвует" : ""}`); }
   $("ctStatus").innerHTML = parts.join(" · ") || "&nbsp;";
 });
+// a stack's targets: what one column stands for (`@sat:app.domains.stack`)
+async function ctStackList(col) {
+  const ctx = col.context ?? (CT.tab === "files" ? null : CT.rctx);
+  const key = CT.tab !== "files" ? null : ctx != null && CT.contexts[ctx] ? CT.contexts[ctx].key : CT.key;
+  const r = await query({ type: "stack-targets", domain: CT.tab, key, context: ctx ?? 0, chain: col.chain, stack: col.stack, offset: 0, limit: 500 });
+  const box = $("ctStack");
+  box.innerHTML = `<div class="h"><b>стак ×${num(r.total)}</b> <span>${esc(col.path)}</span><button id="ctStackClose">✕</button></div><pre>${esc(r.targets.join("\n"))}${r.total > r.targets.length ? `\n… и ещё ${num(r.total - r.targets.length)}` : ""}</pre>`;
+  box.hidden = false; $("ctStackClose").onclick = () => { box.hidden = true; };
+}
 $("ctScroll").addEventListener("click", ev => {
   if (CT.dragged) { CT.dragged = false; return; }
   const hit = ctHit(ev);
+  if (hit && hit.col && !hit.row) { ctStackList(hit.col); return; }
   if (CT.tab !== "records" && hit && hit.row && !hit.row.header && hit.row.key != null) run({ type: "focus", view: VIEW, key: hit.row.key });
 });
 // drag a row by its name: mods move in the mod order (files and mod-row domains), plugins in the load order (records)
@@ -892,32 +916,6 @@ async function ccDetail(i, ix) {
   CC.det.set(id, r.card);
   return r.card;
 }
-function ccTree(items) {
-  if (CT.tab !== "files" && !items.every(p => /\/[^/ ]+\.[a-z0-9]+$/i.test(p))) return items.join("\n");
-  const root = { d: new Map(), f: [] };
-  for (const p of items) {
-    const parts = p.split("/"); let n = root;
-    for (const seg of parts.slice(0, -1)) { if (!n.d.has(seg)) n.d.set(seg, { d: new Map(), f: [] }); n = n.d.get(seg); }
-    n.f.push(parts[parts.length - 1]);
-  }
-  const out = [];
-  const walk = (n, pre) => {
-    const kids = [...n.d.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    let files = n.f.slice().sort();
-    if (files.length > 8) {
-      const by = new Map(); for (const f of files) { const e = "." + (f.split(".").pop() || "").toLowerCase(); by.set(e, (by.get(e) || 0) + 1); }
-      files = [...by.entries()].map(([e, k]) => `${k}× ${e}`);
-    }
-    const all = [...kids.map(k => ["d", k]), ...files.map(f => ["f", f])];
-    all.forEach(([t, v], j) => {
-      const last = j === all.length - 1;
-      out.push(pre + (last ? "└─ " : "├─ ") + (t === "d" ? "📁 " + v[0] : v));
-      if (t === "d") walk(v[1], pre + (last ? "   " : "│  "));
-    });
-  };
-  walk(root, "");
-  return out.join("\n");
-}
 function ccCard(i, k) {
   const id = ccId(i) + ":" + k.index, open = CC.shown.has(id), d = open && CC.det.get(id);
   const unit = CT.tab === "records" ? "зап." : CT.tab === "files" ? "ф." : "цел.";
@@ -927,7 +925,8 @@ function ccCard(i, k) {
     body = !d ? `<div class="body">загрузка…</div>` : `<div class="body">` + d.members.map((m, mi) =>
       `<div class="mem${m.wins && !m.loses ? " win" : ""}"><span class="nm" title="${esc(m.name)}"><i style="background:${m.enabled ? css("--ok") : css("--miss")}"></i>${esc(m.name)}</span>` +
       `<canvas data-t="${m.teeth}" data-cc="${id}" data-m="${mi}"></canvas><span class="wl">▲${m.wins} ▼${m.loses}</span></div>`).join("") +
-      `<details${d.items.length <= 40 ? " open" : ""}><summary>${CT.tab === "records" ? "Записи" : CT.tab === "files" ? "Пути" : "Цели"}: ${num(d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary><pre>${esc(ccTree(d.items))}</pre></details></div>`;
+      `<details${d.items.length <= 40 ? " open" : ""}><summary>Стаки: ${num(d.items_total)} · ${CT.tab === "records" ? "записей" : CT.tab === "files" ? "путей" : "целей"}: ${num(d.targets_total || d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary>` +
+      d.items.map((it, k) => `<div class="stk" data-cc="${id}" data-k="${k}" title="нажми — список"><b>×${num((d.counts || [])[k] || 1)}</b><span>${esc(it)}</span></div>`).join("") + `</details></div>`;
   }
   return `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
     `<div class="h"><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}">${esc(k.name)}</span>` +
@@ -962,6 +961,21 @@ async function ctCards() {
 }
 function ccTeeth(cv) {
   const t = cv.dataset.t, dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  const d = CC.det.get(cv.dataset.cc), counts = d && d.counts && d.counts.length === t.length ? d.counts : null;
+  if (counts) {
+    // a tooth per stack, as wide as its pile: 1 + log of its targets
+    cv.width = w * dpr; cv.height = h * dpr;
+    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const wt = counts.map(n => 1 + Math.log10(n)), sum = wt.reduce((a, b) => a + b, 0) || 1;
+    let x = 0;
+    for (let j = 0; j < t.length; j++) {
+      const tw = wt[j] / sum * w;
+      g.fillStyle = CELL[t[j]] ? cellColor(t[j]) : "rgba(127,127,127,.12)"; g.fillRect(x, 0, Math.max(1, tw - (tw >= 4 ? 1 : 0)), h);
+      x += tw;
+    }
+    cv._edges = wt.map((v, j) => wt.slice(0, j + 1).reduce((a, b) => a + b, 0) / sum * w);
+    return;
+  }
   cv.width = w * dpr; cv.height = h * dpr;
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const tw = w / Math.max(1, t.length), gap = tw >= 4 ? 1 : 0;
@@ -985,6 +999,12 @@ $("ctCards").addEventListener("click", async ev => {
     await run({ type: "set-chain-done", signature: done.dataset.done, done: done.dataset.v === "1" });
     CC.cards.clear(); await ctCards(); ctSync(false); return;
   }
+  const stk = ev.target.closest(".stk");
+  if (stk) {
+    const [ccx, ix] = stk.dataset.cc.split(":").slice(-2).map(Number);
+    ctStackList({ chain: ix, stack: +stk.dataset.k, path: stk.querySelector("span").textContent, context: ccx });
+    return;
+  }
   const card = ev.target.closest(".cc");
   if (card && ev.target.closest(".cc > .h")) {
     const i = +card.dataset.cx, ix = +card.dataset.ix, id = ccId(i) + ":" + ix;
@@ -1004,9 +1024,10 @@ $("ctCards").addEventListener("input", ev => { if (ev.target.id === "ccQ") { CC.
 $("ctCards").addEventListener("mousemove", ev => {
   const cv = ev.target.closest("canvas[data-t]"); if (!cv) return;
   const d = CC.det.get(cv.dataset.cc); if (!d) return;
-  const m = d.members[+cv.dataset.m], r = cv.getBoundingClientRect(), j = Math.floor((ev.clientX - r.left) / r.width * m.teeth.length);
+  const m = d.members[+cv.dataset.m], r = cv.getBoundingClientRect(), px = ev.clientX - r.left;
+  const j = cv._edges ? cv._edges.findIndex(e => px < e) : Math.floor(px / r.width * m.teeth.length);
   const ch = m.teeth[j]; if (ch === undefined) return;
-  cv.title = `${d.items[j] || ""}\n${m.name} — ${CELL[ch] ? CELL[ch][1] : "не участвует"}`;
+  cv.title = `${(d.counts || [])[j] > 1 ? `стак ×${d.counts[j]}: ` : ""}${d.items[j] || ""}\n${m.name} — ${CELL[ch] ? CELL[ch][1] : "не участвует"}`;
 });
 document.querySelectorAll("#ct [data-mode]").forEach(b => { b.onclick = () => ctMode(b.dataset.mode); });
 function sigHue(path) { const s = path.split(" ")[1] || ""; let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; }

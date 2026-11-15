@@ -201,35 +201,19 @@ impl App {
         let r = &self.records;
         let cx = r.contexts.get(context)?;
         let ix = &r.index;
-        let cols_total: usize = cx.chains.iter().map(|&c| r.chains[c].keys.len()).sum();
-        // the window's columns: (chain position, key)
-        let mut window: Vec<(u32, u64)> = Vec::new();
-        let mut skip = cols.0;
-        for (pos, &c) in cx.chains.iter().enumerate() {
-            let keys = &r.chains[c].keys;
-            if skip >= keys.len() {
-                skip -= keys.len();
-                continue;
-            }
-            for &k in keys.iter().skip(skip) {
-                if window.len() >= cols.1 {
-                    break;
-                }
-                window.push((pos as u32, k));
-            }
-            skip = 0;
-            if window.len() >= cols.1 {
-                break;
-            }
-        }
-        let providers: Vec<Vec<sat_core::records::Provider>> =
-            window.iter().map(|&(_, k)| ix.providers(k)).collect();
+        // one column per stack of records: (chain position, stack position, first key, records)
+        let mut all: Vec<(u32, u32, usize, u32)> = Vec::new();
         let mut chain_starts = Vec::new();
-        let mut at = 0u32;
-        for &c in &cx.chains {
-            chain_starts.push(at);
-            at += r.chains[c].keys.len() as u32;
+        for (pos, &c) in cx.chains.iter().enumerate() {
+            chain_starts.push(all.len() as u32);
+            let mut at = 0usize;
+            for (k, st) in r.chains[c].stacks.iter().enumerate() {
+                all.push((pos as u32, k as u32, at, st.1));
+                at += st.1 as usize;
+            }
         }
+        let cols_total = all.len();
+        let window: Vec<(u32, u32, usize, u32)> = all.iter().skip(cols.0).take(cols.1).copied().collect();
         let mut shown: Vec<u32> = window.iter().map(|w| w.0).collect();
         shown.dedup();
         let chains = shown
@@ -273,17 +257,14 @@ impl App {
                     .get(&ix.plugins[p as usize].to_lowercase())
                     .copied()
                     .unwrap_or_default();
-                let cells: String = providers
+                let cells: String = window
                     .iter()
-                    .map(|pr| {
-                        let last = pr.last().map(|x| (x.plugin, x.hash));
-                        match pr.iter().find(|x| x.plugin == p) {
-                            None => '-',
-                            Some(x) if x.origin => 'o',
-                            Some(x) if Some(x.plugin) == last.map(|l| l.0) => 'w',
-                            Some(x) if x.hash.is_some() && x.hash == last.and_then(|l| l.1) => 's',
-                            Some(_) => 'l',
-                        }
+                    .map(|&(pos, k, _, _)| {
+                        let c = &r.chains[cx.chains[pos as usize]];
+                        c.stack_ids
+                            .iter()
+                            .position(|&x| x == p)
+                            .map_or('-', |m| c.stacks[k as usize].0.as_bytes()[m] as char)
                     })
                     .collect();
                 TableRow {
@@ -311,16 +292,14 @@ impl App {
             rows: table_rows,
             cols: window
                 .iter()
-                .zip(&providers)
-                .map(|(&(pos, k), pr)| TableCol {
-                    path: format!(
-                        "{} {}",
-                        ix.label(k),
-                        pr.last()
-                            .map(|x| String::from_utf8_lossy(&x.signature).into_owned())
-                            .unwrap_or_default()
-                    ),
-                    chain: pos,
+                .map(|&(pos, k, at, n)| {
+                    let c = &r.chains[cx.chains[pos as usize]];
+                    TableCol {
+                        path: crate::cards::record_stack_label(ix, &c.keys[at..at + n as usize]),
+                        chain: pos,
+                        count: n,
+                        stack: k,
+                    }
                 })
                 .collect(),
         })

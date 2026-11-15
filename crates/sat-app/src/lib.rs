@@ -249,6 +249,19 @@ pub enum Query {
     },
     /// Every conflict domain, files and records first (`@sat:app.domains.list`).
     ConflictDomains,
+    /// The targets of one stack (`@sat:app.domains.stack`): of chain `chain` of context `context` of `domain`
+    /// (files: the context of mod `key`), a window.
+    StackTargets {
+        domain: String,
+        #[serde(default)]
+        key: Option<Key>,
+        #[serde(default)]
+        context: usize,
+        chain: usize,
+        stack: usize,
+        offset: usize,
+        limit: usize,
+    },
     /// Contexts of a domain other than files and records (`@sat:app.domains.contexts`).
     DomainContexts {
         domain: String,
@@ -622,6 +635,10 @@ pub enum Reply {
     },
     Domains {
         domains: Vec<DomainItem>,
+    },
+    StackTargets {
+        targets: Vec<String>,
+        total: usize,
     },
     /// `None` when there is no such domain.
     DomainContexts {
@@ -1309,6 +1326,20 @@ impl App {
                     )
                     .map(Box::new),
             },
+            Query::StackTargets {
+                domain,
+                key,
+                context,
+                chain,
+                stack,
+                offset,
+                limit,
+            } => {
+                let (targets, total) = self
+                    .stack_targets(&domain, key, context, chain, stack, (offset, limit.min(2000)))
+                    .unwrap_or_default();
+                Reply::StackTargets { targets, total }
+            }
             Query::ConflictDomains => Reply::Domains {
                 domains: self.conflict_domains(),
             },
