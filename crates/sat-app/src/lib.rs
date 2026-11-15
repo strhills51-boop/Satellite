@@ -24,10 +24,14 @@ mod tree;
 pub use advisor::{AdviceRow, OrderAdvice};
 pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
-pub use tree::TreeEntry;
+pub use tree::{ChainRef, FileRow, FileTree, PathOwners, TreeSubject};
 
 fn yes() -> bool {
     true
+}
+
+fn tree_limit() -> usize {
+    2000
 }
 pub use domains::{DomainContextItem, DomainItem, DomainState, FileReader};
 pub use sync::{Decision, RecordView};
@@ -371,11 +375,25 @@ pub enum Query {
     },
     /// What of the user's chain work no chain answers to (`@sat:app.orphans`).
     ChainOrphans,
-    /// One folder of a mod's files with the conflict overlay (`@sat:app.tree`).
-    ModTree {
-        key: Key,
+    /// The file explorer (`@sat:app.tree`): a tree of mods, of the selection or of a chain.
+    FileTree {
+        subject: TreeSubject,
         #[serde(default)]
-        dir: String,
+        mode: sat_core::filetree::Mode,
+        /// A chain to light (signature).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focus: Option<String>,
+        /// Folders the user opened / closed (paths).
+        #[serde(default)]
+        opened: Vec<String>,
+        #[serde(default)]
+        closed: Vec<String>,
+        #[serde(default = "tree_limit")]
+        limit: usize,
+    },
+    /// Who has a path: the stack, disabled owners, its chain.
+    PathOwners {
+        path: String,
     },
     /// What the decoration editor edits: the mods of the view's selection (the focused one when none) and
     /// their distinct styles with counts, so the editor can mark fields that differ ("mixed").
@@ -711,8 +729,11 @@ pub enum Reply {
     OrderAdvice {
         advice: Option<OrderAdvice>,
     },
-    ModTree {
-        entries: Vec<TreeEntry>,
+    FileTree {
+        tree: Option<FileTree>,
+    },
+    PathOwners {
+        owners: Option<PathOwners>,
     },
     ChainOrphans {
         orphans: find::Orphans,
@@ -1553,8 +1574,25 @@ impl App {
             Query::ChainOrphans => Reply::ChainOrphans {
                 orphans: self.orphans(),
             },
-            Query::ModTree { key, dir } => Reply::ModTree {
-                entries: self.mod_tree(key, &dir).unwrap_or_default(),
+            Query::FileTree {
+                subject,
+                mode,
+                focus,
+                opened,
+                closed,
+                limit,
+            } => Reply::FileTree {
+                tree: self.file_tree(
+                    &subject,
+                    mode,
+                    focus.as_deref(),
+                    &opened,
+                    &closed,
+                    limit.min(20_000),
+                ),
+            },
+            Query::PathOwners { path } => Reply::PathOwners {
+                owners: self.path_owners(&path),
             },
             Query::ContextCard { key, index, limit } => Reply::ChainCard {
                 card: self.context_card(key, index, limit.min(5000)).map(Box::new),

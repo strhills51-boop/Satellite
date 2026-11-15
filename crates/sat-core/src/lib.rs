@@ -32,6 +32,7 @@ pub mod entity;
 pub mod expr;
 pub mod factory;
 pub mod facts;
+pub mod filetree;
 pub mod front;
 pub mod game;
 pub mod identical;

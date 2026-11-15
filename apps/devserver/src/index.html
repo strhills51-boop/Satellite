@@ -284,13 +284,30 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #ctAdv tr.mv td.to { color: #f59e0b; font-weight: 600; }
 #ctAdv .warn { color: #f59e0b; }
 #ctAdv .note { color: var(--muted); margin: 6px 0; }
-.tree { font: 12px/1.6 var(--mono); }
+.tree { font: 12px/1.6 var(--mono); max-height: 60vh; overflow: auto; }
+.tmodes { display: flex; gap: 4px; margin: 2px 0 6px; }
+.tmodes button { font-size: 11px; padding: 1px 8px; border-radius: 999px; }
+.tmodes button.on { background: var(--acc, #3b82f6); color: #fff; border-color: transparent; }
+.tmeta { font-size: 12px; color: var(--muted); margin: 0 2px 4px; }
+.tmeta .w, .tree .w { color: var(--w-txt); } .tmeta .l, .tree .l { color: var(--l-txt); } .tmeta .o, .tree .o { color: rgb(66,128,153); }
+.tfocus { font-size: 12px; margin: 0 2px 4px; color: #f59e0b; }
+.tfocus button { font-size: 10px; padding: 0 6px; }
+.tree .te .tw { width: 12px; color: var(--muted); } .tree .te .ic { width: 18px; text-align: center; }
+.tree .te.con { border-left-color: #f59e0b; } .tree .te.mg .nm, .tree .te.ag .nm { color: var(--muted); }
+.tree .te .wn { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.tree .te.fl { cursor: pointer; } .tree .te.pick { background: rgba(245,158,11,.12); }
+.tree .te.dimf { opacity: .45; } .tree .te.lit { background: rgba(245,158,11,.10); }
+.tc { display: inline-grid; place-items: center; min-width: 18px; height: 16px; border-radius: 4px; font-size: 11px; background: hsl(var(--h) 45% 30% / .5); border: 1px solid hsl(var(--h) 60% 50%); cursor: pointer; }
+.tow { margin: 0 0 4px calc(var(--d) * 14px + 30px); padding: 4px 8px; border-left: 2px solid #f59e0b; font-size: 12px; background: var(--bg2); border-radius: 0 6px 6px 0; }
+.tow a { cursor: pointer; } .tow a.w { color: var(--w-txt); } .tow a.l { color: var(--l-txt); }
+#bConf .chn.tfoc { outline: 1px solid #f59e0b; }
 .tree .te { display: flex; gap: 6px; cursor: default; padding-left: calc(var(--d) * 14px); border-left: 3px solid transparent; }
 .tree .te.dir { cursor: pointer; }
 .tree .te.lose { border-left-color: var(--lose); } .tree .te.win { border-left-color: var(--win); } .tree .te.own { border-left-color: rgb(66,128,153); }
 .tree .te .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree .te .c { color: var(--muted); } .tree .te .w { color: var(--w-txt); } .tree .te .l { color: var(--l-txt); }
 .cc details { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.cc .tree.ctr { max-height: 40vh; color: var(--fg); }
 .cc pre { margin: 4px 0 0; font: 11px/1.45 var(--mono); color: var(--fg); max-height: 260px; overflow: auto; white-space: pre; }
 #ctScroll { flex: 1; overflow: auto; position: relative; overscroll-behavior: contain; }
 #ctView { position: sticky; top: 0; left: 0; }
@@ -327,7 +344,7 @@ footer b { color: var(--accent2); font-weight: 500; }
     <div class="block empty" id="bDecor"><h3>Декорация мода</h3><div class="muted">Выдели один или несколько модов.</div></div>
     <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
     <div class="block empty" id="bPlug"><h3>Плагины</h3></div>
-    <div class="block empty" id="bTree"><h3>Файлы мода</h3></div>
+    <div class="block empty" id="bTree"><h3>Проводник</h3></div>
   </section>
 </main>
 <footer id="stats">загрузка…</footer>
@@ -583,42 +600,96 @@ async function detail(key) {
       `${p.records.unchanged ? ` · без изменений (ITM) ${num(p.records.unchanged)}` : ""}` +
       `${p.records.wins + p.records.loses + p.records.overridden ? ` · <a data-recplug="${esc(p.name)}">цепочки</a>` : ""}</span>` : "") + `</div>`).join("")
     : `<div class="muted">Нет плагинов.</div>`);
-  treeDraw(key);
+  treeDraw();
 }
 
-// ---------------------------------------------------------------- mod file tree with the conflict overlay (`@sat:app.tree`)
-// As in the monolith: a folder carries what is under it; a row that loses anything is red before green.
-const TREE = { key: null, open: new Set(), kids: new Map() };
-async function treeKids(dir) {
-  if (TREE.kids.has(dir)) return TREE.kids.get(dir);
-  const { entries } = await query({ type: "mod-tree", key: TREE.key, dir });
-  TREE.kids.set(dir, entries); return entries;
+// ---------------------------------------------------------------- explorer (`@sat:app.tree`, `@sat:filetree`)
+// The tree of the selection (monolith Tree-meta, v486): three modes — grouped (conflict files by name, the rest
+// as `N× .ext`, alike folders merged), classic (every file), conflicts only. Linked with the conflicts block: a chain
+// picked there lights its files here; a file clicked here shows its owners and its chain, and picks the chain there.
+const TREE = { mode: "grouped", focus: null, opened: new Set(), closed: new Set(), owners: null, subjectSig: "" };
+try { TREE.mode = localStorage.getItem("sat-tree-mode") || "grouped"; } catch (_) {}
+const TREE_MODES = [["grouped", "сгруппировано", "Конфликтные файлы по имени, остальные — «N× .расширение», похожие папки слиты"], ["classic", "полностью", "Каждая папка и каждый файл"], ["conflict", "конфликты", "Только файлы в конфликтах и папки над ними"]];
+const FOLDER_ICON = { meshes: "🧱", textures: "🎨", scripts: "📜", sound: "🔊", music: "🔊", voice: "🔊", interface: "🖥️", skse: "⚙️", seq: "🎬", meta: "🗂️", lodsettings: "🗺️", strings: "🔤" };
+function fileIcon(n) {
+  const e = (n.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || "";
+  return { esp: "🧩", esm: "🧩", esl: "🧩", dll: "⚙️", nif: "📦", dds: "🖼️", png: "🖼️", jpg: "🖼️", tga: "🖼️", hkx: "🎞️", pex: "📜", psc: "📜", json: "📝", ini: "📝", toml: "📝", yaml: "📝", xml: "📝", wav: "🔊", xwm: "🔊", fuz: "🔊", bsa: "🗃️", ba2: "🗃️", seq: "🎬", swf: "🖥️" }[e] || "📄";
 }
-async function treeHtml(dir, depth) {
-  const kids = await treeKids(dir); let h = "";
-  for (const e of kids.slice(0, 400)) {
-    const path = dir ? dir + "/" + e.name : e.name, open = e.dir && TREE.open.has(path);
-    const st = e.loses ? "lose" : e.wins ? "win" : e.owned ? "own" : "";
-    h += `<div class="te${e.dir ? " dir" : ""} ${st}" style="--d:${depth}" data-dir="${e.dir ? esc(path) : ""}"><span>${e.dir ? (open ? "▾" : "▸") : "·"}</span><span class="nm">${esc(e.name)}</span>` +
-      `${e.wins ? `<span class="w">▲${num(e.wins)}</span>` : ""}${e.loses ? `<span class="l">▼${num(e.loses)}</span>` : ""}${e.owned ? `<span style="color:rgb(66,128,153)">◆${num(e.owned)}</span>` : ""}${e.dir ? `<span class="c">${num(e.files)}</span>` : ""}</div>`;
-    if (open) h += await treeHtml(path, depth + 1);
+function treeRowHtml(r, t, focusOn) {
+  const ind = `style="--d:${r.depth}"`, ch = r.chain != null && r.chain !== 4294967295 ? t.chains[r.chain] : null;
+  const st = r.loses ? "lose" : r.wins ? "win" : r.owned ? "own" : r.conflicts ? "con" : "";
+  const dim = focusOn && r.conflicts && !r.focused ? " dimf" : "", lit = focusOn && r.focused ? " lit" : "";
+  const nums = (r.wins ? `<span class="w">▲${num(r.wins)}</span>` : "") + (r.loses ? `<span class="l">▼${num(r.loses)}</span>` : "") + (r.owned ? `<span class="o">◆${num(r.owned)}</span>` : "");
+  const win = r.winner_name ? `<span class="wn" title="победитель${r.kind === "dir" ? " всех конфликтных файлов в папке" : ""}">→ ${esc(r.winner_name)}</span>` : "";
+  const chip = ch ? `<span class="tc" data-chain="${ch.signature}" style="--h:${ch.hue}" title="${esc(ch.name)}${ch.done ? " · решена" : ""} — нажми: подсветить цепочку">${ch.done ? "✓" : ch.emoji}</span>` : "";
+  if (r.kind === "dir") {
+    const ico = FOLDER_ICON[r.name.toLowerCase()] || "📁";
+    return `<div class="te dir ${st}${dim}${lit}" ${ind} data-dir="${esc(r.path)}" data-open="${r.open ? 1 : 0}"><span class="tw">${r.open ? "▾" : "▸"}</span><span class="ic">${ico}</span><span class="nm">${esc(r.name)}</span>${chip}${win}${nums}<span class="c">${num(r.files)}</span></div>`;
   }
-  if (kids.length > 400) h += `<div class="te" style="--d:${depth}"><span class="c">… ещё ${kids.length - 400}</span></div>`;
-  return h;
+  if (r.kind === "merged") return `<div class="te mg" ${ind} title="${esc(r.name)}"><span class="tw"></span><span class="ic">🗂️</span><span class="nm">${esc(r.name)}</span><span class="c">${esc(r.exts.map(([e, n]) => `${n}× ${e}`).join(", "))}</span></div>`;
+  if (r.kind === "agg") return `<div class="te ag" ${ind}><span class="tw"></span><span class="ic">${fileIcon("x" + r.exts[0][0])}</span><span class="nm">${esc(r.name)}</span></div>`;
+  const sel = TREE.owners && TREE.owners.path.toLowerCase() === r.path.toLowerCase() ? " pick" : "";
+  return `<div class="te fl ${st}${dim}${lit}${sel}" ${ind} data-file="${esc(r.path)}"><span class="tw"></span><span class="ic">${fileIcon(r.name)}</span><span class="nm" title="${esc(r.path)}">${esc(r.name)}</span>${chip}${win}${nums}</div>` +
+    (sel ? treeOwnersHtml(r.depth) : "");
 }
-async function treeDraw(key) {
-  const box = $("bTree");
-  if (key !== TREE.key) { TREE.key = key; TREE.open.clear(); TREE.kids.clear(); }
-  let inner;
-  try { inner = await treeHtml("", 0); } catch (_) { return; }
-  if (TREE.key !== key) return;
-  box.className = inner ? "block ok" : "block empty";
-  box.innerHTML = `<h3>Файлы мода</h3>` + (inner ? `<div class="muted" style="margin:0 2px 4px">▲ выигрывает · ▼ проигрывает · ◆ владеет, но выключен; папка — сумма под ней</div><div class="tree">${inner}</div>` : `<div class="muted">Файлов нет.</div>`);
+function treeOwnersHtml(depth) {
+  const o = TREE.owners; if (!o) return "";
+  const st = o.stack.map((n, i) => `<a data-mod="${o.keys[i] ?? ""}" class="${i === 0 ? "w" : "l"}" title="${i === 0 ? "победитель" : "перекрыт"} — нажми: перейти к моду">${i === 0 ? "▲" : "▼"} ${esc(n)}</a>`).join(" ");
+  return `<div class="tow" style="--d:${depth + 1}"><div>${o.stack.length > 1 ? "стек: " + st : o.stack.length ? "только у " + st : "никто"}</div>` +
+    ((o.idle || []).length ? `<div class="o">выключены, но владеют: ${esc(o.idle.join(", "))}</div>` : "") +
+    (o.chain ? `<div>цепочка: <span class="tc" data-chain="${o.chain.signature}" style="--h:${o.chain.hue}">${o.chain.done ? "✓" : o.chain.emoji}</span> ${esc(o.chain.name)}</div>` : "") + `</div>`;
 }
-$("bTree").addEventListener("click", ev => {
-  const r = ev.target.closest(".te.dir"); if (!r) return;
-  const d = r.dataset.dir; if (TREE.open.has(d)) TREE.open.delete(d); else TREE.open.add(d);
-  treeDraw(TREE.key);
+let treeSeq = 0;
+async function treeDraw() {
+  const box = $("bTree"), seq = ++treeSeq;
+  let t;
+  try {
+    ({ tree: t } = await query({ type: "file-tree", subject: { of: "selection", view: VIEW }, mode: TREE.mode, focus: TREE.focus || undefined, opened: [...TREE.opened], closed: [...TREE.closed], limit: 1500 }));
+  } catch (e) { if (seq === treeSeq) box.innerHTML = `<h3>Проводник</h3><div class="muted">${esc(e.message)}</div>`; return; }
+  if (seq !== treeSeq) return;
+  if (!t) { box.className = "block empty"; box.innerHTML = `<h3>Проводник</h3><div class="muted">Выдели мод или несколько.</div>`; return; }
+  // a new subject forgets toggled folders and the picked file
+  const sig = t.subject.join("\n");
+  if (sig !== TREE.subjectSig) { TREE.subjectSig = sig; TREE.opened.clear(); TREE.closed.clear(); TREE.owners = null; }
+  const top = t.rows.filter(r => r.depth === 0), sum = k => top.reduce((a, r) => a + (r[k] || 0), 0);
+  const focusCh = TREE.focus ? t.chains.find(c => c.signature === TREE.focus) || shownChains.find(c => c.signature === TREE.focus) : null;
+  box.className = "block ok";
+  box.innerHTML = `<h3>Проводник <span class="muted" style="font-weight:400">${t.subject.length > 1 ? `${t.subject.length} модов` : esc(t.subject[0] || "")}</span></h3>` +
+    `<div class="tmodes">${TREE_MODES.map(([m, n, d]) => `<button data-tmode="${m}" class="${TREE.mode === m ? "on" : ""}" title="${d}">${n}</button>`).join("")}</div>` +
+    `<div class="tmeta">файлов <b>${num(t.files)}</b> · в конфликтах <b>${num(t.conflicts)}</b>${sum("wins") ? ` · <span class="w">▲${num(sum("wins"))}</span>` : ""}${sum("loses") ? ` <span class="l">▼${num(sum("loses"))}</span>` : ""}${sum("owned") ? ` <span class="o">◆${num(sum("owned"))}</span>` : ""}` +
+    `${t.chains.length ? ` · цепочек на виду ${t.chains.length}` : ""}</div>` +
+    (TREE.focus ? `<div class="tfocus">подсвечена цепочка: ${focusCh ? `<span class="tc" style="--h:${focusCh.hue}">${focusCh.emoji}</span> ${esc(focusCh.name)}` : "—"} <button data-tunfocus="1" title="снять подсветку">✕</button></div>` : "") +
+    `<div class="tree">${t.rows.map(r => treeRowHtml(r, t, !!TREE.focus)).join("")}` +
+    (t.hidden ? `<div class="te"><span class="c">… ещё ${num(t.hidden)} строк — сверни папки или выбери «конфликты»</span></div>` : "") + `</div>`;
+}
+// The chain lit in the explorer is the one picked in the conflicts block, and the other way round.
+function treeFocus(sig) {
+  TREE.focus = sig || null;
+  document.querySelectorAll("#bConf .chn").forEach(x => x.classList.toggle("tfoc", !!sig && shownChains[+x.dataset.i]?.signature === sig));
+  treeDraw();
+}
+$("bTree").addEventListener("click", async ev => {
+  const m = ev.target.closest("[data-tmode]");
+  if (m) { TREE.mode = m.dataset.tmode; try { localStorage.setItem("sat-tree-mode", TREE.mode); } catch (_) {} TREE.opened.clear(); TREE.closed.clear(); return treeDraw(); }
+  if (ev.target.closest("[data-tunfocus]")) return treeFocus(null);
+  const c = ev.target.closest("[data-chain]");
+  if (c) { ev.stopPropagation(); return treeFocus(TREE.focus === c.dataset.chain ? null : c.dataset.chain); }
+  const md = ev.target.closest("a[data-mod]");
+  if (md && md.dataset.mod !== "") return run({ type: "focus", view: VIEW, key: +md.dataset.mod }).then(() => list.focus({ preventScroll: true }));
+  const d = ev.target.closest(".te.dir");
+  if (d) {
+    const p = d.dataset.dir;
+    if (d.dataset.open === "1") { TREE.opened.delete(p); TREE.closed.add(p); } else { TREE.closed.delete(p); TREE.opened.add(p); }
+    return treeDraw();
+  }
+  const f = ev.target.closest(".te.fl");
+  if (f) {
+    if (TREE.owners && TREE.owners.path.toLowerCase() === f.dataset.file.toLowerCase()) { TREE.owners = null; return treeDraw(); }
+    const { owners } = await query({ type: "path-owners", path: f.dataset.file });
+    TREE.owners = owners;
+    if (owners && owners.chain) return treeFocus(owners.chain.signature);
+    return treeDraw();
+  }
 });
 
 // ---------------------------------------------------------------- decoration editor (monolith: summary block)
@@ -1016,7 +1087,15 @@ $("ctList").onclick = () => recOpen("");
 // ---------------------------------------------------------------- chain cards (monolith conflict modal "Карточки")
 // Contexts as buckets, each with its chains as cards; a card opens to its members with a teeth row (one tooth per path
 // or record) and the tree of its paths. A card leads the table to its chain band.
-const CC = { open: new Set(), cards: new Map(), det: new Map(), shown: new Set(), sel: null, q: "", LIMIT: 600, MAXCTX: 400, picked: new Set(), prevIx: null, front: new Map() };
+const CC = { open: new Set(), cards: new Map(), det: new Map(), shown: new Set(), sel: null, q: "", LIMIT: 600, MAXCTX: 400, picked: new Set(), prevIx: null, front: new Map(), trees: new Map(), treeOpen: new Set(), treeDirs: new Map() };
+// A chain card's tree: its files, folders carrying the winner when they share one.
+async function ccTree(id) {
+  const [ci, ix] = id.split(":").slice(-2).map(Number), c = CT.contexts[ci];
+  const dirs = CC.treeDirs.get(id) || { opened: new Set(), closed: new Set() };
+  const { tree: t } = await query({ type: "file-tree", subject: { of: "chain", key: c.key, index: ix }, mode: "classic", opened: [...dirs.opened], closed: [...dirs.closed], limit: 500 });
+  if (!t) return;
+  CC.trees.set(id, `<div class="tree ctr" data-tree-of="${id}">${t.rows.map(r => treeRowHtml({ ...r, chain: null }, t, false)).join("")}${t.hidden ? `<div class="te"><span class="c">… ещё ${num(t.hidden)} строк</span></div>` : ""}</div>`);
+}
 // the solution front per context (monolith v667, `conflictSolutionFront.contexts`): on, the chain settled last, the
 // chains put off, show settled ones. Page state: the devserver keeps nothing anyway.
 function ccFront(i) { const id = ccId(i); if (!CC.front.has(id)) CC.front.set(id, { on: false, last: null, skip: new Set(), showDone: false }); return CC.front.get(id); }
@@ -1046,7 +1125,7 @@ async function ccDetail(i, ix) {
   return r.card;
 }
 function ccCard(i, k) {
-  const id = ccId(i) + ":" + k.index, open = CC.shown.has(id), d = open && CC.det.get(id);
+  const id = ccId(i) + ":" + k.index, open = CC.shown.has(id), d = open && CC.det.get(id), files = CT.tab === "files";
   const unit = CT.tab === "records" ? "зап." : CT.tab === "files" ? "ф." : "цел.";
   const eq = k.equal ? ` · = ${num(k.equal)}` : "";
   let body = "";
@@ -1060,11 +1139,13 @@ function ccCard(i, k) {
       `<div class="mem${m.wins && !m.loses ? " win" : ""}${m.enabled ? "" : " off"}"><span class="nm" title="${esc(m.name)}${m.enabled ? "" : " — выключен"}"><i style="background:${m.enabled ? css("--ok") : css("--miss")}"></i>${esc(m.name)}</span>` +
       `<canvas data-t="${m.teeth}" data-cc="${id}" data-m="${mi}"></canvas>${wl(m)}</div>`).join("") +
       `<details${d.items.length <= 40 ? " open" : ""}><summary>Стаки: ${num(d.items_total)} · ${CT.tab === "records" ? "записей" : CT.tab === "files" ? "путей" : "целей"}: ${num(d.targets_total || d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary>` +
-      d.items.map((it, k) => `<div class="stk" data-cc="${id}" data-k="${k}" title="нажми — список"><b>×${num((d.counts || [])[k] || 1)}</b><span>${esc(it)}</span></div>`).join("") + `</details></div>`;
+      d.items.map((it, k) => `<div class="stk" data-cc="${id}" data-k="${k}" title="нажми — список"><b>×${num((d.counts || [])[k] || 1)}</b><span>${esc(it)}</span></div>`).join("") + `</details>` +
+      // the chain's files as a tree (monolith: baked conflict-only tree of the card), winners on folders
+      (files ? `<details class="ctree" data-tree="${id}"${CC.treeOpen.has(id) ? " open" : ""}><summary>Дерево цепочки</summary>${CC.trees.get(id) || (CC.treeOpen.has(id) ? `<div class="muted">загрузка…</div>` : "")}</details>` : "") + `</div>`;
   }
   // bridges (`@sat:arrange`): a card bridged to the one right above it hangs under it; one bridged further up says
   // to which; the user merges, splits, gives back to the system (`@sat:layout`)
-  const files = CT.tab === "files", prev = CC.prevIx;
+  const prev = CC.prevIx;
   let bridge = "";
   if (files && k.link && !CC.q.trim() && !ccFront(i).on) {
     const near = k.link.to === prev;
@@ -1181,9 +1262,16 @@ async function ccGoChain(i, ix) {
 }
 async function ccLayout(cmd) {
   try { await run(cmd); } catch (e) { $("ctStatus").textContent = e.message; return; }
-  CC.picked.clear(); CC.cards.clear(); CC.det.clear(); CC.shown.clear(); CC.sel = null; CT.selChain = null;
+  CC.picked.clear(); CC.cards.clear(); CC.det.clear(); CC.trees.clear(); CC.shown.clear(); CC.sel = null; CT.selChain = null;
   await ctCards(); ctSync(false);
 }
+$("ctCards").addEventListener("toggle", async ev => {
+  const d = ev.target.closest && ev.target.closest("details[data-tree]"); if (!d) return;
+  const id = d.dataset.tree;
+  if (!d.open) { CC.treeOpen.delete(id); return; }
+  CC.treeOpen.add(id);
+  if (!CC.trees.has(id)) { await ccTree(id); ctCards(); }
+}, true);
 $("ctCards").addEventListener("change", ev => {
   const p = ev.target.closest("[data-pick]"); if (!p) return;
   if (p.checked) CC.picked.add(p.dataset.pick); else CC.picked.delete(p.dataset.pick);
@@ -1191,6 +1279,15 @@ $("ctCards").addEventListener("change", ev => {
 });
 $("ctCards").addEventListener("click", async ev => {
   if (ev.target.closest("[data-pick]")) { ev.stopPropagation(); return; }
+  const td = ev.target.closest(".ctr .te.dir");
+  if (td) {
+    const id = td.closest(".ctr").dataset.treeOf, p = td.dataset.dir;
+    if (!CC.treeDirs.has(id)) CC.treeDirs.set(id, { opened: new Set(), closed: new Set() });
+    const dirs = CC.treeDirs.get(id);
+    if (td.dataset.open === "1") { dirs.opened.delete(p); dirs.closed.add(p); } else { dirs.closed.delete(p); dirs.opened.add(p); }
+    await ccTree(id); ctCards(); return;
+  }
+  if (ev.target.closest(".ctr")) return;
   if (ev.target.id === "ccMerge") { ccLayout({ type: "merge-chains", signatures: [...CC.picked] }); return; }
   if (ev.target.id === "ccUnpick") { CC.picked.clear(); ctCards(); return; }
   if (ev.target.id === "ccPrune") { ccLayout({ type: "prune-orphans" }); return; }
@@ -1268,6 +1365,7 @@ async function run(c) {
       await sync(true);
       decor();
       if (ev.canon) { totals(); tiles(); if (shownKey !== null) detail(shownKey); }
+      else { clearTimeout(TREE.t); TREE.t = setTimeout(treeDraw, 120); } // the selection may have moved
     }
   } catch (e) { $("err").textContent = e.message; }
 }
@@ -1398,6 +1496,8 @@ $("bConf").addEventListener("click", ev => {
       ch.classList.add("sel", "paths-open");
       document.querySelectorAll(`#bConf .bg i[data-i="${ch.dataset.i}"]`).forEach(x => x.classList.add("hl"));
     }
+    // the explorer lights this chain's files
+    treeFocus(was ? null : shownChains[+ch.dataset.i]?.signature);
   }
 });
 let ft;
