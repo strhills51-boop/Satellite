@@ -46,6 +46,19 @@ pub struct ChainCard {
     /// Its mods that are in other chains of the context too (bridge mods).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bridges: Vec<String>,
+    /// Its mods that are in many chains of the context (common, not bridges: base mods under a quarter or more).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub common: Vec<String>,
+    /// Settled, but its paths or winner changed since (`@sat:decisions.stamp`): what changed; settling again
+    /// confirms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed: Option<String>,
+    /// Not settled, but a chain it took over from was (its members changed, `@sat:lineage`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub was_done: bool,
+    /// Chains of the user's merge this card holds that are gone (removed mods).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub lost: u32,
     /// The solution front points here: the unsettled chain to look at next (`@sat:front`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub front: bool,
@@ -55,6 +68,10 @@ pub struct ChainCard {
     /// Losing copies equal to the winner's (files: when hashes are known; records: always).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub equal: Option<u32>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// Where a card hangs: the card before it in the context's order that shares mods with it.
@@ -132,16 +149,12 @@ impl App {
         let decisions = self.session.decisions();
         let book = self.session.book();
         let pos_of = |m: ModId| book.key_of(table.mod_name(m)).map_or(usize::MAX, |k| book.pos(k));
-        let order = crate::context::context_order(&ow, &heads, cx, &pos_of);
+        let co = crate::context::context_order(&ow, &heads, cx, &pos_of);
+        let order = &co.order;
         let groups: Vec<u32> = order.iter().map(|x| x.0).collect();
         let paths_of = ow.context_chain_paths(cx);
-        // bridge mods: in two or more chains of the context
-        let mut held: rustc_hash::FxHashMap<ModId, u32> = Default::default();
-        for &g in &groups {
-            for &m in &heads[g as usize].route {
-                *held.entry(m).or_default() += 1;
-            }
-        }
+        // bridge mods: in two or more chains of the context, but not in most of them (those are common)
+        let held = &co.held;
         let label = |m: u32| self.session.unit_label(ModId(m)).to_string();
         let mut cards: Vec<ChainCard> = Vec::with_capacity(groups.len());
         let mut units: Vec<Vec<u32>> = Vec::with_capacity(groups.len());
@@ -154,10 +167,15 @@ impl App {
             let mut us: Vec<u32> = h.route.iter().chain(&idle).map(|m| m.0).collect();
             us.sort_unstable();
             units.push(us);
+            let done = h.done(decisions);
+            let changed = if done { drift(&ow, &self.session, h) } else { None };
             cards.push(ChainCard {
                 index: i as u32,
                 signature: h.hex(),
-                done: h.done(decisions),
+                done,
+                changed,
+                was_done: !done && h.followed.iter().any(|&o| decisions.is_done(o)),
+                lost: h.lost,
                 emoji: h.emoji.clone(),
                 hue: h.hue,
                 name: h.name.clone(),
@@ -183,7 +201,14 @@ impl App {
                     .route
                     .iter()
                     .rev()
-                    .filter(|m| held[m] > 1)
+                    .filter(|m| held[m] > 1 && !co.common.contains(m))
+                    .map(|m| label(m.0))
+                    .collect(),
+                common: h
+                    .route
+                    .iter()
+                    .rev()
+                    .filter(|m| co.common.contains(m))
                     .map(|m| label(m.0))
                     .collect(),
                 front: false,
@@ -345,6 +370,47 @@ impl App {
     }
 }
 
+// @sat:app.cards.drift
+/// What changed in a settled card since it was settled: paths and winners against each exact chain's stamp.
+fn drift(
+    ow: &sat_core::overwrite::OverwriteProjection,
+    s: &sat_core::session::Session,
+    h: &crate::chains::Head,
+) -> Option<String> {
+    let d = s.decisions();
+    let (mut was, mut now, mut paths, mut winners) = (0u32, 0u32, false, Vec::new());
+    for &c in &h.chains {
+        let sig = crate::chains::exact_signature(ow, s, c);
+        let st = crate::chains::exact_stamp(ow, s, c);
+        if let Some(x) = d.drift(sig, &st) {
+            was += x.paths.0;
+            now += x.paths.1;
+            paths |= x.paths_changed;
+            if let Some(w) = x.winner_was {
+                winners.push((w, st.winner));
+            }
+        }
+    }
+    let name = |key: &str| {
+        (0..s.table().mod_count())
+            .map(ModId::from_idx)
+            .find(|&m| s.member_key(m) == key)
+            .map_or_else(|| key.to_string(), |m| s.unit_label(m).to_string())
+    };
+    let mut parts = Vec::new();
+    if paths {
+        parts.push(if was == now {
+            format!("пути другие ({now})")
+        } else {
+            format!("путей было {was}, стало {now}")
+        });
+    }
+    if let Some((a, b)) = winners.first() {
+        parts.push(format!("победитель был {}, теперь {}", name(a), name(b)));
+    }
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
 /// What a stack of records is: the record (one), or its signatures by count (`REFR 4803, CELL 48`).
 pub(crate) fn record_stack_label(ix: &sat_core::records::RecordIndex, keys: &[u64]) -> String {
     let sig = |k: u64| {
@@ -397,6 +463,87 @@ mod tests {
             panic!()
         };
         c
+    }
+
+    fn card_of<'a>(c: &'a [super::ChainCard], stack: &[&str]) -> &'a super::ChainCard {
+        c.iter().find(|k| k.stack == stack).unwrap_or_else(|| {
+            panic!(
+                "no card {stack:?} in {:?}",
+                c.iter().map(|k| &k.stack).collect::<Vec<_>>()
+            )
+        })
+    }
+
+    #[test]
+    fn settled_work_follows_changed_mods_and_says_what_changed() {
+        let facts = |b: &[&'static str], e: &[&'static str], d: &[&'static str]| {
+            vec![
+                mk("A", &["x.dds", "y.dds", "w.dds"]),
+                mk("B", b),
+                mk("C", &["y.dds", "z.dds"]),
+                mk("D", d),
+                mk("E", e),
+            ]
+        };
+        let mut a = crate::tests::app_from(facts(&["x.dds"], &["q.dds"], &["z.dds"]));
+        // settle A → B (x)
+        let c = cards(&mut a);
+        let x = card_of(&c, &["A", "B"]).signature.clone();
+        a.command(Command::SetChainDone {
+            signature: x.clone(),
+            done: true,
+        })
+        .unwrap();
+        // B gets w too: the same members, other paths — still settled, flagged
+        a.session
+            .set_facts(std::sync::Arc::new(sat_core::table::ProviderTable::build(
+                &facts(&["x.dds", "w.dds"], &["q.dds"], &["z.dds"]),
+            )));
+        let c = cards(&mut a);
+        let k = card_of(&c, &["A", "B"]);
+        assert!(k.done);
+        assert_eq!(k.changed.as_deref(), Some("путей было 1, стало 2"));
+        // settling again confirms
+        a.command(Command::SetChainDone {
+            signature: k.signature.clone(),
+            done: true,
+        })
+        .unwrap();
+        assert_eq!(card_of(&cards(&mut a), &["A", "B"]).changed, None);
+        // merge y (A → C) with z (C → D)
+        let c = cards(&mut a);
+        let (y, z) = (
+            card_of(&c, &["A", "C"]).signature.clone(),
+            card_of(&c, &["C", "D"]).signature.clone(),
+        );
+        a.command(Command::MergeChains {
+            signatures: vec![y, z],
+        })
+        .unwrap();
+        assert!(cards(&mut a).iter().any(|k| k.sources == 2 && k.user));
+        // E now has z too: z is a new chain (C, D, E) — followed, the merge holds
+        a.session
+            .set_facts(std::sync::Arc::new(sat_core::table::ProviderTable::build(
+                &facts(&["x.dds", "w.dds"], &["q.dds", "z.dds"], &["z.dds"]),
+            )));
+        let c = cards(&mut a);
+        let m = c
+            .iter()
+            .find(|k| k.sources == 2)
+            .expect("the merge follows the changed chain");
+        assert!(m.user && m.lost == 0);
+        assert_eq!(a.orphans(), crate::find::Orphans::default());
+        // D and E drop z: the chain is gone — the merge says so, the record is an orphan
+        a.session
+            .set_facts(std::sync::Arc::new(sat_core::table::ProviderTable::build(
+                &facts(&["x.dds", "w.dds"], &["q.dds"], &["w.dds"]),
+            )));
+        let c = cards(&mut a);
+        assert_eq!(card_of(&c, &["A", "C"]).lost, 1);
+        assert_eq!(a.orphans().layout, 1);
+        a.command(Command::PruneOrphans).unwrap();
+        assert_eq!(a.orphans(), crate::find::Orphans::default());
+        assert!(a.chain_layout().is_empty(), "a merge of one is no merge");
     }
 
     #[test]

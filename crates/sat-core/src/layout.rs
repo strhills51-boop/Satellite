@@ -105,6 +105,32 @@ impl ChainLayout {
         *self != before
     }
 
+    /// A chain the user's group knew as `old` is now `new` (its members changed and it was followed,
+    /// `@sat:lineage`).
+    pub fn rekey(&mut self, old: u64, new: u64) {
+        for g in &mut self.groups {
+            if let Ok(i) = g.binary_search(&old) {
+                g.remove(i);
+                if let Err(j) = g.binary_search(&new) {
+                    g.insert(j, new);
+                }
+            }
+        }
+    }
+
+    /// Forgets chains `keep` refuses (orphans), and groups left with nothing; how many chains went.
+    pub fn retain(&mut self, keep: impl Fn(u64) -> bool) -> usize {
+        let before: usize = self.groups.iter().map(Vec::len).sum();
+        // a merge that lost all but one chain is no merge: the chain goes back to the system (a split chain, alone
+        // from the start, stays alone)
+        self.groups.retain_mut(|g| {
+            let was = g.len();
+            g.retain(|&s| keep(s));
+            !(g.is_empty() || (was > 1 && g.len() == 1))
+        });
+        before - self.groups.iter().map(Vec::len).sum::<usize>()
+    }
+
     /// Gives a card's exact chains back to the system's grouping.
     pub fn reset(&mut self, card: &[u64]) -> bool {
         self.take(card)

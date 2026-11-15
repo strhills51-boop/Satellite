@@ -8,6 +8,11 @@
 //! Decisions stay on exact chains (content signatures that survive reorders and re-scans). A normalized chain is
 //! settled when every exact chain in it is (monolith v502); settling it settles them all. Its own signature is the
 //! hash of the sorted exact signatures, so it changes when an exact chain joins or leaves — the user looks again.
+//!
+//! The user's work follows chains whose members changed (`@sat:lineage`): a touched exact chain that vanished is
+//! matched to the most similar new one, and the layout and names see the new chain under the old signature
+//! (`Head::keys`). What matched nothing is lost: a user group counts its lost chains on the card (`Head::lost`),
+//! and every record no chain answers to is an orphan (`App::orphans`).
 
 use std::sync::Arc;
 
@@ -23,6 +28,13 @@ pub(crate) struct Head {
     pub signature: u64,
     /// Content signatures of its exact chains, sorted.
     pub sources: Vec<u64>,
+    /// The same with each followed chain under the signature the user's work knows it by (`@sat:lineage`): what
+    /// the layout and names match.
+    pub keys: Vec<u64>,
+    /// Old signatures of its followed chains (a settled one shows "was settled").
+    pub followed: Vec<u64>,
+    /// Chains of the user's group this card holds that are gone and matched nothing.
+    pub lost: u32,
     pub emoji: String,
     pub hue: u16,
     /// What the chain is about (`@sat:naming.title`), or the user's name for it.
@@ -60,6 +72,10 @@ pub(crate) fn exact_signature(ow: &OverwriteProjection, s: &Session, c: ChainId)
 pub(crate) struct Heads {
     list: Vec<Head>,
     of_chain: rustc_hash::FxHashMap<ChainId, u32>,
+    /// Every exact chain's key (`Head::keys`): what the user's records may still point at.
+    present: rustc_hash::FxHashSet<u64>,
+    /// Followed chains: new signature → the old one the user's work knows.
+    follow: rustc_hash::FxHashMap<u64, u64>,
 }
 
 impl std::ops::Deref for Heads {
@@ -74,6 +90,40 @@ impl Heads {
     pub fn of_chain(&self, c: ChainId) -> Option<u32> {
         self.of_chain.get(&c).copied()
     }
+
+    /// Some chain answers to this signature (now or followed).
+    pub fn answers(&self, sig: u64) -> bool {
+        self.present.contains(&sig)
+    }
+
+    /// The old signature a chain (by its current one) is followed from.
+    pub fn followed_from(&self, sig: u64) -> Option<u64> {
+        self.follow.get(&sig).copied()
+    }
+}
+
+/// What an exact chain is now, for a decision's stamp (`@sat:decisions.stamp`).
+pub(crate) fn exact_stamp(ow: &OverwriteProjection, s: &Session, c: ChainId) -> sat_core::decisions::Stamp {
+    let table = s.table();
+    let paths = ow.chain_paths(c);
+    let strings: Vec<String> = paths.iter().map(|&p| table.path_string(p)).collect();
+    sat_core::decisions::Stamp {
+        paths: paths.len() as u32,
+        hash: sat_core::decisions::paths_hash(strings.iter().map(String::as_str)),
+        winner: ow
+            .chain_mods(c)
+            .first()
+            .map(|&m| s.member_key(m).to_string())
+            .unwrap_or_default(),
+    }
+}
+
+/// Stable keys of an exact chain's members (`@sat:lineage`).
+pub(crate) fn exact_members(ow: &OverwriteProjection, s: &Session, c: ChainId) -> Vec<String> {
+    ow.chain_mods(c)
+        .iter()
+        .map(|&m| s.member_key(m).to_string())
+        .collect()
 }
 
 fn build(
@@ -81,17 +131,51 @@ fn build(
     s: &Session,
     manual: &[sat_core::naming::ManualIdentity],
     layout: &sat_core::layout::ChainLayout,
+    lineage: &sat_core::lineage::ChainLineage,
 ) -> Heads {
     use sat_core::naming::{ChainFeatures, STRENGTH_DEFAULT};
     let table = s.table();
     let book = s.book();
-    let groups = ow.routes().with_layout(ow, layout, |c| exact_signature(ow, s, c));
+    // every exact chain now; touched ones that vanished are followed to their successors
+    let ids = ow.chain_ids();
+    let sig_of: rustc_hash::FxHashMap<ChainId, u64> =
+        ids.iter().map(|&c| (c, exact_signature(ow, s, c))).collect();
+    let follow = if lineage.is_empty() {
+        Default::default()
+    } else {
+        let current: Vec<(u64, Vec<String>)> = ids
+            .iter()
+            .map(|&c| (sig_of[&c], exact_members(ow, s, c)))
+            .collect();
+        lineage.follow(&current)
+    };
+    let key_of = |c: ChainId| {
+        let sig = sig_of[&c];
+        follow.get(&sig).copied().unwrap_or(sig)
+    };
+    let present: rustc_hash::FxHashSet<u64> = ids.iter().map(|&c| key_of(c)).collect();
+    let groups = ow.routes().with_layout(ow, layout, key_of);
     let mut heads: Vec<Head> = groups
         .groups()
         .iter()
         .map(|g| {
-            let mut sources: Vec<u64> = g.chains.iter().map(|&c| exact_signature(ow, s, c)).collect();
+            let mut sources: Vec<u64> = g.chains.iter().map(|&c| sig_of[&c]).collect();
             sources.sort_unstable();
+            let mut keys: Vec<u64> = g.chains.iter().map(|&c| key_of(c)).collect();
+            keys.sort_unstable();
+            let followed: Vec<u64> = g
+                .chains
+                .iter()
+                .filter_map(|c| follow.get(&sig_of[c]).copied())
+                .collect();
+            // the user's groups this card holds, and their chains that are gone for good
+            let mut mine: Vec<usize> = keys.iter().filter_map(|&k| layout.group_of(k)).collect();
+            mine.sort_unstable();
+            mine.dedup();
+            let lost = mine
+                .iter()
+                .map(|&u| layout.groups()[u].iter().filter(|k| !present.contains(k)).count() as u32)
+                .sum();
             let mut h: u64 = 0xcbf2_9ce4_8422_2325;
             for s in &sources {
                 for b in s.to_le_bytes() {
@@ -135,6 +219,10 @@ fn build(
             Head {
                 signature: h,
                 sources,
+                user: !mine.is_empty(),
+                keys,
+                followed,
+                lost,
                 emoji: id.emoji.to_string(),
                 hue: id.hue,
                 name: if title.is_empty() {
@@ -144,10 +232,6 @@ fn build(
                 },
                 title,
                 custom: false,
-                user: g
-                    .chains
-                    .iter()
-                    .any(|&c| layout.group_of(exact_signature(ow, s, c)).is_some()),
                 files: g.files,
                 bytes: g.bytes,
                 route: g.route.clone(),
@@ -162,7 +246,7 @@ fn build(
     for (h, n) in heads.iter_mut().zip(names) {
         h.name = n;
     }
-    let srcs: Vec<&[u64]> = heads.iter().map(|h| h.sources.as_slice()).collect();
+    let srcs: Vec<&[u64]> = heads.iter().map(|h| h.keys.as_slice()).collect();
     let given = sat_core::naming::inherit(&srcs, manual);
     for (h, m) in heads.iter_mut().zip(given) {
         let Some(m) = m.map(|i| &manual[i]) else { continue };
@@ -187,11 +271,13 @@ fn build(
     Heads {
         list: heads,
         of_chain,
+        present,
+        follow,
     }
 }
 
 /// Headings with what they were built from: (overwrite computation, member-keys revision, user identities revision).
-pub(crate) type Cached = ((u64, u64, u64, u64), Arc<Heads>);
+pub(crate) type Cached = ((u64, u64, u64, u64, u64), Arc<Heads>);
 /// What mods lose as equal copies, with what it was built from: (overwrite computation, hashes revision).
 pub(crate) type CachedContent = ((u64, u64), Arc<Vec<sat_core::identical::ModContent>>);
 
@@ -216,6 +302,7 @@ impl App {
             self.session.member_keys_rev(),
             self.chain_identities_rev,
             self.chain_layout_rev,
+            self.chain_lineage_rev,
         );
         if let Some((v, h)) = &self.heads
             && *v == version
@@ -227,6 +314,7 @@ impl App {
             &self.session,
             &self.chain_identities,
             &self.chain_layout,
+            &self.chain_lineage,
         ));
         self.heads = Some((version, h.clone()));
         h

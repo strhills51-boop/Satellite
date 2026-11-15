@@ -259,6 +259,10 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .cc .lay { font-size: 10px; padding: 0 6px; border-radius: 999px; }
 .cc .no { font: 10px var(--mono); color: var(--muted); }
 .cc .brg { padding: 0 8px 4px; font-size: 11px; color: #f59e0b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc .tag { font: 10px var(--mono); border-radius: 999px; padding: 0 6px; border: 1px solid; white-space: nowrap; }
+.cc .tag.chg { color: #f59e0b; border-color: #f59e0b; } .cc .tag.was { color: var(--muted); border-color: var(--line); } .cc .tag.lost { color: var(--l-txt); border-color: var(--lose); }
+.cx .common { padding: 2px 10px 4px; font-size: 11px; color: var(--muted); }
+.orph { font-size: 12px; color: #f59e0b; display: flex; gap: 6px; align-items: center; padding: 4px 8px; }
 .ccbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 8px; align-items: center; padding: 6px 8px; background: var(--panel); border: 1px solid #f59e0b; border-radius: 8px; font-size: 12px; }
 .ccbar span { flex: 1; }
 .cc.front { border-color: #f59e0b; box-shadow: 0 0 0 1px #f59e0b inset; }
@@ -1064,6 +1068,9 @@ function ccCard(i, k) {
   return bridge + `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}${k.front ? " front" : ""}${bridge && k.link.to === prev ? " linked" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
     `<div class="h">${lay}<span class="no">№${k.index + 1}</span><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}${k.sources > 1 ? `\nточных цепочек: ${k.sources}${k.user ? " (объединил ты)" : " (объединила система)"}` : ""}">${esc(k.name)}</span>` + (k.front ? `<span class="fr" title="Фронт решений: следующая нерешённая цепочка — больше всего связана с уже решёнными">дальше</span>` : "") +
     `<span class="n">${k.stack.length} × ${num(k.files)} ${unit}${eq}</span>` +
+    (k.changed ? `<span class="tag chg" title="Решена, но с тех пор изменилась: ${esc(k.changed)}. «подтвердить» — снова решена как есть">изменилась</span><button data-done="${k.signature}" data-v="1" title="Подтвердить: решена как есть сейчас">подтвердить</button>` : "") +
+    (k.was_done ? `<span class="tag was" title="Состав модов изменился — была решена до этого. Посмотри и отметь снова">была решена</span>` : "") +
+    (k.lost ? `<span class="tag lost" title="Из твоего объединения пропало цепочек: ${k.lost} (их модов больше нет в конфликте). «Сироты» вверху — убрать записи">−${k.lost} из объединения</span>` : "") +
     (CT.tab === "files" ? `<button data-done="${k.signature}" data-v="${k.done ? 0 : 1}" title="${k.done ? "Снять «решено»" : "Отметить решённой"}">${k.done ? "✓" : "○"}</button>` : "") +
     `<span>${open ? "▾" : "▸"}</span></div>${files && k.bridges && k.bridges.length ? `<div class="brg" title="Моды-мосты: участвуют и в других цепочках контекста">мосты: ${esc(k.bridges.join(", "))}</div>` : ""}${k.idle && k.idle.length ? `<div class="idle" title="${esc(k.idle.join(", "))}">выключены, но владеют: ${esc(k.idle.join(", "))}</div>` : ""}${body}</div>`;
 }
@@ -1074,7 +1081,9 @@ async function ctCards() {
   CC.open.add(ccId(cur));
   const n = Math.min(CT.contexts.length, CC.MAXCTX);
   CC.prevIx = null;
-  let html = (CT.tab === "files" && CC.picked.size ? `<div class="ccbar"><span>выбрано цепочек: ${CC.picked.size}</span><button id="ccMerge"${CC.picked.size < 2 ? " disabled" : ""}>Объединить</button><button id="ccUnpick">Снять выбор</button></div>` : "") +
+  if (CT.tab === "files") { try { const { orphans: o } = await query({ type: "chain-orphans" }); CC.orph = o.decisions + o.layout + o.names ? o : null; } catch (_) { CC.orph = null; } }
+  let html = (CT.tab === "files" && CC.orph ? `<div class="orph" title="Записи твоей работы с цепочками, которым больше ничего не соответствует (моды удалены или изменились до неузнаваемости)">сироты: решено ${CC.orph.decisions} · в объединениях ${CC.orph.layout} · имён ${CC.orph.names} <button id="ccPrune">убрать</button></div>` : "") +
+    (CT.tab === "files" && CC.picked.size ? `<div class="ccbar"><span>выбрано цепочек: ${CC.picked.size}</span><button id="ccMerge"${CC.picked.size < 2 ? " disabled" : ""}>Объединить</button><button id="ccUnpick">Снять выбор</button></div>` : "") +
     `<input type="search" id="ccQ" placeholder="Поиск по цепочкам, ${CT.tab === "records" ? "плагинам" : CT.tab === "files" ? "модам" : "участникам"}" value="${esc(CC.q)}">`;
   for (let i = 0; i < n; i++) {
     const c = CT.contexts[i], id = ccId(i), open = CC.open.has(id) || !!q;
@@ -1086,6 +1095,7 @@ async function ctCards() {
       : `${c.chains} цеп. · ${c.mods} модов · ${num(c.files)} ф.`;
     html += `<div class="cx${i === cur ? " cur" : ""}" data-cx="${i}" style="border-left:3px solid hsl(${c.hue} 65% 55%)"><div class="h"><span>${open ? "▾" : "▸"}</span>` +
       `<b title="${esc(c.name)}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)}</b><span class="n">${cnt}</span></div>` +
+      (open && CT.tab === "files" ? (() => { const cm = [...new Set(cards.flatMap(k => k.common || []))]; return cm.length ? `<div class="common" title="Моды больше чем в четверти цепочек контекста: связывают почти всё со всем, поэтому мостами не считаются">общие для контекста (не мосты): ${esc(cm.join(", "))}</div>` : ""; })() : "") +
       (open ? `<div class="cards">${cards.map(k => { const h = ccCard(i, k); CC.prevIx = k.index; return h; }).join("")}</div>` : "") + `</div>`;
     CC.prevIx = null;
   }
@@ -1143,6 +1153,7 @@ $("ctCards").addEventListener("click", async ev => {
   if (ev.target.closest("[data-pick]")) { ev.stopPropagation(); return; }
   if (ev.target.id === "ccMerge") { ccLayout({ type: "merge-chains", signatures: [...CC.picked] }); return; }
   if (ev.target.id === "ccUnpick") { CC.picked.clear(); ctCards(); return; }
+  if (ev.target.id === "ccPrune") { ccLayout({ type: "prune-orphans" }); return; }
   const lb = ev.target.closest("button[data-merge],button[data-split],button[data-reset]");
   if (lb) {
     ev.stopPropagation();

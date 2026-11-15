@@ -89,6 +89,9 @@ pub struct Project {
     /// The user's merges and splits of chains (`@sat:layout`).
     #[serde(default, skip_serializing_if = "crate::layout::ChainLayout::is_empty")]
     pub chain_layout: crate::layout::ChainLayout,
+    /// Members of chains the user touched, so his work follows changed chains (`@sat:lineage`).
+    #[serde(default, skip_serializing_if = "crate::lineage::ChainLineage::is_empty")]
+    pub chain_lineage: crate::lineage::ChainLineage,
     /// Conditional stickers (`@sat:sticker-rules`): a sticker on every mod an expression holds for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sticker_rules: Vec<crate::sticker_rules::StickerRule>,
@@ -155,6 +158,7 @@ impl Project {
             counters: Vec::new(),
             chain_identities: Vec::new(),
             chain_layout: Default::default(),
+            chain_lineage: Default::default(),
             sources: BTreeMap::new(),
             factories: Vec::new(),
             patches: Vec::new(),

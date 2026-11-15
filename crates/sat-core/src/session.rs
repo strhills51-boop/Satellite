@@ -293,6 +293,29 @@ impl Session {
     // @sat:session.decide
     /// Marks a chain (by content signature) settled or not; the change goes to the graph as `Truth::Decisions`.
     /// Returns whether anything changed.
+    /// Marks a chain done with its stamp (`@sat:decisions.stamp`); true when anything changed.
+    pub fn set_chain_done_stamped(&mut self, signature: u64, stamp: crate::decisions::Stamp) -> bool {
+        match self.decisions.set_stamped(signature, stamp) {
+            Some(c) => {
+                self.graph.apply(&c);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Drops decisions `keep` refuses (orphans); how many.
+    pub fn retain_decisions(&mut self, keep: impl Fn(u64) -> bool) -> usize {
+        let n = self.decisions.retain(keep);
+        if n > 0 {
+            self.graph.apply(&Change {
+                truth: Truth::Decisions,
+                keys: Keys::All,
+            });
+        }
+        n
+    }
+
     pub fn set_chain_done(&mut self, signature: u64, done: bool) -> bool {
         match self.decisions.set(signature, done) {
             Some(c) => {

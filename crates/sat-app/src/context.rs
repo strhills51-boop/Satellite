@@ -411,14 +411,33 @@ impl App {
 }
 
 // @sat:app.context-table.groups
+/// A mod in more than this share of a context's chains (of at least [`COMMON_MIN`]) is **common**, not a bridge:
+/// a base mod under many chains ties each to all the others and says nothing about which belong together. A
+/// quarter: on a test build the two mods above it held 37 % and 33 % of 48 chains and linked nearly every card;
+/// below it a mod links a handful.
+pub(crate) const COMMON_SHARE: f64 = 0.25;
+/// Fewer chains than this have no common mods.
+pub(crate) const COMMON_MIN: usize = 8;
+
+/// The order of a context's chains and its common mods.
+pub(crate) struct ContextOrder {
+    /// Headings with the link each hangs on.
+    pub order: Vec<(u32, Option<sat_core::arrange::Link>)>,
+    /// Mods in more than a quarter of the chains (not bridges).
+    pub common: rustc_hash::FxHashSet<ModId>,
+    /// How many chains each mod is in.
+    pub held: rustc_hash::FxHashMap<ModId, u32>,
+}
+
 /// The chains (headings) of a context in their order (`@sat:arrange`): load order, bridged chains together — the
-/// order of the table's chain bands and of the cards — with the link each one hangs on.
+/// order of the table's chain bands and of the cards — with the link each one hangs on. Bridges are the mods two
+/// or more chains share, except **common** ones ([`COMMON_SHARE`]): they are shown apart, not linked by.
 pub(crate) fn context_order(
     ow: &sat_core::overwrite::OverwriteProjection,
     heads: &crate::chains::Heads,
     cx: ContextId,
     pos_of: &dyn Fn(ModId) -> usize,
-) -> Vec<(u32, Option<sat_core::arrange::Link>)> {
+) -> ContextOrder {
     let mut groups: Vec<u32> = ow.contexts()[cx.idx()]
         .chains
         .iter()
@@ -426,6 +445,18 @@ pub(crate) fn context_order(
         .collect();
     groups.sort_unstable();
     groups.dedup();
+    let mut held: rustc_hash::FxHashMap<ModId, u32> = Default::default();
+    for &g in &groups {
+        for &m in &heads[g as usize].route {
+            *held.entry(m).or_default() += 1;
+        }
+    }
+    let common: rustc_hash::FxHashSet<ModId> = if groups.len() < COMMON_MIN {
+        Default::default()
+    } else {
+        let at = (groups.len() as f64 * COMMON_SHARE) as u32;
+        held.iter().filter(|&(_, &n)| n > at).map(|(&m, _)| m).collect()
+    };
     let items: Vec<sat_core::arrange::Item> = groups
         .iter()
         .map(|&g| {
@@ -433,15 +464,23 @@ pub(crate) fn context_order(
             let mut key: Vec<usize> = route.iter().map(|&m| pos_of(m)).collect();
             key.sort_unstable();
             sat_core::arrange::Item {
-                mods: route.iter().map(|m| m.0).collect(),
+                mods: route
+                    .iter()
+                    .filter(|m| !common.contains(m))
+                    .map(|m| m.0)
+                    .collect(),
                 key,
             }
         })
         .collect();
-    sat_core::arrange::arrange(&items)
-        .into_iter()
-        .map(|(i, l)| (groups[i], l))
-        .collect()
+    ContextOrder {
+        order: sat_core::arrange::arrange(&items)
+            .into_iter()
+            .map(|(i, l)| (groups[i], l))
+            .collect(),
+        common,
+        held,
+    }
 }
 
 /// The chains of a context in their order (`context_order` without the links).
@@ -452,6 +491,7 @@ pub(crate) fn context_groups(
     pos_of: &dyn Fn(ModId) -> usize,
 ) -> Vec<u32> {
     context_order(ow, heads, cx, pos_of)
+        .order
         .into_iter()
         .map(|x| x.0)
         .collect()

@@ -162,6 +162,8 @@ pub enum Command {
     MergeChains {
         signatures: Vec<String>,
     },
+    /// Forgets the user's records no chain answers to any more (`@sat:app.orphans`).
+    PruneOrphans,
     /// Splits a card into its exact chains.
     SplitChain {
         signature: String,
@@ -361,6 +363,8 @@ pub enum Query {
         #[serde(default)]
         locked: Vec<Key>,
     },
+    /// What of the user's chain work no chain answers to (`@sat:app.orphans`).
+    ChainOrphans,
     /// One folder of a mod's files with the conflict overlay (`@sat:app.tree`).
     ModTree {
         key: Key,
@@ -704,6 +708,9 @@ pub enum Reply {
     ModTree {
         entries: Vec<TreeEntry>,
     },
+    ChainOrphans {
+        orphans: find::Orphans,
+    },
     ChainCard {
         card: Option<Box<ChainCardDetail>>,
     },
@@ -801,6 +808,9 @@ pub struct App {
     /// The user's merges and splits of chains (`@sat:layout`).
     chain_layout: sat_core::layout::ChainLayout,
     chain_layout_rev: u64,
+    /// Members of chains the user touched (`@sat:lineage`).
+    chain_lineage: sat_core::lineage::ChainLineage,
+    chain_lineage_rev: u64,
     /// The project's counters (`@sat:counters`).
     counters: sat_core::counters::Counters,
     /// Where mods come from, by folded name (`@sat:source`).
@@ -828,6 +838,8 @@ impl App {
             chain_identities_rev: 0,
             chain_layout: Default::default(),
             chain_layout_rev: 0,
+            chain_lineage: Default::default(),
+            chain_lineage_rev: 0,
             records: Arc::default(),
             record_state: records::RecordState::Off,
             content_hashes: Arc::default(),
@@ -1003,14 +1015,15 @@ impl App {
                     .iter()
                     .find(|h| h.hex() == signature)
                     .ok_or_else(|| AppError::Signature(signature.clone()))?;
+                let touched = h.chains.clone();
                 let id = sat_core::naming::ManualIdentity {
-                    sources: h.sources.clone(),
+                    sources: h.keys.clone(),
                     name: name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()),
                     emoji,
                     hue,
                 };
                 // the identity this chain wears now (inherited or its own) is replaced
-                let srcs = [h.sources.as_slice()];
+                let srcs = [h.keys.as_slice()];
                 let worn = sat_core::naming::inherit(&srcs, &self.chain_identities)[0];
                 let mut list = self.chain_identities.clone();
                 if let Some(i) = worn {
@@ -1022,6 +1035,7 @@ impl App {
                 if list == self.chain_identities {
                     return Ok(Event::Nothing);
                 }
+                self.touch(&touched);
                 self.chain_identities = list;
                 self.chain_identities_rev += 1;
                 self.revision += 1;
@@ -1033,24 +1047,55 @@ impl App {
             }
             // @sat:app.layout
             C::MergeChains { signatures } => {
-                let heads = self.heads();
-                let mut sets: Vec<Vec<u64>> = Vec::new();
-                for sig in &signatures {
-                    let h = heads
-                        .iter()
-                        .find(|h| &h.hex() == sig)
-                        .ok_or_else(|| AppError::Signature(sig.clone()))?;
-                    sets.push(h.sources.clone());
+                let mut chains: Vec<Vec<sat_core::ids::ChainId>> = Vec::new();
+                {
+                    let heads = self.heads();
+                    for sig in &signatures {
+                        let h = heads
+                            .iter()
+                            .find(|h| &h.hex() == sig)
+                            .ok_or_else(|| AppError::Signature(sig.clone()))?;
+                        chains.push(h.chains.clone());
+                    }
                 }
+                let touched = self.touch(&chains.concat());
+                // after touching, every chain is known by its own signature
+                let ow = self.session.overwrite();
+                let sets: Vec<Vec<u64>> = chains
+                    .iter()
+                    .map(|cs| {
+                        cs.iter()
+                            .map(|&c| chains::exact_signature(&ow, &self.session, c))
+                            .collect()
+                    })
+                    .collect();
                 let refs: Vec<&[u64]> = sets.iter().map(Vec::as_slice).collect();
                 let mut l = self.chain_layout.clone();
                 if sets.len() < 2 || !l.merge(&refs) {
+                    if touched {
+                        self.revision += 1;
+                        return Ok(Event::Decided);
+                    }
                     return Ok(Event::Nothing);
                 }
                 return Ok(self.set_layout(l));
             }
+            C::PruneOrphans => {
+                return Ok(if self.prune_orphans() > 0 {
+                    self.revision += 1;
+                    Event::Decided
+                } else {
+                    Event::Nothing
+                });
+            }
             C::SplitChain { signature } => {
-                let srcs = self.head_sources(&signature)?;
+                let chains = self.head_chains(&signature)?;
+                self.touch(&chains);
+                let ow = self.session.overwrite();
+                let srcs: Vec<u64> = chains
+                    .iter()
+                    .map(|&c| chains::exact_signature(&ow, &self.session, c))
+                    .collect();
                 let mut l = self.chain_layout.clone();
                 if srcs.len() < 2 || !l.split(&srcs) {
                     return Ok(Event::Nothing);
@@ -1109,13 +1154,26 @@ impl App {
                     .map_err(|_| AppError::Signature(signature.clone()))?;
                 // a normalized chain settles (or reopens) every exact chain in it
                 let heads = self.heads();
-                let sources = heads
-                    .iter()
-                    .find(|h| h.signature == sig)
-                    .map_or_else(|| vec![sig], |h| h.sources.clone());
                 let mut changed = false;
-                for s in sources {
-                    changed |= self.session.set_chain_done(s, done);
+                match heads.iter().find(|h| h.signature == sig) {
+                    // settling stamps every exact chain with what it is now (`@sat:decisions.stamp`) and
+                    // remembers its members (`@sat:lineage`); settling again renews the stamps ("confirm")
+                    Some(h) if done => {
+                        let ow = self.session.overwrite();
+                        let chains = h.chains.clone();
+                        changed |= self.touch(&chains);
+                        for c in chains {
+                            let st = chains::exact_stamp(&ow, &self.session, c);
+                            let es = chains::exact_signature(&ow, &self.session, c);
+                            changed |= self.session.set_chain_done_stamped(es, st);
+                        }
+                    }
+                    Some(h) => {
+                        for &s in &h.sources {
+                            changed |= self.session.set_chain_done(s, false);
+                        }
+                    }
+                    None => changed |= self.session.set_chain_done(sig, done),
                 }
                 return Ok(if changed {
                     self.revision += 1;
@@ -1485,6 +1543,9 @@ impl App {
                 locked,
             } => Reply::OrderAdvice {
                 advice: self.order_advice(key, strictness, current_truth, &locked),
+            },
+            Query::ChainOrphans => Reply::ChainOrphans {
+                orphans: self.orphans(),
             },
             Query::ModTree { key, dir } => Reply::ModTree {
                 entries: self.mod_tree(key, &dir).unwrap_or_default(),

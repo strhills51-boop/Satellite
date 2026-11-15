@@ -100,6 +100,7 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     app.set_tag_catalog(p.tags.clone());
     app.set_chain_identities(p.chain_identities.clone());
     app.set_chain_layout(p.chain_layout.clone());
+    app.set_chain_lineage(p.chain_lineage.clone());
     for e in app.set_sticker_rules(&p.sticker_rules) {
         eprintln!("{e}");
     }
@@ -156,6 +157,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut counters = Vec::new();
     let mut chain_identities = Vec::new();
     let mut chain_layout = Default::default();
+    let mut chain_lineage = Default::default();
     // the project file; the early layout is read as it is (the sandbox converts nothing)
     let opened = if project_file.exists() {
         sat_stll::Stll::open(&project_file)
@@ -186,6 +188,7 @@ fn load(args: &[String]) -> Result<App, String> {
             counters = p.counters.clone();
             chain_identities = p.chain_identities.clone();
             chain_layout = p.chain_layout.clone();
+            chain_lineage = p.chain_lineage.clone();
             p.book().0
         }
         _ => {
@@ -269,6 +272,7 @@ fn load(args: &[String]) -> Result<App, String> {
     app.set_tag_catalog(tags);
     app.set_chain_identities(chain_identities);
     app.set_chain_layout(chain_layout);
+    app.set_chain_lineage(chain_lineage);
     // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps; what is missing is read
     // off the request loop (a first run reads a lot) — until then copies are "not compared"
     {
