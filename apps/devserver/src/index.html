@@ -753,8 +753,11 @@ function ctDraw() {
     if (r.header) { g.fillStyle = bg2; g.fillRect(LW, y, w - LW, RH); return; }
     for (let j = 0; j < r.cells.length; j++) {
       const x = LW + ox + j * CW, ch = r.cells[j];
+      // as in the monolith: a square per stack, a little taller with every step of its size
+      const n = (t.cols[j] && t.cols[j].count) || 1, sq = CW - 2;
+      const hh = Math.min(RH - 4, Math.round(sq + Math.log2(n) * 1.5)), yy = y + (RH - hh) / 2;
       g.fillStyle = ch === "w" ? win : ch === "l" ? lose : cellColor(ch);
-      g.fillRect(x + 1, y + 6, CW - 2, RH - 12);
+      g.fillRect(x + 1, yy, sq, hh);
     }
   });
   // the chain of the selected card stays lit, the rest dims
@@ -771,9 +774,6 @@ function ctDraw() {
     if (ch) { g.fillStyle = `hsl(${ch.hue} 65% 55%)`; g.fillRect(x, 6, CW, 4); }
     const pathLike = CT.tab === "files" || (GEN() && /\/[^/ ]+\.[a-z0-9]+$/i.test(c.path));
     const hue = pathLike ? extHue(c.path) : sigHue(c.path);
-    // a stack is a pile: the more targets go through the chain the same way, the higher the pile
-    const layers = c.count > 1 ? Math.min(5, 1 + Math.floor(Math.log10(c.count) * 1.6)) : 0;
-    for (let k = layers; k > 0; k--) { g.fillStyle = `hsl(${hue} 55% ${38 + k * 4}%)`; g.fillRect(x + 1, 18 - k * 3, CW - 2, 14); }
     g.fillStyle = `hsl(${hue} 70% 55%)`; g.fillRect(x + 1, 18, CW - 2, 14);
     const starts = t.chain_starts.length && (j > 0 ? t.cols[j - 1].chain !== c.chain : t.chain_starts.includes(c0));
     if (starts) {
