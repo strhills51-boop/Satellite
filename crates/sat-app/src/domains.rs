@@ -178,7 +178,8 @@ impl App {
                 pack,
             )),
             Arc::new(sat_core::conflict_kinds::generations(&cand, &table, prio, pack)),
-            Arc::new(sat_core::conflict_kinds::runtime(
+            Arc::new(sat_core::conflict_kinds::runtime_in(
+                &cand.extender,
                 &self.domain_inputs.runtime,
                 &table,
                 prio,

@@ -309,6 +309,8 @@ pub struct Candidates {
     pub specs: Vec<crate::conflict_spec::Matched>,
     /// Per generator of the pack: mods with its output markers, mods with its inputs (with a sample path).
     pub generators: Vec<GeneratorMods>,
+    /// Script extender plugins and address library files (any version).
+    pub extender: Vec<PathId>,
 }
 
 pub fn candidates(
@@ -331,36 +333,57 @@ pub fn candidates(
             Some((segs, pi, fi))
         })
         .collect();
-    let gens: Vec<(Vec<regex::Regex>, Vec<regex::Regex>)> = pack
-        .generators
-        .iter()
-        .map(|g| {
-            (
-                g.markers.iter().map(|m| crate::game::glob(m)).collect(),
-                g.inputs.iter().map(|m| crate::game::glob(m)).collect(),
-            )
-        })
-        .collect();
-    let mut gen_sets: Vec<(FxHashMap<ModId, ()>, FxHashMap<ModId, PathId>)> =
-        vec![Default::default(); gens.len()];
-    let mut out = Candidates {
-        specs: vec![Vec::new(); specs.len()],
-        ..Candidates::default()
-    };
-    for p in 0..table.path_count() {
-        let p = PathId::from_idx(p);
-        let r = table.path_providers(p);
-        if r.len() >= 2 {
-            let first = table.owner(r.start);
-            if r.clone().any(|i| table.is_archive(i)) && r.clone().any(|i| table.owner(i) != first) {
-                out.archives.push(p);
+    // every generator glob in one set: (generator, is a marker) by pattern index
+    let mut glob_of: Vec<(usize, bool)> = Vec::new();
+    let mut globs: Vec<String> = Vec::new();
+    for (k, g) in pack.generators.iter().enumerate() {
+        for (list, marker) in [(&g.markers, true), (&g.inputs, false)] {
+            for m in list {
+                globs.push(crate::game::glob(m).as_str().to_string());
+                glob_of.push((k, marker));
             }
         }
-        let s = table.path_string(p);
-        let lower = s.to_lowercase();
-        if !templates.is_empty() {
-            let parts: Vec<&str> = lower.split('/').collect();
-            for (segs, pi, fi) in &templates {
+    }
+    // the extender's plugins and address libraries of any version, tagged by an index past the generators
+    const EXT: usize = usize::MAX;
+    if let Some(r) = &pack.runtime {
+        for g in std::iter::once(&r.plugins).chain(&r.address_library) {
+            globs.push(crate::game::glob(&g.replace("{v}", "*")).as_str().to_string());
+            glob_of.push((EXT, false));
+        }
+    }
+    let set = regex::RegexSet::new(&globs).expect("globs compile");
+    let face_prefixes: Vec<String> = templates
+        .iter()
+        .map(|(segs, pi, fi)| segs[..*pi.min(fi)].iter().map(|x| format!("{x}/")).collect())
+        .collect();
+    /// What one path is to each kind.
+    #[derive(Default)]
+    struct Hit {
+        archive: bool,
+        face: Option<(String, u32)>,
+        specs: Vec<(usize, Vec<(String, String)>)>,
+        gens: Vec<(usize, bool)>,
+    }
+    use rayon::prelude::*;
+    let hits: Vec<(PathId, Hit)> = (0..table.path_count())
+        .into_par_iter()
+        .filter_map(|p| {
+            let p = PathId::from_idx(p);
+            let mut h = Hit::default();
+            let r = table.path_providers(p);
+            if r.len() >= 2 {
+                let first = table.owner(r.start);
+                h.archive =
+                    r.clone().any(|i| table.is_archive(i)) && r.clone().any(|i| table.owner(i) != first);
+            }
+            let s = table.path_string(p);
+            let lower = s.to_lowercase();
+            for ((segs, pi, fi), prefix) in templates.iter().zip(&face_prefixes) {
+                if !lower.starts_with(prefix.as_str()) {
+                    continue;
+                }
+                let parts: Vec<&str> = lower.split('/').collect();
                 if parts.len() == segs.len()
                     && segs
                         .iter()
@@ -371,28 +394,50 @@ pub fn candidates(
                     let orig: Vec<&str> = s.split('/').collect();
                     let stem = parts[*fi].split('.').next().unwrap_or("");
                     if let Ok(object) = u32::from_str_radix(stem, 16) {
-                        out.facegen.push((p, orig[*pi].to_string(), object));
+                        h.face = Some((orig[*pi].to_string(), object));
                     }
                 }
             }
-        }
-        for (k, m) in matchers.iter().enumerate() {
-            if let Some(c) = m.captures(&s, &lower) {
-                out.specs[k].push((p, c));
+            for (k, m) in matchers.iter().enumerate() {
+                if let Some(c) = m.captures(&s, &lower) {
+                    h.specs.push((k, c));
+                }
             }
-        }
-        for (k, (markers, inputs)) in gens.iter().enumerate() {
-            let is_marker = markers.iter().any(|r| r.is_match(&s));
-            let is_input = inputs.iter().any(|r| r.is_match(&s));
-            if !is_marker && !is_input {
-                continue;
+            if set.is_match(&s) {
+                for i in set.matches(&s).iter() {
+                    if !h.gens.contains(&glob_of[i]) {
+                        h.gens.push(glob_of[i]);
+                    }
+                }
             }
+            (h.archive || h.face.is_some() || !h.specs.is_empty() || !h.gens.is_empty()).then_some((p, h))
+        })
+        .collect();
+    let mut gen_sets: Vec<(FxHashMap<ModId, ()>, FxHashMap<ModId, PathId>)> =
+        vec![Default::default(); pack.generators.len()];
+    let mut out = Candidates {
+        specs: vec![Vec::new(); specs.len()],
+        ..Candidates::default()
+    };
+    for (p, h) in hits {
+        if h.archive {
+            out.archives.push(p);
+        }
+        if let Some((plugin, object)) = h.face {
+            out.facegen.push((p, plugin, object));
+        }
+        for (k, c) in h.specs {
+            out.specs[k].push((p, c));
+        }
+        if h.gens.iter().any(|g| g.0 == EXT) {
+            out.extender.push(p);
+        }
+        for (k, marker) in h.gens.into_iter().filter(|g| g.0 != EXT) {
             for i in table.path_providers(p) {
                 let m = table.owner(i);
-                if is_marker {
+                if marker {
                     gen_sets[k].0.insert(m, ());
-                }
-                if is_input {
+                } else {
                     gen_sets[k].1.entry(m).or_insert(p);
                 }
             }
@@ -424,6 +469,17 @@ pub struct GameRuntime {
 /// The script extender against the game: a loader for another game version, extender plugins without a loader, no
 /// address library for this game version. Only when the game's version is known.
 pub fn runtime(rt: &GameRuntime, table: &ProviderTable, prio: &Priorities, pack: &GamePack) -> DomainReport {
+    runtime_in(&candidates(table, pack, &[]).extender, rt, table, prio, pack)
+}
+
+/// [`runtime`] over the extender's candidate paths.
+pub fn runtime_in(
+    paths: &[PathId],
+    rt: &GameRuntime,
+    table: &ProviderTable,
+    prio: &Priorities,
+    pack: &GamePack,
+) -> DomainReport {
     let mut b = Builder::new(info(
         "runtime",
         "Версии (SKSE)",
@@ -455,8 +511,7 @@ pub fn runtime(rt: &GameRuntime, table: &ProviderTable, prio: &Priorities, pack:
         .map(|t| crate::game::glob(&t.replace("{v}", &dash)))
         .collect();
     let (mut dll_mods, mut has_lib): (Vec<ModId>, bool) = (Vec::new(), false);
-    for p in 0..table.path_count() {
-        let p = PathId::from_idx(p);
+    for &p in paths {
         let s = table.path_string(p);
         let is_dll = plugins_re.is_match(&s);
         let is_lib = lib_res.iter().any(|r| r.is_match(&s));
@@ -965,5 +1020,62 @@ mod tests {
             .find(|c| c.kind == "правят двое и больше")
             .unwrap();
         assert_eq!(nav.cells, b"oxx");
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    #[test]
+    #[ignore]
+    fn candidates_over_a_million_paths() {
+        use crate::facts::{LooseDir, LooseFile, ModFacts};
+        let dirs = [
+            "meshes/armor/iron",
+            "textures/armor/iron",
+            "meshes/actors/character/animations/x",
+            "sound/fx/a",
+            "textures/landscape/trees",
+            "meshes/lod/x",
+            "interface/x",
+            "scripts",
+        ];
+        let facts: Vec<ModFacts> = (0..2000)
+            .map(|m| ModFacts {
+                name: format!("Mod {m}"),
+                dirs: dirs
+                    .iter()
+                    .map(|d| LooseDir {
+                        rel: format!("{d}/m{m}"),
+                        files: (0..112)
+                            .map(|i| LooseFile {
+                                name: format!("file_{i}.dds"),
+                                size: 1,
+                                vram: 0,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+                ..Default::default()
+            })
+            .collect();
+        let table = crate::table::ProviderTable::build(&facts);
+        eprintln!("paths: {}", table.path_count());
+        let pack = crate::game::active();
+        let specs: Vec<&crate::conflict_spec::DomainSpec> = pack.domains.iter().collect();
+        let t = std::time::Instant::now();
+        let c = super::candidates(&table, pack, &specs);
+        eprintln!("candidates: {:?} ({} archives)", t.elapsed(), c.archives.len());
+        let prio = crate::overwrite::Priorities(vec![0; 2000]);
+        let t = std::time::Instant::now();
+        let _ = super::runtime(
+            &super::GameRuntime {
+                version: Some((1, 6, 1170, 0)),
+                files: vec![],
+            },
+            &table,
+            &prio,
+            pack,
+        );
+        eprintln!("runtime: {:?}", t.elapsed());
     }
 }

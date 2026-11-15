@@ -1161,7 +1161,13 @@ fn analyze(args: &[String]) -> Result<(), String> {
             sat_core::conflict_kinds::constraints_with(&plugin_list, record_ix.as_ref().map(|x| &x.0), pack),
             sat_core::conflict_kinds::archives_in(&cand.archives, &table, prio, &plugin_list, pack),
             sat_core::conflict_kinds::generations(&cand, &table, prio, pack),
-            sat_core::conflict_kinds::runtime(&sat_scan::game_runtime(&inst.game_path), &table, prio, pack),
+            sat_core::conflict_kinds::runtime_in(
+                &cand.extender,
+                &sat_scan::game_runtime(&inst.game_path),
+                &table,
+                prio,
+                pack,
+            ),
         ];
         if let Some((ix, loaded)) = &record_ix {
             if let Some(rules) = &pack.records {
@@ -1207,6 +1213,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
             ));
         }
         timings.insert("conflicts", t.elapsed().as_millis());
+        eprintln!(
+            "conflicts: {} domain(s) in {} ms",
+            reports.len(),
+            t.elapsed().as_millis()
+        );
         let limit = match flag_value(args, "--limit").map(str::parse::<usize>) {
             Some(Ok(0)) => usize::MAX,
             Some(Ok(n)) => n,
