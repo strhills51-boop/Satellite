@@ -82,11 +82,16 @@ impl Instance {
         if profile.is_empty() {
             profile = profiles.first().cloned().unwrap_or_default();
         }
+        let game_path = find_game(
+            PathBuf::from(get(general, "gamepath").replace('/', std::path::MAIN_SEPARATOR_STR)),
+            &inst_dir,
+            &base_dir,
+        );
         Ok(Self {
             ini_path,
             base_dir,
             game_name: get(general, "gamename"),
-            game_path: PathBuf::from(get(general, "gamepath").replace('/', std::path::MAIN_SEPARATOR_STR)),
+            game_path,
             mods_dir,
             overwrite_dir,
             profiles_dir,
@@ -167,6 +172,39 @@ fn list_dirs(dir: &Path) -> Vec<String> {
     v
 }
 
+/// Whether a folder looks like a game root: a `Data` folder with a master plugin in it.
+fn is_game_root(p: &Path) -> bool {
+    std::fs::read_dir(p.join("Data"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .ends_with(".esm")
+        })
+}
+
+// @sat:mo2.instance.game
+/// The game's folder: the instance's `gamePath` when it holds the game, else a portable copy next to the instance
+/// (`Stock Game`, `Game Root`, `Game`), else what the instance says (it may be empty; callers say so).
+fn find_game(said: PathBuf, inst_dir: &Path, base_dir: &Path) -> PathBuf {
+    if !said.as_os_str().is_empty() && is_game_root(&said) {
+        return said;
+    }
+    let near = ["Stock Game", "Game Root", "Game", "Stock Folder"];
+    for dir in [inst_dir, base_dir] {
+        for n in near {
+            let p = dir.join(n);
+            if is_game_root(&p) {
+                return p;
+            }
+        }
+    }
+    said
+}
+
 /// "; MO2 instances inside: …" for the subfolders of `dir` that are instances, else empty.
 fn instances_inside(dir: &Path) -> String {
     let mut near: Vec<String> = std::fs::read_dir(dir)
@@ -239,6 +277,23 @@ mod tests {
             Instance::load(dir.path()),
             Err(Mo2Error::NotInstance(_))
         ));
+    }
+
+    #[test]
+    fn a_portable_game_next_to_the_instance_is_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("profiles/Default")).unwrap();
+        std::fs::create_dir_all(root.join("mods")).unwrap();
+        std::fs::create_dir_all(root.join("Stock Game/Data")).unwrap();
+        std::fs::write(root.join("Stock Game/Data/Skyrim.esm"), b"x").unwrap();
+        std::fs::write(
+            root.join("ModOrganizer.ini"),
+            "[General]\ngamePath=@ByteArray(Z:\\\\nowhere)\n",
+        )
+        .unwrap();
+        let i = Instance::load(root).unwrap();
+        assert!(i.game_path.ends_with("Stock Game"), "{}", i.game_path.display());
     }
 
     #[test]

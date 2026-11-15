@@ -129,6 +129,9 @@ pub struct GamePack {
     /// Tools whose outputs go stale (`@sat:conflict.kinds.generations`).
     #[serde(default)]
     pub generators: Vec<Generator>,
+    /// Paths the game never reads (script sources, installer files, docs): no game-level case is about them.
+    #[serde(default)]
+    pub ignored: Vec<String>,
     /// The script extender and its address library (`@sat:conflict.kinds.runtime`).
     #[serde(default)]
     pub runtime: Option<RuntimeRules>,

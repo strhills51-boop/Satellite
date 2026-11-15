@@ -406,7 +406,7 @@ pub fn evaluate_matched(
         } else if spec.semantics == Semantics::Conditional {
             ("по условиям", Severity::Info, false)
         } else if spec.semantics == Semantics::Exclusive {
-            ("взаимоисключение", Severity::Error, true)
+            ("взаимоисключение", Severity::Warn, true)
         } else {
             let how = match spec.centrality {
                 Centrality::Name => "по имени файла",

@@ -189,6 +189,12 @@ pub struct Counts {
     pub unresolved: u32,
     /// Targets by kind.
     pub kinds: Vec<(String, u32)>,
+    /// Targets wanting a decision by severity: breaks the game (crash, a plugin that does not load) and shows in
+    /// the game (a wrong face, a lost change).
+    #[serde(default)]
+    pub errors: u32,
+    #[serde(default)]
+    pub warnings: u32,
 }
 
 /// A domain's output.
@@ -342,6 +348,11 @@ impl Builder {
             counts.targets += n;
             if c.unresolved {
                 counts.unresolved += n;
+                match c.severity {
+                    Severity::Error => counts.errors += n,
+                    Severity::Warn => counts.warnings += n,
+                    Severity::Info => {}
+                }
             }
             *kinds.entry(c.kind.as_str()).or_default() += n;
         }

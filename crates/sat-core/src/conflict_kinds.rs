@@ -183,7 +183,14 @@ pub fn archives(
     list: &PluginList,
     pack: &GamePack,
 ) -> DomainReport {
-    archives_in(&candidates(table, pack, &[]).archives, table, prio, list, pack)
+    archives_in(
+        &candidates(table, pack, &[]).archives,
+        table,
+        prio,
+        list,
+        pack,
+        None,
+    )
 }
 
 /// [`archives`] over candidate paths (a loose and an archive copy, or two archive copies, of different mods).
@@ -193,6 +200,7 @@ pub fn archives_in(
     prio: &Priorities,
     list: &PluginList,
     pack: &GamePack,
+    hashes: Option<&crate::identical::ContentHashes>,
 ) -> DomainReport {
     let mut b = Builder::new(info(
         "archives",
@@ -268,6 +276,22 @@ pub fn archives_in(
             Some(g) if !table.is_archive(g) && table.is_archive(shown) => ("файл бьёт архив", Severity::Warn),
             _ => ("архивы по порядку плагинов", Severity::Warn),
         };
+        // the game's copy and the shown one hold the same bytes: the order does not matter here
+        let same = game.is_some_and(|g| {
+            hashes.is_some_and(|h| crate::identical::same(table, h, g, shown) == Some(true))
+        });
+        let (kind, sev) = if same && kind != "архив не грузится" {
+            (
+                if kind == "файл бьёт архив" {
+                    "файл бьёт архив, копии одинаковы"
+                } else {
+                    "архивы по порядку, копии одинаковы"
+                },
+                Severity::Info,
+            )
+        } else {
+            (kind, sev)
+        };
         // one cell per mod, mods by priority
         let mut mods: Vec<ModId> = active.iter().map(|&i| table.owner(i)).collect();
         mods.sort_by_key(|&m| (prio.get(m), m));
@@ -291,7 +315,7 @@ pub fn archives_in(
                 (id, c)
             })
             .collect();
-        b.contest(&table.path_string(p), &members, kind, sev, true);
+        b.contest(&table.path_string(p), &members, kind, sev, sev != Severity::Info);
     }
     b.finish()
 }
@@ -353,6 +377,12 @@ pub fn candidates(
         }
     }
     let set = regex::RegexSet::new(&globs).expect("globs compile");
+    let ignored = regex::RegexSet::new(
+        pack.ignored
+            .iter()
+            .map(|g| crate::game::glob(g).as_str().to_string()),
+    )
+    .expect("globs compile");
     let face_prefixes: Vec<String> = templates
         .iter()
         .map(|(segs, pi, fi)| segs[..*pi.min(fi)].iter().map(|x| format!("{x}/")).collect())
@@ -378,6 +408,10 @@ pub fn candidates(
                     r.clone().any(|i| table.is_archive(i)) && r.clone().any(|i| table.owner(i) != first);
             }
             let s = table.path_string(p);
+            // the game never reads it (script sources, installers, docs): no game-level case
+            if h.archive && ignored.is_match(&s) {
+                h.archive = false;
+            }
             let lower = s.to_lowercase();
             for ((segs, pi, fi), prefix) in templates.iter().zip(&face_prefixes) {
                 if !lower.starts_with(prefix.as_str()) {
@@ -598,25 +632,37 @@ pub fn generations(
             if !prio.is_active(o) {
                 continue;
             }
-            for &(m, sample) in inputs {
-                if m == o || outputs.contains(&m) || !prio.is_active(m) || prio.get(m) <= prio.get(o) {
-                    continue;
-                }
-                let om = b.participant(table.mod_name(o), Some(table.mod_name(o)), i64::from(prio.get(o)));
-                let im = b.participant(table.mod_name(m), Some(table.mod_name(m)), i64::from(prio.get(m)));
-                b.contest(
-                    &format!(
-                        "{}: {} — например {}",
-                        g.title,
-                        table.mod_name(m),
-                        table.path_string(sample)
-                    ),
-                    &[(om, cell::MEMBER), (im, cell::BREAKS)],
-                    &format!("{}: вход после выхода", g.title),
-                    Severity::Warn,
-                    true,
-                );
+            let late: Vec<(ModId, PathId)> = inputs
+                .iter()
+                .copied()
+                .filter(|&(m, _)| {
+                    m != o && !outputs.contains(&m) && prio.is_active(m) && prio.get(m) > prio.get(o)
+                })
+                .collect();
+            if late.is_empty() {
+                continue;
             }
+            // one case per output: the inputs after it are its participants
+            let om = b.participant(table.mod_name(o), Some(table.mod_name(o)), i64::from(prio.get(o)));
+            let mut members = vec![(om, cell::MEMBER)];
+            for &(m, _) in &late {
+                let n = table.mod_name(m);
+                members.push((b.participant(n, Some(n), i64::from(prio.get(m))), cell::BREAKS));
+            }
+            b.contest(
+                &format!(
+                    "{}: {} — {} мод(ов)-входов ниже выхода, например {} ({})",
+                    g.title,
+                    table.mod_name(o),
+                    late.len(),
+                    table.mod_name(late[0].0),
+                    table.path_string(late[0].1)
+                ),
+                &members,
+                &format!("{}: вход после выхода", g.title),
+                Severity::Warn,
+                true,
+            );
         }
     }
     b.finish()
@@ -722,41 +768,53 @@ pub fn facegen_in(
         let p = list.get(name)?;
         p.winner.map(|w| p.versions[w].owner)
     };
-    // (key) → (face winner mod, record winner mod, files)
-    let mut seen_keys: FxHashMap<u64, (ModId, ModId, bool)> = FxHashMap::default();
+    // the first face file of the pack is the geometry (a mismatch darkens the face), the rest are secondary (tints)
+    let geom_ext = fg
+        .files
+        .first()
+        .and_then(|t| t.rsplit_once('.'))
+        .map(|x| format!(".{}", x.1.to_lowercase()))
+        .unwrap_or_default();
+    // key → per part (geometry, secondary): (face winner mod, record winner mod, the record's mod has its own copy)
+    type Part = Option<(ModId, ModId, bool)>;
+    let mut seen_keys: FxHashMap<u64, (Part, Part)> = FxHashMap::default();
     for (p, plugin, object) in faces {
         let (p, object) = (*p, *object);
-        {
-            let Some(key) = ix.key_of(plugin, object) else {
-                continue;
-            };
-            let provs = ix.providers(key);
-            let Some(last) = provs.last() else { continue };
-            if last.signature != record_sig || last.origin {
-                continue;
-            }
-            let Some(rec_mod) = plugin_mod(&ix.plugins[last.plugin as usize]) else {
-                continue;
-            };
-            let Some(face) = table
-                .path_providers(p)
-                .filter(|&i| prio.is_active(table.owner(i)))
-                .max_by_key(|&i| (prio.get(table.owner(i)), !table.is_archive(i)))
-            else {
-                continue;
-            };
-            let face_mod = table.owner(face);
-            if face_mod == rec_mod {
-                continue;
-            }
-            let rec_has = table.path_providers(p).any(|i| table.owner(i) == rec_mod);
-            let e = seen_keys.entry(key).or_insert((face_mod, rec_mod, false));
-            e.2 |= rec_has;
+        let Some(key) = ix.key_of(plugin, object) else {
+            continue;
+        };
+        let provs = ix.providers(key);
+        let Some(last) = provs.last() else { continue };
+        if last.signature != record_sig || last.origin {
+            continue;
         }
+        let Some(rec_mod) = plugin_mod(&ix.plugins[last.plugin as usize]) else {
+            continue;
+        };
+        let Some(face) = table
+            .path_providers(p)
+            .filter(|&i| prio.is_active(table.owner(i)))
+            .max_by_key(|&i| (prio.get(table.owner(i)), !table.is_archive(i)))
+        else {
+            continue;
+        };
+        let face_mod = table.owner(face);
+        if face_mod == rec_mod {
+            continue;
+        }
+        let rec_has = table.path_providers(p).any(|i| table.owner(i) == rec_mod);
+        let geom = !geom_ext.is_empty() && table.path_string(p).to_lowercase().ends_with(&geom_ext);
+        let e = seen_keys.entry(key).or_default();
+        let part = if geom { &mut e.0 } else { &mut e.1 };
+        let v = part.get_or_insert((face_mod, rec_mod, false));
+        v.2 |= rec_has;
     }
-    let mut keys: Vec<(u64, (ModId, ModId, bool))> = seen_keys.into_iter().collect();
+    let mut keys: Vec<(u64, (Part, Part))> = seen_keys.into_iter().collect();
     keys.sort_by_key(|x| x.0);
-    for (key, (face_mod, rec_mod, rec_has)) in keys {
+    for (key, (geom, tint)) in keys {
+        let Some((face_mod, rec_mod, rec_has)) = geom.or(tint) else {
+            continue;
+        };
         let rm = b.participant(
             table.mod_name(rec_mod),
             Some(table.mod_name(rec_mod)),
@@ -767,10 +825,11 @@ pub fn facegen_in(
             Some(table.mod_name(face_mod)),
             i64::from(prio.get(face_mod)),
         );
-        let (kind, sev) = if rec_has {
-            ("лицо мода записи проигрывает", Severity::Error)
-        } else {
-            ("лицо из другого мода", Severity::Warn)
+        let (kind, sev, unresolved) = match (geom.is_some(), rec_has) {
+            (true, true) => ("меш лица мода записи проигрывает", Severity::Warn, true),
+            (true, false) => ("меш лица из другого мода", Severity::Warn, false),
+            (false, true) => ("оттенок лица мода записи проигрывает", Severity::Info, false),
+            (false, false) => ("оттенок лица из другого мода", Severity::Info, false),
         };
         b.contest(
             &format!("{} {}", ix.label(key), fg.record),
@@ -780,7 +839,7 @@ pub fn facegen_in(
             ],
             kind,
             sev,
-            true,
+            unresolved,
         );
     }
     b.finish()
@@ -948,7 +1007,7 @@ mod tests {
         let r = generations(&c, &table, &prio, pack);
         assert_eq!(r.counts.targets, 1, "{:?}", r.targets);
         assert!(
-            r.targets[0].starts_with("DynDOLOD: Late Plugin"),
+            r.targets[0].contains("1 мод(ов)-входов") && r.targets[0].contains("Late Plugin"),
             "{}",
             r.targets[0]
         );

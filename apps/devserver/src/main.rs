@@ -117,12 +117,23 @@ fn load(args: &[String]) -> Result<App, String> {
     let path = args
         .first()
         .filter(|a| !a.starts_with("--"))
-        .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--port N]\n       sat-devserver --project <project.stll or its folder> [--port N]   (no build needed)")?;
+        .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--game DIR] [--port N]\n       sat-devserver --project <project.stll or its folder> [--port N]   (no build needed)")?;
     let mut inst = Instance::load(path).map_err(|e| e.to_string())?;
     // the game pack (`@sat:game`): what the core knows about this game
     sat_core::game::select(&inst.game_name);
     if let Some(p) = flag(args, "--profile") {
         inst.profile = p.to_string();
+    }
+    if let Some(g) = flag(args, "--game") {
+        inst.game_path = g.into();
+    }
+    if inst.game_path.join("Data").is_dir() {
+        eprintln!("game: {}", inst.game_path.display());
+    } else {
+        eprintln!(
+            "game: NOT FOUND ({:?}) - base masters, Creation Club plugins and the game version are unknown; give --game <folder with Data>",
+            inst.game_path.display().to_string()
+        );
     }
     let read = |f: &str| std::fs::read(inst.profile_dir().join(f));
     let modlist = read("modlist.txt").map_err(|e| match e.kind() {

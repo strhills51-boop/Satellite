@@ -48,6 +48,11 @@ pub struct DomainItem {
     /// Targets with a case, and those wanting a decision.
     pub targets: u32,
     pub unresolved: u32,
+    /// Of the unresolved: those that break the game, those that show in it.
+    #[serde(default)]
+    pub errors: u32,
+    #[serde(default)]
+    pub warnings: u32,
     pub kinds: Vec<(String, u32)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
@@ -147,7 +152,7 @@ impl App {
         let version = (
             self.session.computed("plugins"),
             self.session.computed("overwrite"),
-            self.domain_inputs.records_rev as usize,
+            (self.domain_inputs.records_rev as usize) << 32 | self.content_rev as usize,
             self.domain_inputs.rev,
             u64::from(self.record_state == crate::records::RecordState::Ready),
         );
@@ -191,6 +196,7 @@ impl App {
                 prio,
                 &list,
                 pack,
+                Some(&self.content_hashes),
             )),
         ];
         if self.record_state == crate::records::RecordState::Ready {
@@ -306,6 +312,8 @@ impl App {
             state: DomainState::Ready,
             targets: files,
             unresolved: files,
+            errors: 0,
+            warnings: 0,
             kinds: Vec::new(),
             notes: Vec::new(),
         }];
@@ -325,6 +333,8 @@ impl App {
             },
             targets: r.overridden as u32,
             unresolved: r.conflicts as u32,
+            errors: 0,
+            warnings: 0,
             kinds: vec![
                 ("правка".into(), (r.overridden - r.conflicts) as u32),
                 ("конфликт".into(), r.conflicts as u32),
@@ -685,6 +695,8 @@ fn item(d: &DomainReport, state: DomainState) -> DomainItem {
         state,
         targets: d.counts.targets,
         unresolved: d.counts.unresolved,
+        errors: d.counts.errors,
+        warnings: d.counts.warnings,
         kinds: d.counts.kinds.clone(),
         notes: d.notes.clone(),
     }

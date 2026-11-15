@@ -190,19 +190,6 @@
       ]
     },
     {
-      "id": "xlodgen",
-      "title": "xLODGen",
-      "markers": [
-        "meshes/terrain/**/*.btr"
-      ],
-      "inputs": [
-        "*.esp",
-        "*.esm",
-        "*.esl",
-        "textures/landscape/**"
-      ]
-    },
-    {
       "id": "nemesis",
       "title": "Nemesis / Pandora",
       "markers": [
@@ -246,5 +233,16 @@
       "skse/plugins/versionlib-{v}-0.bin",
       "skse/plugins/version-{v}-0.bin"
     ]
-  }
+  },
+  "ignored": [
+    "scripts/source/**",
+    "source/scripts/**",
+    "**/*.psc",
+    "fomod/**",
+    "**/readme*",
+    "**/*.txt",
+    "**/*.md",
+    "**/*.pdf",
+    "docs/**"
+  ]
 }

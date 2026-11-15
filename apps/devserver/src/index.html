@@ -195,7 +195,10 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #ct .t2 select { max-width: 520px; }
 #ct .tabs { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 #ct .tab .badge { font: 11px var(--mono); opacity: .75; margin-left: 4px; }
-#ct .tab.hot .badge { color: var(--lose); opacity: 1; }
+#ct .tab.hot .badge { opacity: 1; }
+#ct .tab .badge b { font-weight: 600; margin-left: 3px; }
+#ct .tab .badge b.err { color: var(--lose); }
+#ct .tab .badge b.warn { color: #f59e0b; }
 #ct .tab.cur .badge { color: inherit; }
 #ct .tab.empty { opacity: .6; }
 #ct .about { font-size: 12px; color: var(--muted); }
@@ -631,9 +634,11 @@ async function ctDomains() {
 }
 function ctTabsDraw() {
   $("ctTabs").innerHTML = CT.domains.map(d => {
-    const n = d.state === "pending" ? "…" : d.state === "off" ? "–" : num(d.unresolved || d.targets);
+    const n = d.state === "pending" ? "…" : d.state === "off" ? "–"
+      : d.errors || d.warnings ? (d.errors ? `<b class="err">${num(d.errors)}</b>` : "") + (d.warnings ? `<b class="warn">${num(d.warnings)}</b>` : "")
+      : num(d.unresolved || d.targets);
     const cls = "tab" + (d.id === CT.tab ? " cur" : "") + (d.state === "ready" && d.unresolved ? " hot" : "") + (d.state === "ready" && !d.targets ? " empty" : "");
-    const tip = [d.about, d.kinds.length ? d.kinds.map(([k, n]) => `${k || "—"}: ${n}`).join(", ") : "", ...(d.notes || [])].filter(Boolean).join("\n");
+    const tip = [d.about, d.errors || d.warnings ? `ломает игру: ${d.errors || 0} · заметно в игре: ${d.warnings || 0} · всего случаев: ${d.targets}` : "", d.kinds.length ? d.kinds.map(([k, n]) => `${k || "—"}: ${n}`).join(", ") : "", ...(d.notes || [])].filter(Boolean).join("\n");
     return `<button class="${cls}" data-dom="${esc(d.id)}" title="${esc(tip)}">${esc(d.title)}<span class="badge">${n}</span></button>`;
   }).join("");
   const d = CT.domains.find(x => x.id === CT.tab);

@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -79,6 +79,42 @@ fn main() {
         })
         .filter(|a| !a.is_empty())
         .collect();
+    // @sat:cli.out
+    // `analyze --out FILE`: the report goes to the file as UTF-8 bytes, untouched — a shell redirect (PowerShell 5.1
+    // `>`) re-encodes it and garbles Cyrillic. The command runs again with its output to the file.
+    if args.first().map(String::as_str) == Some("analyze")
+        && let Some(i) = args.iter().position(|a| a == "--out")
+    {
+        let Some(file) = args.get(i + 1) else {
+            eprintln!("error: --out needs a file");
+            std::process::exit(2);
+        };
+        let rest: Vec<&String> = args
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| *k != i && *k != i + 1)
+            .map(|x| x.1)
+            .collect();
+        let code = std::fs::File::create(file)
+            .map_err(|e| format!("{file}: {e}"))
+            .and_then(|f| {
+                std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
+                    .args(rest)
+                    .stdout(f)
+                    .status()
+                    .map_err(|e| e.to_string())
+            });
+        match code {
+            Ok(st) => {
+                eprintln!("report: {file}");
+                std::process::exit(st.code().unwrap_or(1));
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
     let res = match args.first().map(String::as_str) {
         Some("analyze") => analyze(&args[1..]),
         Some("donor") => donor_cmd::donor(&args[1..]),
@@ -97,7 +133,7 @@ fn main() {
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
         other => Err(format!(
-            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
             other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
         )),
     };
@@ -781,6 +817,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
     // @sat:cli.identical
     // content of contested copies (`@sat:identical`): read where sizes match, hashes cached in the profile; every
     // conflict stays counted — this only says what the losing copies are
+    let mut content_hashes: Option<sat_core::identical::ContentHashes> = None;
     let content: Option<Vec<sat_core::identical::ModContent>> = if offline || has(args, "--no-hashes") {
         None
     } else {
@@ -800,6 +837,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
             min,
         );
         let mc = sat_core::identical::mod_content(&table, &hashes, &prio);
+        content_hashes = Some(hashes.clone());
         let (files, bytes, unknown) = mc.iter().fold((0u64, 0u64, 0u64), |a, c| {
             (
                 a.0 + u64::from(c.equal_files),
@@ -1159,7 +1197,14 @@ fn analyze(args: &[String]) -> Result<(), String> {
         let cand = sat_core::conflict_kinds::candidates(&table, pack, &specs);
         let mut reports = vec![
             sat_core::conflict_kinds::constraints_with(&plugin_list, record_ix.as_ref().map(|x| &x.0), pack),
-            sat_core::conflict_kinds::archives_in(&cand.archives, &table, prio, &plugin_list, pack),
+            sat_core::conflict_kinds::archives_in(
+                &cand.archives,
+                &table,
+                prio,
+                &plugin_list,
+                pack,
+                content_hashes.as_ref(),
+            ),
             sat_core::conflict_kinds::generations(&cand, &table, prio, pack),
             sat_core::conflict_kinds::runtime_in(
                 &cand.extender,
@@ -1223,7 +1268,45 @@ fn analyze(args: &[String]) -> Result<(), String> {
             Some(Ok(n)) => n,
             _ => 10,
         };
-        println!("conflict domains (game pack: {}):", pack.title);
+        // where to start: what breaks the game first, then what shows in it, then the rest
+        println!(
+            "conflict summary (game pack: {}) - start from the top:",
+            pack.title
+        );
+        for (label, pick) in [
+            ("  breaks the game (crash, does not load):", 0),
+            ("  shows in the game (wrong face, lost changes, wrong copy):", 1),
+        ] {
+            let mut parts: Vec<(u32, String)> = reports
+                .iter()
+                .map(|r| {
+                    (
+                        if pick == 0 {
+                            r.counts.errors
+                        } else {
+                            r.counts.warnings
+                        },
+                        r.info.title.clone(),
+                    )
+                })
+                .filter(|x| x.0 > 0)
+                .collect();
+            parts.sort_by_key(|x| std::cmp::Reverse(x.0));
+            println!(
+                "{label} {}",
+                if parts.is_empty() {
+                    "-".to_string()
+                } else {
+                    parts
+                        .iter()
+                        .map(|(n, t)| format!("{t} {n}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            );
+        }
+        println!();
+        println!("conflict domains:");
         for r in &reports {
             print_domain(r, limit);
         }
@@ -1455,7 +1538,24 @@ fn open_instance(args: &[String]) -> Result<Instance, String> {
         }
         inst.profile = p.to_string();
     }
+    if let Some(g) = explicit("--game") {
+        inst.game_path = g;
+    }
+    eprintln!("{}", game_line(&inst.game_path));
     Ok(inst)
+}
+
+/// Where the game is, said once: the base masters, Creation Club plugins and the game's version come from there.
+fn game_line(p: &std::path::Path) -> String {
+    let data = p.join("Data");
+    if !p.as_os_str().is_empty() && data.is_dir() {
+        format!("game: {}", p.display())
+    } else {
+        format!(
+            "game: NOT FOUND ({:?}) - base masters, Creation Club plugins and the game version are unknown; give --game <folder with Data>",
+            p.display().to_string()
+        )
+    }
 }
 
 fn read_modlist(path: &std::path::Path) -> Result<Modlist, String> {
