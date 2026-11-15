@@ -33,6 +33,19 @@ pub struct ChainCard {
     /// Disabled mods that own paths of the chain (`@sat:app.participants`), list order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub idle: Vec<String>,
+    /// Exact chains the card holds (the system merged them, or the user did); more than one — it can be split.
+    #[serde(default)]
+    pub sources: u32,
+    /// The user's layout made this card (merged or split by hand, `@sat:layout`): it can go back to the system's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub user: bool,
+    /// The card it hangs on in the context's order and the bridge mods they share (`@sat:arrange`); none — it
+    /// starts a run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<CardLink>,
+    /// Its mods that are in other chains of the context too (bridge mods).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bridges: Vec<String>,
     /// The solution front points here: the unsettled chain to look at next (`@sat:front`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub front: bool,
@@ -42,6 +55,15 @@ pub struct ChainCard {
     /// Losing copies equal to the winner's (files: when hashes are known; records: always).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub equal: Option<u32>,
+}
+
+/// Where a card hangs: the card before it in the context's order that shares mods with it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CardLink {
+    /// Index of that card.
+    pub to: u32,
+    /// The bridge mods.
+    pub mods: Vec<String>,
 }
 
 /// A member of a chain with one tooth per path or record of the chain (in the details' order).
@@ -108,10 +130,19 @@ impl App {
         let table = self.session.table().clone();
         let heads = self.heads();
         let decisions = self.session.decisions();
-        let groups = crate::context::context_groups(&ow, &heads, cx);
-        let paths_of = ow.context_chain_paths(cx);
         let book = self.session.book();
         let pos_of = |m: ModId| book.key_of(table.mod_name(m)).map_or(usize::MAX, |k| book.pos(k));
+        let order = crate::context::context_order(&ow, &heads, cx, &pos_of);
+        let groups: Vec<u32> = order.iter().map(|x| x.0).collect();
+        let paths_of = ow.context_chain_paths(cx);
+        // bridge mods: in two or more chains of the context
+        let mut held: rustc_hash::FxHashMap<ModId, u32> = Default::default();
+        for &g in &groups {
+            for &m in &heads[g as usize].route {
+                *held.entry(m).or_default() += 1;
+            }
+        }
+        let label = |m: u32| self.session.unit_label(ModId(m)).to_string();
         let mut cards: Vec<ChainCard> = Vec::with_capacity(groups.len());
         let mut units: Vec<Vec<u32>> = Vec::with_capacity(groups.len());
         for (i, &g) in groups.iter().enumerate() {
@@ -141,6 +172,19 @@ impl App {
                 idle: idle
                     .iter()
                     .map(|&m| self.session.unit_label(m).to_string())
+                    .collect(),
+                sources: h.sources.len() as u32,
+                user: h.user,
+                link: order[i].1.as_ref().map(|l| CardLink {
+                    to: l.to as u32,
+                    mods: l.mods.iter().map(|&m| label(m)).collect(),
+                }),
+                bridges: h
+                    .route
+                    .iter()
+                    .rev()
+                    .filter(|m| held[m] > 1)
+                    .map(|m| label(m.0))
                     .collect(),
                 front: false,
                 blind: false,
@@ -172,12 +216,13 @@ impl App {
         let ow = self.session.overwrite();
         let table = self.session.table().clone();
         let heads = self.heads();
-        let g = *crate::context::context_groups(&ow, &heads, cx).get(index)?;
+        let book = self.session.book();
+        let pos_of = |m: ModId| book.key_of(table.mod_name(m)).map_or(usize::MAX, |k| book.pos(k));
+        let g = *crate::context::context_groups(&ow, &heads, cx, &pos_of).get(index)?;
         let h = &heads[g as usize];
         let stacks = crate::participants::head_stacks(&ow, &table, h, None);
         let shown = &stacks[..stacks.len().min(limit)];
         let counts: Vec<u32> = shown.iter().map(|s| s.files()).collect();
-        let book = self.session.book();
         let pos_of = |m: ModId| book.key_of(table.mod_name(m)).map_or(usize::MAX, |k| book.pos(k));
         let mut all: Vec<ModId> = stacks.iter().flat_map(|s| s.members(&ow)).collect();
         all.sort_by_key(|&m| (pos_of(m), m));
@@ -325,7 +370,93 @@ pub(crate) fn record_stack_label(ix: &sat_core::records::RecordIndex, keys: &[u6
 
 #[cfg(test)]
 mod tests {
-    use crate::{Query, Reply};
+    use crate::{Command, Query, Reply};
+
+    fn mk(name: &str, files: &[&str]) -> sat_core::facts::ModFacts {
+        sat_core::facts::ModFacts {
+            name: name.into(),
+            dirs: vec![sat_core::facts::LooseDir {
+                rel: "textures".into(),
+                files: files
+                    .iter()
+                    .map(|f| sat_core::facts::LooseFile {
+                        name: f.to_string(),
+                        size: 1,
+                        vram: 0,
+                    })
+                    .collect(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn cards(a: &mut crate::App) -> Vec<super::ChainCard> {
+        let key = a.session().book().key_of("A").unwrap();
+        let Reply::ChainCards { cards: Some(c) } = a.query(Query::ContextCards { key, last: None }).unwrap()
+        else {
+            panic!()
+        };
+        c
+    }
+
+    #[test]
+    fn bridged_chains_sit_together_and_the_user_merges_splits_and_resets() {
+        // x: B over A, y: C over A, z: D over C — three winners, bridges A (x–y) and C (y–z)
+        let mut a = crate::tests::app_from(vec![
+            mk("A", &["x.dds", "y.dds"]),
+            mk("B", &["x.dds"]),
+            mk("C", &["y.dds", "z.dds"]),
+            mk("D", &["z.dds"]),
+        ]);
+        let c = cards(&mut a);
+        let stacks: Vec<Vec<String>> = c.iter().map(|k| k.stack.clone()).collect();
+        assert_eq!(
+            stacks,
+            [vec!["A", "B"], vec!["A", "C"], vec!["C", "D"]],
+            "load order, bridged ones together"
+        );
+        assert_eq!(c[0].link, None);
+        assert_eq!(
+            c[1].link.as_ref().map(|l| (l.to, l.mods.clone())),
+            Some((0, vec!["A".to_string()]))
+        );
+        assert_eq!(
+            c[2].link.as_ref().map(|l| (l.to, l.mods.clone())),
+            Some((1, vec!["C".to_string()]))
+        );
+        assert_eq!(c[1].bridges, ["A", "C"], "lowest first, like the stack");
+        // merge the first two
+        a.command(Command::MergeChains {
+            signatures: vec![c[0].signature.clone(), c[1].signature.clone()],
+        })
+        .unwrap();
+        let c = cards(&mut a);
+        assert_eq!(c.len(), 2);
+        let m = c.iter().find(|k| k.sources == 2).unwrap();
+        assert!(m.user && m.files == 2);
+        assert_eq!(
+            m.stack,
+            ["A", "B", "C"],
+            "the merged route by priority, winner last"
+        );
+        // split it: each exact chain alone, still the user's
+        a.command(Command::SplitChain {
+            signature: m.signature.clone(),
+        })
+        .unwrap();
+        let c = cards(&mut a);
+        assert_eq!(c.len(), 3);
+        assert_eq!(c.iter().filter(|k| k.user).count(), 2);
+        // back to the system's
+        let u = c.iter().find(|k| k.user).unwrap().signature.clone();
+        a.command(Command::ResetChain { signature: u }).unwrap();
+        assert_eq!(
+            cards(&mut a).iter().filter(|k| k.user).count(),
+            1,
+            "one reset, the other split stays"
+        );
+        assert!(a.chain_layout().groups().len() == 1);
+    }
 
     #[test]
     fn a_file_context_gives_one_card_per_chain_with_teeth_per_path() {

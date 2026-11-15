@@ -52,6 +52,8 @@
 | Карточки цепочек контекста (модалка монолита «Карточки» / «2 области»): контексты-бакеты, в каждом карточки цепочек; открытая карточка — участники с «зубным рядом» (зуб на путь или запись) и дерево путей; карточка ведёт таблицу к своей полосе | `@sat:app.cards`: файлы — `@sat:app.cards.files` (`ContextCards`, `ContextCard`), записи — `@sat:app.cards.records` (`RecordCards`, `RecordCard`) | `index` карточки = место цепочки в порядке контекста = полоса таблицы; детали окном (`limit`) |
 | Участники цепочки как в монолите: выключенные владельцы (`u`), стеки владельцев, W / L / M / X относительно цепочки | `@sat:app.participants`; владельцы пути вне стека — `@sat:overwrite.owners` (`idle_owners`, `contested_of`, `context_chain_paths`) | конфликт и цепочка — по активному стеку (`@sat:overwrite.projection`) |
 | Фронт решений (v667): какую нерешённую цепочку смотреть дальше | `@sat:front` (`connectivity`, `pick`); в карточках — `@sat:app.cards.front` (`ChainCard.front`, `ContextCards.last`) | решения — `@sat:decisions` |
+| Порядок карточек контекста: порядок загрузки, цепочки с модами-мостами рядом, связь «⛓ мост» | `@sat:arrange` (`arrange`, `Link`); в приложении — `@sat:app.context-table.groups` (`context_order`), карточки — `ChainCard.link`, `bridges` | один порядок и у карточек, и у полос таблицы |
+| Объединить / разъединить / вернуть цепочки руками поверх нормализации системы | `@sat:layout` (`ChainLayout`); применение — `@sat:routes.layout` (`RouteGroups::with_layout`); команды — `@sat:app.layout` (`MergeChains`, `SplitChain`, `ResetChain`) | хранится в проекте (`chain_layout`); «решено» — на точных, не теряется |
 | Мастер порядка перезаписи (монолит S16 145 040): оценка, план, применение внутри разделителей | `@sat:advisor` (`heuristic`, `plan`, `Strictness`); строки и предупреждения — `@sat:app.advisor` (`OrderAdvice`); применение — `@sat:app.reorder` (`Command::Reorder`) → `@sat:order.book.place` | контекст — `@sat:app.context-table` |
 | Дерево файлов мода с наложением конфликтов (монолит 82 930) | `@sat:app.tree` (`Query::ModTree`) | цвет — страница: проигрыш важнее выигрыша |
 | Единая архитектура конфликтов: домен — адаптер с общей формой вывода (централь — откуда порядок, семантика, цепочки, клетки, контексты, счётчики) | общая форма — `@sat:conflict` (сборщик `@sat:conflict.builder`, случай — `@sat:conflict.contest`, контексты — `@sat:conflict.contexts`); пакет игры — `@sat:game` (`@sat:game.pack`, встроенный `games/skyrimse.json`, выбор по `gameName`) | ADR 0018; файлы и записи — специализированные адаптеры, отвечают на те же запросы окна |
@@ -180,6 +182,8 @@
 - `crates/sat-core/src/routes.rs` — `@sat:routes`: нормализованные цепочки (группы маршрутов точных цепочек).
 - `crates/sat-core/src/advisor.rs` — `@sat:advisor`: мастер порядка перезаписи (оценка, план).
 - `crates/sat-core/src/front.rs` — `@sat:front`: фронт решений (следующая цепочка).
+- `crates/sat-core/src/arrange.rs` — `@sat:arrange`: порядок цепочек контекста с мостами.
+- `crates/sat-core/src/layout.rs` — `@sat:layout`: объединения и разделения цепочек пользователем.
 - `crates/sat-core/src/project.rs` — `@sat:project`: проект, `observe`, `manager_diff`, `book` / `commit_book`, `apply_plan`, запланированные моды, системные стикеры.
 - `crates/sat-core/src/run.rs` — `@sat:run`: статусы пробега, `Authority`, `seal`.
 - `crates/sat-core/src/session.rs` — `@sat:session`: книга порядка + таблица фактов + граф проекций; ленивые `priorities()` / `overwrite()`.

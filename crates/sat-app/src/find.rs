@@ -62,6 +62,37 @@ impl App {
         self.chain_identities_rev += 1;
     }
 
+    /// The project's layout of chains (`@sat:layout`).
+    pub fn set_chain_layout(&mut self, layout: sat_core::layout::ChainLayout) {
+        self.chain_layout = layout;
+        self.chain_layout_rev += 1;
+    }
+
+    /// The layout as edited (the shell keeps it in the project).
+    pub fn chain_layout(&self) -> &sat_core::layout::ChainLayout {
+        &self.chain_layout
+    }
+
+    /// Exact signatures of the card with heading `signature`.
+    pub(crate) fn head_sources(&mut self, signature: &str) -> Result<Vec<u64>, crate::AppError> {
+        self.heads()
+            .iter()
+            .find(|h| h.hex() == signature)
+            .map(|h| h.sources.clone())
+            .ok_or_else(|| crate::AppError::Signature(signature.to_string()))
+    }
+
+    /// Puts a new layout in: headings, cards and badges rebuild.
+    pub(crate) fn set_layout(&mut self, layout: sat_core::layout::ChainLayout) -> crate::Event {
+        self.set_chain_layout(layout);
+        self.revision += 1;
+        crate::Event::Changed {
+            revision: self.revision,
+            views: Vec::new(),
+            canon: true,
+        }
+    }
+
     /// Chain identities as edited (the shell keeps them in the project).
     pub fn chain_identities(&self) -> &[sat_core::naming::ManualIdentity] {
         &self.chain_identities

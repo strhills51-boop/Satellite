@@ -524,7 +524,11 @@ impl App {
                 let ow = self.session.overwrite();
                 let table = self.session.table().clone();
                 let heads = self.heads();
-                let g = *crate::context::context_groups(&ow, &heads, cx).get(chain)?;
+                let book = self.session.book();
+                let pos_of = |m: sat_core::ids::ModId| {
+                    book.key_of(table.mod_name(m)).map_or(usize::MAX, |k| book.pos(k))
+                };
+                let g = *crate::context::context_groups(&ow, &heads, cx, &pos_of).get(chain)?;
                 let st = crate::participants::head_stacks(&ow, &table, &heads[g as usize], None);
                 Some(cut(st.get(stack)?.path_strings(&table)))
             }

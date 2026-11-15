@@ -120,6 +120,42 @@ fn super_route(d: &Draft, prio: impl Fn(ModId) -> i32) -> Vec<ModId> {
     route
 }
 
+/// One group over any exact chains: their super-route (acyclic) or, when their routes disagree, the members by
+/// priority; chains larger first.
+fn group_of(ow: &OverwriteProjection, mut chains: Vec<ChainId>) -> RouteGroup {
+    chains.sort_by_key(|&c| {
+        (
+            std::cmp::Reverse((ow.chain_mods(c).len(), ow.chain(c).files)),
+            c.0,
+        )
+    });
+    let mut d = Draft::default();
+    let mut cyclic = false;
+    for &c in &chains {
+        let stack = ow.chain_mods(c);
+        let edges: Vec<(ModId, ModId)> = stack.windows(2).map(|p| (p[0], p[1])).collect();
+        if !cyclic && !acyclic(&d.nodes, &d.edges, &edges) {
+            cyclic = true;
+        }
+        d.nodes.extend(stack.iter().copied());
+        d.edges.extend(edges);
+    }
+    let prio = ow.priorities();
+    let route = if cyclic {
+        let mut r: Vec<ModId> = d.nodes.iter().copied().collect();
+        r.sort_by_key(|&m| (std::cmp::Reverse(prio.get(m)), m.0));
+        r
+    } else {
+        super_route(&d, |m| prio.get(m))
+    };
+    RouteGroup {
+        route,
+        files: chains.iter().map(|&c| ow.chain(c).files).sum(),
+        bytes: chains.iter().map(|&c| ow.chain(c).bytes).sum(),
+        chains,
+    }
+}
+
 impl RouteGroups {
     pub fn build(ow: &OverwriteProjection) -> Self {
         let mut by_winner: FxHashMap<ModId, Vec<ChainId>> = FxHashMap::default();
@@ -182,6 +218,63 @@ impl RouteGroups {
             }
         }
         Self { groups, of_chain }
+    }
+
+    // @sat:routes.layout
+    /// The system's groups with the user's layout over them (`@sat:layout`): an exact chain in a user group leaves
+    /// its system group and joins the others of its user group present here; the rest stay as the system grouped
+    /// them. `sig` gives an exact chain's content signature. A user group may mix winners and break the order (the
+    /// user wants it so): its route is the acyclic super-route when there is one, else the members by priority.
+    pub fn with_layout(
+        &self,
+        ow: &OverwriteProjection,
+        layout: &crate::layout::ChainLayout,
+        sig: impl Fn(ChainId) -> u64,
+    ) -> Self {
+        if layout.is_empty() {
+            return self.clone();
+        }
+        let mut user: FxHashMap<usize, Vec<ChainId>> = FxHashMap::default();
+        let mut user_order: Vec<usize> = Vec::new();
+        let mut kept: Vec<Vec<ChainId>> = Vec::with_capacity(self.groups.len());
+        for g in &self.groups {
+            let mut stay = Vec::with_capacity(g.chains.len());
+            for &c in &g.chains {
+                match layout.group_of(sig(c)) {
+                    Some(u) => {
+                        user.entry(u)
+                            .or_insert_with(|| {
+                                user_order.push(u);
+                                Vec::new()
+                            })
+                            .push(c);
+                    }
+                    None => stay.push(c),
+                }
+            }
+            kept.push(stay);
+        }
+        let mut out = Self::default();
+        let mut add = |chains: Vec<ChainId>, same: Option<&RouteGroup>| {
+            if chains.is_empty() {
+                return;
+            }
+            let id = out.groups.len() as u32;
+            for &c in &chains {
+                out.of_chain.insert(c, id);
+            }
+            out.groups.push(match same {
+                Some(g) if g.chains.len() == chains.len() => g.clone(),
+                _ => group_of(ow, chains),
+            });
+        };
+        for (g, stay) in self.groups.iter().zip(kept) {
+            add(stay, Some(g));
+        }
+        for u in user_order {
+            add(user.remove(&u).expect("bucket"), None);
+        }
+        out
     }
 
     pub fn len(&self) -> usize {
@@ -258,6 +351,45 @@ mod tests {
             .map(ModId::from_idx)
             .unwrap();
         assert_eq!(r.of_mod(&ow, a).len(), 2);
+    }
+
+    #[test]
+    fn the_layout_splits_and_merges_over_the_system_groups() {
+        let t = ProviderTable::build(&[
+            mk("A", &["x.dds", "y.dds", "w.dds"]),
+            mk("B", &["x.dds", "z.dds"]),
+            mk("C", &["x.dds", "y.dds", "z.dds"]),
+            mk("D", &["w.dds"]),
+        ]);
+        let ow = OverwriteProjection::compute(&t, Priorities((0..4).collect()));
+        let r = RouteGroups::build(&ow);
+        let sig = |c: ChainId| u64::from(c.0) + 100;
+        let big = r.groups().iter().find(|g| g.chains.len() == 3).unwrap();
+        let other = r.groups().iter().find(|g| g.chains.len() == 1).unwrap();
+        // split the system's group: four cards, each exact alone
+        let mut l = crate::layout::ChainLayout::default();
+        let srcs: Vec<u64> = big.chains.iter().map(|&c| sig(c)).collect();
+        l.split(&srcs);
+        let s = r.with_layout(&ow, &l, sig);
+        assert_eq!(s.len(), 4);
+        for id in ow.chain_ids() {
+            assert!(
+                s.group(s.of_chain(id).unwrap()).chains.contains(&id),
+                "every chain in exactly one group"
+            );
+        }
+        // merge one of them with the other winner's chain: mixed winners, still one card
+        let mut l = crate::layout::ChainLayout::default();
+        l.merge(&[&[sig(big.chains[0])], &[sig(other.chains[0])]]);
+        let m = r.with_layout(&ow, &l, sig);
+        assert_eq!(
+            m.len(),
+            2,
+            "the rest of the big group stays together; the other group is gone into the merge"
+        );
+        let g = m.group(m.of_chain(other.chains[0]).unwrap());
+        assert_eq!(g.chains.len(), 2);
+        assert_eq!(names(&t, &g.route[..1]), ["D"], "the higher winner leads");
     }
 
     #[test]

@@ -248,6 +248,19 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .cc .wlmx { font: 11px var(--mono); text-align: right; white-space: nowrap; }
 .cc .wlmx .w { color: #86efac; } .cc .wlmx .l { color: #fca5a5; } .cc .wlmx .m { color: #94a3b8; } .cc .wlmx .x { color: #fcd34d; }
 .cc .idle { padding: 0 8px 4px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx .cards { gap: 0; }
+.cc { margin-top: 4px; }
+.cc.linked { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+.br { display: flex; gap: 6px; align-items: center; font: 11px var(--mono); color: var(--muted); padding: 1px 8px 1px 18px; border-left: 2px dashed #f59e0b; margin-left: 10px; }
+.br.far { border-left-style: dotted; margin-top: 4px; }
+.br b { color: #f59e0b; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.br button { font-size: 10px; padding: 0 6px; border-radius: 999px; }
+.cc .pick { margin: 0; }
+.cc .lay { font-size: 10px; padding: 0 6px; border-radius: 999px; }
+.cc .no { font: 10px var(--mono); color: var(--muted); }
+.cc .brg { padding: 0 8px 4px; font-size: 11px; color: #f59e0b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 8px; align-items: center; padding: 6px 8px; background: var(--panel); border: 1px solid #f59e0b; border-radius: 8px; font-size: 12px; }
+.ccbar span { flex: 1; }
 .cc.front { border-color: #f59e0b; box-shadow: 0 0 0 1px #f59e0b inset; }
 .cc .fr { font: 10px var(--mono); color: #f59e0b; border: 1px solid #f59e0b; border-radius: 999px; padding: 0 6px; }
 #ctAdv { position: absolute; right: 18px; top: 140px; bottom: 18px; width: min(860px, 92%); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); padding: 10px 12px; z-index: 6; font-size: 12px; }
@@ -775,7 +788,7 @@ async function ctSync(pickCtx) {
   try {
     const sc = $("ctScroll"), w = sc.clientWidth, h = sc.clientHeight;
     const r0 = Math.floor(sc.scrollTop / CT.RH), c0 = Math.floor(sc.scrollLeft / CT.CW);
-    const rc = Math.ceil((h - CT.HH) / CT.RH) + 1, cc = Math.ceil((w - CT.LW) / CT.CW) + 1;
+    const rc = Math.max(0, Math.ceil((h - CT.HH) / CT.RH) + 1), cc = Math.max(0, Math.ceil((w - CT.LW) / CT.CW) + 1);
     const rec = CT.tab !== "files", gen = GEN();
     const rep = gen ? await query({ type: "domain-table", domain: CT.tab, context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
       : rec ? await query({ type: "record-table", context: CT.rctx, row_start: r0, row_count: rc, col_start: c0, col_count: cc })
@@ -992,7 +1005,7 @@ $("ctList").onclick = () => recOpen("");
 // ---------------------------------------------------------------- chain cards (monolith conflict modal "Карточки")
 // Contexts as buckets, each with its chains as cards; a card opens to its members with a teeth row (one tooth per path
 // or record) and the tree of its paths. A card leads the table to its chain band.
-const CC = { open: new Set(), cards: new Map(), det: new Map(), shown: new Set(), sel: null, q: "", LIMIT: 600, MAXCTX: 400 };
+const CC = { open: new Set(), cards: new Map(), det: new Map(), shown: new Set(), sel: null, q: "", LIMIT: 600, MAXCTX: 400, picked: new Set(), prevIx: null };
 const ccId = i => CT.tab + ":" + i;
 const ccCur = () => CT.tab !== "files" ? CT.rctx : +$("ctCtx").value;
 function ctMode(m) {
@@ -1035,11 +1048,24 @@ function ccCard(i, k) {
       `<details${d.items.length <= 40 ? " open" : ""}><summary>Стаки: ${num(d.items_total)} · ${CT.tab === "records" ? "записей" : CT.tab === "files" ? "путей" : "целей"}: ${num(d.targets_total || d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary>` +
       d.items.map((it, k) => `<div class="stk" data-cc="${id}" data-k="${k}" title="нажми — список"><b>×${num((d.counts || [])[k] || 1)}</b><span>${esc(it)}</span></div>`).join("") + `</details></div>`;
   }
-  return `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}${k.front ? " front" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
-    `<div class="h"><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}">${esc(k.name)}</span>` + (k.front ? `<span class="fr" title="Фронт решений: следующая нерешённая цепочка — больше всего связана с уже решёнными">дальше</span>` : "") +
+  // bridges (`@sat:arrange`): a card bridged to the one right above it hangs under it; one bridged further up says
+  // to which; the user merges, splits, gives back to the system (`@sat:layout`)
+  const files = CT.tab === "files", prev = CC.prevIx;
+  let bridge = "";
+  if (files && k.link && !CC.q.trim()) {
+    const near = k.link.to === prev;
+    bridge = `<div class="br${near ? "" : " far"}" title="Мост: эти моды есть и в цепочке №${k.link.to + 1}, и в этой">${near ? "⛓" : `↳ к №${k.link.to + 1}`} <b>${esc(k.link.mods.join(", "))}</b>` +
+      `<button data-merge="${k.signature}" data-with="${k.link.to}" data-cx="${i}" title="Объединить эту цепочку с №${k.link.to + 1} в одну карточку">объединить</button></div>`;
+  }
+  const lay = !files ? "" :
+    `<input type="checkbox" class="pick" data-pick="${k.signature}" ${CC.picked.has(k.signature) ? "checked" : ""} title="выбрать для объединения">` +
+    (k.sources > 1 ? `<button class="lay" data-split="${k.signature}" title="Разъединить на точные цепочки (${k.sources})">разъединить</button>` : "") +
+    (k.user ? `<button class="lay" data-reset="${k.signature}" title="Вернуть как сгруппировала система">как было</button>` : "");
+  return bridge + `<div class="cc${CC.sel === id ? " sel" : ""}${k.done ? " done" : ""}${k.front ? " front" : ""}${bridge && k.link.to === prev ? " linked" : ""}" data-cx="${i}" data-ix="${k.index}" style="border-left:3px solid hsl(${k.hue} 65% 55%)">` +
+    `<div class="h">${lay}<span class="no">№${k.index + 1}</span><span>${k.emoji}</span><span class="nm" title="${esc(k.name)}${k.sources > 1 ? `\nточных цепочек: ${k.sources}${k.user ? " (объединил ты)" : " (объединила система)"}` : ""}">${esc(k.name)}</span>` + (k.front ? `<span class="fr" title="Фронт решений: следующая нерешённая цепочка — больше всего связана с уже решёнными">дальше</span>` : "") +
     `<span class="n">${k.stack.length} × ${num(k.files)} ${unit}${eq}</span>` +
     (CT.tab === "files" ? `<button data-done="${k.signature}" data-v="${k.done ? 0 : 1}" title="${k.done ? "Снять «решено»" : "Отметить решённой"}">${k.done ? "✓" : "○"}</button>` : "") +
-    `<span>${open ? "▾" : "▸"}</span></div>${k.idle && k.idle.length ? `<div class="idle" title="${esc(k.idle.join(", "))}">выключены, но владеют: ${esc(k.idle.join(", "))}</div>` : ""}${body}</div>`;
+    `<span>${open ? "▾" : "▸"}</span></div>${files && k.bridges && k.bridges.length ? `<div class="brg" title="Моды-мосты: участвуют и в других цепочках контекста">мосты: ${esc(k.bridges.join(", "))}</div>` : ""}${k.idle && k.idle.length ? `<div class="idle" title="${esc(k.idle.join(", "))}">выключены, но владеют: ${esc(k.idle.join(", "))}</div>` : ""}${body}</div>`;
 }
 async function ctCards() {
   const box = $("ctCards");
@@ -1047,7 +1073,9 @@ async function ctCards() {
   const cur = ccCur(), q = CC.q.trim().toLowerCase(), top = box.scrollTop;
   CC.open.add(ccId(cur));
   const n = Math.min(CT.contexts.length, CC.MAXCTX);
-  let html = `<input type="search" id="ccQ" placeholder="Поиск по цепочкам, ${CT.tab === "records" ? "плагинам" : CT.tab === "files" ? "модам" : "участникам"}" value="${esc(CC.q)}">`;
+  CC.prevIx = null;
+  let html = (CT.tab === "files" && CC.picked.size ? `<div class="ccbar"><span>выбрано цепочек: ${CC.picked.size}</span><button id="ccMerge"${CC.picked.size < 2 ? " disabled" : ""}>Объединить</button><button id="ccUnpick">Снять выбор</button></div>` : "") +
+    `<input type="search" id="ccQ" placeholder="Поиск по цепочкам, ${CT.tab === "records" ? "плагинам" : CT.tab === "files" ? "модам" : "участникам"}" value="${esc(CC.q)}">`;
   for (let i = 0; i < n; i++) {
     const c = CT.contexts[i], id = ccId(i), open = CC.open.has(id) || !!q;
     let cards = open ? await ccFetch(i) : [];
@@ -1058,7 +1086,8 @@ async function ctCards() {
       : `${c.chains} цеп. · ${c.mods} модов · ${num(c.files)} ф.`;
     html += `<div class="cx${i === cur ? " cur" : ""}" data-cx="${i}" style="border-left:3px solid hsl(${c.hue} 65% 55%)"><div class="h"><span>${open ? "▾" : "▸"}</span>` +
       `<b title="${esc(c.name)}">${String(i + 1).padStart(2, "0")} · ${esc(c.name)}</b><span class="n">${cnt}</span></div>` +
-      (open ? `<div class="cards">${cards.map(k => ccCard(i, k)).join("")}</div>` : "") + `</div>`;
+      (open ? `<div class="cards">${cards.map(k => { const h = ccCard(i, k); CC.prevIx = k.index; return h; }).join("")}</div>` : "") + `</div>`;
+    CC.prevIx = null;
   }
   if (CT.contexts.length > n) html += `<div class="n" style="color:var(--muted);font-size:12px">ещё ${CT.contexts.length - n} контекстов — в списке «Контекст» сверху</div>`;
   const had = document.activeElement && document.activeElement.id === "ccQ";
@@ -1100,7 +1129,29 @@ async function ccGoChain(i, ix) {
   const t = CT.data && CT.data.t; if (!t || !t.chain_starts.length) return;
   CT.selChain = ix; $("ctScroll").scrollLeft = t.chain_starts[ix] * CT.CW; ctDraw();
 }
+async function ccLayout(cmd) {
+  try { await run(cmd); } catch (e) { $("ctStatus").textContent = e.message; return; }
+  CC.picked.clear(); CC.cards.clear(); CC.det.clear(); CC.shown.clear(); CC.sel = null; CT.selChain = null;
+  await ctCards(); ctSync(false);
+}
+$("ctCards").addEventListener("change", ev => {
+  const p = ev.target.closest("[data-pick]"); if (!p) return;
+  if (p.checked) CC.picked.add(p.dataset.pick); else CC.picked.delete(p.dataset.pick);
+  ctCards();
+});
 $("ctCards").addEventListener("click", async ev => {
+  if (ev.target.closest("[data-pick]")) { ev.stopPropagation(); return; }
+  if (ev.target.id === "ccMerge") { ccLayout({ type: "merge-chains", signatures: [...CC.picked] }); return; }
+  if (ev.target.id === "ccUnpick") { CC.picked.clear(); ctCards(); return; }
+  const lb = ev.target.closest("button[data-merge],button[data-split],button[data-reset]");
+  if (lb) {
+    ev.stopPropagation();
+    if (lb.dataset.split) ccLayout({ type: "split-chain", signature: lb.dataset.split });
+    else if (lb.dataset.reset) ccLayout({ type: "reset-chain", signature: lb.dataset.reset });
+    else { const other = (CC.cards.get(ccId(+lb.dataset.cx)) || []).find(c => c.index === +lb.dataset.with);
+      if (other) ccLayout({ type: "merge-chains", signatures: [other.signature, lb.dataset.merge] }); }
+    return;
+  }
   const done = ev.target.closest("button[data-done]");
   if (done) {
     ev.stopPropagation();

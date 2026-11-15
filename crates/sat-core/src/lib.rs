@@ -19,6 +19,7 @@
 //! Owns: the crate layout (which module is which layer); nothing else.
 
 pub mod advisor;
+pub mod arrange;
 pub mod canon;
 pub mod conflict;
 pub mod conflict_fields;
@@ -40,6 +41,7 @@ pub mod ignore;
 pub mod intent;
 pub mod interner;
 pub mod jobs;
+pub mod layout;
 pub mod metrics;
 pub mod naming;
 pub mod order;

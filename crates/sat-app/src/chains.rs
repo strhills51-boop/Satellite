@@ -29,6 +29,8 @@ pub(crate) struct Head {
     pub title: String,
     /// The user named, iconed or coloured it (`@sat:naming.manual`).
     pub custom: bool,
+    /// The user's layout made it (`@sat:layout`).
+    pub user: bool,
     /// `title · lowest → winner` (monolith chain names).
     pub name: String,
     pub files: u32,
@@ -52,12 +54,39 @@ pub(crate) fn exact_signature(ow: &OverwriteProjection, s: &Session, c: ChainId)
     sat_core::identity::identity(ow.chain_mods(c).iter().map(|&x| s.member_key(x))).signature
 }
 
-fn build(ow: &OverwriteProjection, s: &Session, manual: &[sat_core::naming::ManualIdentity]) -> Vec<Head> {
+/// The headings with the exact chain → heading lookup: the system's normalized chains under the user's layout
+/// (`@sat:routes.layout`). Reads like a slice of headings.
+#[derive(Debug, Default)]
+pub(crate) struct Heads {
+    list: Vec<Head>,
+    of_chain: rustc_hash::FxHashMap<ChainId, u32>,
+}
+
+impl std::ops::Deref for Heads {
+    type Target = [Head];
+    fn deref(&self) -> &[Head] {
+        &self.list
+    }
+}
+
+impl Heads {
+    /// The heading an exact chain is under.
+    pub fn of_chain(&self, c: ChainId) -> Option<u32> {
+        self.of_chain.get(&c).copied()
+    }
+}
+
+fn build(
+    ow: &OverwriteProjection,
+    s: &Session,
+    manual: &[sat_core::naming::ManualIdentity],
+    layout: &sat_core::layout::ChainLayout,
+) -> Heads {
     use sat_core::naming::{ChainFeatures, STRENGTH_DEFAULT};
     let table = s.table();
     let book = s.book();
-    let mut heads: Vec<Head> = ow
-        .routes()
+    let groups = ow.routes().with_layout(ow, layout, |c| exact_signature(ow, s, c));
+    let mut heads: Vec<Head> = groups
         .groups()
         .iter()
         .map(|g| {
@@ -115,6 +144,10 @@ fn build(ow: &OverwriteProjection, s: &Session, manual: &[sat_core::naming::Manu
                 },
                 title,
                 custom: false,
+                user: g
+                    .chains
+                    .iter()
+                    .any(|&c| layout.group_of(exact_signature(ow, s, c)).is_some()),
                 files: g.files,
                 bytes: g.bytes,
                 route: g.route.clone(),
@@ -145,11 +178,20 @@ fn build(ow: &OverwriteProjection, s: &Session, manual: &[sat_core::naming::Manu
             h.hue = hue % 360;
         }
     }
-    heads
+    let mut of_chain = rustc_hash::FxHashMap::default();
+    for (i, h) in heads.iter().enumerate() {
+        for &c in &h.chains {
+            of_chain.insert(c, i as u32);
+        }
+    }
+    Heads {
+        list: heads,
+        of_chain,
+    }
 }
 
 /// Headings with what they were built from: (overwrite computation, member-keys revision, user identities revision).
-pub(crate) type Cached = ((u64, u64, u64), Arc<Vec<Head>>);
+pub(crate) type Cached = ((u64, u64, u64, u64), Arc<Heads>);
 /// What mods lose as equal copies, with what it was built from: (overwrite computation, hashes revision).
 pub(crate) type CachedContent = ((u64, u64), Arc<Vec<sat_core::identical::ModContent>>);
 
@@ -167,19 +209,25 @@ impl App {
     // @sat:app.chains.heads
     /// Headings of the normalized chains, built once per overwrite computation: cursor moves, colours and
     /// decisions do not rebuild them (settled-or-not is read at use).
-    pub(crate) fn heads(&mut self) -> Arc<Vec<Head>> {
+    pub(crate) fn heads(&mut self) -> Arc<Heads> {
         let ow = self.session.overwrite();
         let version = (
             self.session.computed("overwrite"),
             self.session.member_keys_rev(),
             self.chain_identities_rev,
+            self.chain_layout_rev,
         );
         if let Some((v, h)) = &self.heads
             && *v == version
         {
             return h.clone();
         }
-        let h = Arc::new(build(&ow, &self.session, &self.chain_identities));
+        let h = Arc::new(build(
+            &ow,
+            &self.session,
+            &self.chain_identities,
+            &self.chain_layout,
+        ));
         self.heads = Some((version, h.clone()));
         h
     }
@@ -216,11 +264,10 @@ impl App {
 }
 
 /// Normalized chains of mod `m`, larger first (by the mod's own files in them).
-pub(crate) fn parts(ow: &OverwriteProjection, heads: &[Head], m: ModId) -> Vec<Part> {
-    let routes = ow.routes();
+pub(crate) fn parts(ow: &OverwriteProjection, heads: &Heads, m: ModId) -> Vec<Part> {
     let mut out: Vec<Part> = Vec::new();
     for c in ow.mod_chains(m) {
-        let Some(g) = routes.of_chain(c) else { continue };
+        let Some(g) = heads.of_chain(c) else { continue };
         let files = ow.chain(c).files;
         match out.iter_mut().find(|p| p.group == g) {
             Some(p) => p.files += files,

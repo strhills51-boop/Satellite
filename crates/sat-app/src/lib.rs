@@ -158,6 +158,18 @@ pub enum Command {
     },
     /// Move plugins (in their current order) to just before `before`, or to the end; refused when the move breaks
     /// the game's order rules (`@sat:plugins.edit.order`).
+    /// Merges cards (normalized chains by signature) into one (`@sat:app.layout`).
+    MergeChains {
+        signatures: Vec<String>,
+    },
+    /// Splits a card into its exact chains.
+    SplitChain {
+        signature: String,
+    },
+    /// Gives a card's exact chains back to the system's grouping.
+    ResetChain {
+        signature: String,
+    },
     MovePlugins {
         names: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -786,6 +798,9 @@ pub struct App {
     /// Chain identities the user set (`@sat:naming.manual`), and their revision (heads are rebuilt on a change).
     chain_identities: Vec<sat_core::naming::ManualIdentity>,
     chain_identities_rev: u64,
+    /// The user's merges and splits of chains (`@sat:layout`).
+    chain_layout: sat_core::layout::ChainLayout,
+    chain_layout_rev: u64,
     /// The project's counters (`@sat:counters`).
     counters: sat_core::counters::Counters,
     /// Where mods come from, by folded name (`@sat:source`).
@@ -811,6 +826,8 @@ impl App {
             sticker_rules: Default::default(),
             chain_identities: Vec::new(),
             chain_identities_rev: 0,
+            chain_layout: Default::default(),
+            chain_layout_rev: 0,
             records: Arc::default(),
             record_state: records::RecordState::Off,
             content_hashes: Arc::default(),
@@ -1013,6 +1030,40 @@ impl App {
                     views: Vec::new(),
                     canon: true,
                 });
+            }
+            // @sat:app.layout
+            C::MergeChains { signatures } => {
+                let heads = self.heads();
+                let mut sets: Vec<Vec<u64>> = Vec::new();
+                for sig in &signatures {
+                    let h = heads
+                        .iter()
+                        .find(|h| &h.hex() == sig)
+                        .ok_or_else(|| AppError::Signature(sig.clone()))?;
+                    sets.push(h.sources.clone());
+                }
+                let refs: Vec<&[u64]> = sets.iter().map(Vec::as_slice).collect();
+                let mut l = self.chain_layout.clone();
+                if sets.len() < 2 || !l.merge(&refs) {
+                    return Ok(Event::Nothing);
+                }
+                return Ok(self.set_layout(l));
+            }
+            C::SplitChain { signature } => {
+                let srcs = self.head_sources(&signature)?;
+                let mut l = self.chain_layout.clone();
+                if srcs.len() < 2 || !l.split(&srcs) {
+                    return Ok(Event::Nothing);
+                }
+                return Ok(self.set_layout(l));
+            }
+            C::ResetChain { signature } => {
+                let srcs = self.head_sources(&signature)?;
+                let mut l = self.chain_layout.clone();
+                if !l.reset(&srcs) {
+                    return Ok(Event::Nothing);
+                }
+                return Ok(self.set_layout(l));
             }
             C::MovePlugins { names, before } => {
                 let list = self.session.plugins();
@@ -1533,7 +1584,7 @@ impl App {
 /// Context badges of one mod: its normalized chains grouped by context, largest first, `limit` icons per context.
 fn mod_badges(
     ow: &sat_core::overwrite::OverwriteProjection,
-    heads: &[chains::Head],
+    heads: &chains::Heads,
     session: &sat_core::session::Session,
     m: ModId,
     limit: u8,
@@ -1648,7 +1699,6 @@ impl App {
             .take(CHAIN_LIMIT)
             .map(|p| &heads[p.group as usize])
             .collect();
-        let routes = ow.routes();
         let chain_views: Vec<ChainView> = parts
             .iter()
             .take(CHAIN_LIMIT)
@@ -1657,7 +1707,7 @@ impl App {
                 // sample paths where this mod takes part
                 let samples: Vec<String> = chains
                     .iter()
-                    .filter(|&&c| routes.of_chain(c) == Some(p.group))
+                    .filter(|&&c| heads.of_chain(c) == Some(p.group))
                     .flat_map(|&c| ow.chain_paths(c))
                     .take(SAMPLE_LIMIT)
                     .map(|q| table.path_string(q))

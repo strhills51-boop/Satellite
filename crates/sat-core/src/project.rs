@@ -86,6 +86,9 @@ pub struct Project {
     /// Names, icons and colours the user gave chains (`@sat:naming.manual`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chain_identities: Vec<crate::naming::ManualIdentity>,
+    /// The user's merges and splits of chains (`@sat:layout`).
+    #[serde(default, skip_serializing_if = "crate::layout::ChainLayout::is_empty")]
+    pub chain_layout: crate::layout::ChainLayout,
     /// Conditional stickers (`@sat:sticker-rules`): a sticker on every mod an expression holds for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sticker_rules: Vec<crate::sticker_rules::StickerRule>,
@@ -151,6 +154,7 @@ impl Project {
             new_mods: Vec::new(),
             counters: Vec::new(),
             chain_identities: Vec::new(),
+            chain_layout: Default::default(),
             sources: BTreeMap::new(),
             factories: Vec::new(),
             patches: Vec::new(),

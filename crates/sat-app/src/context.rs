@@ -252,6 +252,7 @@ impl App {
     /// Contexts, largest first.
     pub(crate) fn contexts(&mut self) -> Vec<ContextItem> {
         let ow = self.session.overwrite();
+        let heads = self.heads();
         let table = self.session.table().clone();
         let book = self.session.book();
         let mut out: Vec<ContextItem> = ow
@@ -265,11 +266,7 @@ impl App {
                     hue: id.hue,
                     mods: cx.mods.len(),
                     chains: {
-                        let mut gs: Vec<u32> = cx
-                            .chains
-                            .iter()
-                            .filter_map(|&c| ow.routes().of_chain(c))
-                            .collect();
+                        let mut gs: Vec<u32> = cx.chains.iter().filter_map(|&c| heads.of_chain(c)).collect();
                         gs.sort_unstable();
                         gs.dedup();
                         gs.len()
@@ -414,22 +411,50 @@ impl App {
 }
 
 // @sat:app.context-table.groups
-/// The normalized chains of a context, larger first: the order of the table's chain bands and of the chain cards.
-pub(crate) fn context_groups(
+/// The chains (headings) of a context in their order (`@sat:arrange`): load order, bridged chains together — the
+/// order of the table's chain bands and of the cards — with the link each one hangs on.
+pub(crate) fn context_order(
     ow: &sat_core::overwrite::OverwriteProjection,
-    heads: &[crate::chains::Head],
+    heads: &crate::chains::Heads,
     cx: ContextId,
-) -> Vec<u32> {
-    let routes = ow.routes();
+    pos_of: &dyn Fn(ModId) -> usize,
+) -> Vec<(u32, Option<sat_core::arrange::Link>)> {
     let mut groups: Vec<u32> = ow.contexts()[cx.idx()]
         .chains
         .iter()
-        .filter_map(|&c| routes.of_chain(c))
+        .filter_map(|&c| heads.of_chain(c))
         .collect();
     groups.sort_unstable();
     groups.dedup();
-    groups.sort_by_key(|&g| (std::cmp::Reverse(heads[g as usize].files), g));
-    groups
+    let items: Vec<sat_core::arrange::Item> = groups
+        .iter()
+        .map(|&g| {
+            let route = &heads[g as usize].route;
+            let mut key: Vec<usize> = route.iter().map(|&m| pos_of(m)).collect();
+            key.sort_unstable();
+            sat_core::arrange::Item {
+                mods: route.iter().map(|m| m.0).collect(),
+                key,
+            }
+        })
+        .collect();
+    sat_core::arrange::arrange(&items)
+        .into_iter()
+        .map(|(i, l)| (groups[i], l))
+        .collect()
+}
+
+/// The chains of a context in their order (`context_order` without the links).
+pub(crate) fn context_groups(
+    ow: &sat_core::overwrite::OverwriteProjection,
+    heads: &crate::chains::Heads,
+    cx: ContextId,
+    pos_of: &dyn Fn(ModId) -> usize,
+) -> Vec<u32> {
+    context_order(ow, heads, cx, pos_of)
+        .into_iter()
+        .map(|x| x.0)
+        .collect()
 }
 
 /// How the list places a mod: its separator and its position.
@@ -442,7 +467,7 @@ pub(crate) struct Lists<'a> {
 fn open(
     ow: &sat_core::overwrite::OverwriteProjection,
     table: &sat_core::table::ProviderTable,
-    heads: &[crate::chains::Head],
+    heads: &crate::chains::Heads,
     decisions: &sat_core::decisions::ChainDecisions,
     lists: &Lists<'_>,
     cx: ContextId,
@@ -451,7 +476,7 @@ fn open(
     revision: u64,
 ) -> OpenContext {
     let context = &ow.contexts()[cx.idx()];
-    let groups = context_groups(ow, heads, cx);
+    let groups = context_groups(ow, heads, cx, lists.pos_of);
     let paths_of = ow.context_chain_paths(cx);
     let mut cols: Vec<(u32, u32, crate::participants::OwnerStack)> = Vec::new();
     let mut chain_starts = Vec::with_capacity(groups.len());
