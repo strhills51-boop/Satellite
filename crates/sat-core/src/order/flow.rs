@@ -119,6 +119,10 @@ pub struct Placed {
     /// Offset of the card's top from the line's top: the same for every card of a line (the indicator line, below).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub dy: u32,
+    /// An element without an indicator attached after `key` (its id, `@sat:order.decor.attached`): it shares the
+    /// anchor's row and key, it has no place in the load order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub att: Option<u32>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -164,7 +168,7 @@ impl OrderBook {
         let mut blocks = Vec::with_capacity(seps + 1);
         // blocks with styled entries (visible in this view)
         let mut styled_seps: rustc_hash::FxHashSet<Option<Key>> = Default::default();
-        for &k in &self.styled {
+        for &k in self.styled.iter().chain(self.attached.keys()) {
             if self.seq.contains(k) && self.seq.is_visible(k, v) {
                 styled_seps.insert(self.separator_of(k));
             }
@@ -315,6 +319,7 @@ impl OrderBook {
                     width: p.width,
                     height: head,
                     dy: 0,
+                    att: None,
                 }],
             });
         }
@@ -343,6 +348,7 @@ impl OrderBook {
                     width: cw,
                     height: p.card_height,
                     dy: 0,
+                    att: None,
                 })
                 .collect();
             out.push(Line {
@@ -370,6 +376,7 @@ impl OrderBook {
                     width: p.width,
                     height: p.header_height,
                     dy: 0,
+                    att: None,
                 }],
             });
             y += p.header_height;
@@ -412,7 +419,14 @@ impl OrderBook {
             }
             own.clear();
             if !cur.is_empty() {
-                let dy = majority(margins.iter().map(|m| m.0));
+                // elements without an indicator do not vote
+                let dy = majority(
+                    margins
+                        .iter()
+                        .zip(cur.iter())
+                        .filter(|(_, c)| c.att.is_none())
+                        .map(|(m, _)| m.0),
+                );
                 let body = cur
                     .iter()
                     .zip(margins.iter())
@@ -479,10 +493,50 @@ impl OrderBook {
                 width: w,
                 height: h,
                 dy: 0,
+                att: None,
             });
             margins.push(m);
             own.push(full || st.and_then(|s| s.width).is_some());
             x += w + p.gap;
+            // @sat:order.flow.attached
+            // elements without an indicator follow their anchor (magnetically): same line when there is room, they
+            // keep their own size and are never stretched; they do not vote on the indicator line
+            for a in self.attached(k) {
+                let (dw, dh) = a.default_size();
+                let aw = if a.full_width {
+                    p.width
+                } else {
+                    a.width.map_or(dw, u32::from).min(p.width)
+                };
+                let ah = a.height.map_or(dh, u32::from);
+                if a.break_before || a.full_width || (x > 0 && x + aw > p.width) {
+                    let stretch = !(a.break_before || a.full_width);
+                    flush(
+                        &mut cur,
+                        &mut margins,
+                        &mut own,
+                        stretch,
+                        &mut x,
+                        &mut y,
+                        &mut out,
+                    );
+                }
+                cur.push(Placed {
+                    row: b.first_row + i as u32,
+                    key: k,
+                    x,
+                    width: aw,
+                    height: ah,
+                    dy: 0,
+                    att: Some(a.id),
+                });
+                margins.push((0, 0));
+                own.push(true);
+                x += aw + p.gap;
+                if a.full_width {
+                    flush(&mut cur, &mut margins, &mut own, false, &mut x, &mut y, &mut out);
+                }
+            }
             if full || st.is_some_and(|s| s.break_after) {
                 flush(&mut cur, &mut margins, &mut own, false, &mut x, &mut y, &mut out);
             }
@@ -561,7 +615,10 @@ mod tests {
     /// Every visible row appears exactly once, lines do not overlap and cover the whole height.
     fn check(b: &OrderBook, idx: &FlowIndex) {
         let lines = b.flow_lines(MAIN, idx, 0, idx.total_height);
-        let mut rows: Vec<u32> = lines.iter().flat_map(|l| l.cards.iter().map(|c| c.row)).collect();
+        let mut rows: Vec<u32> = lines
+            .iter()
+            .flat_map(|l| l.cards.iter().filter(|c| c.att.is_none()).map(|c| c.row))
+            .collect();
         rows.sort_unstable();
         assert_eq!(rows, (0..b.row_count(MAIN) as u32).collect::<Vec<_>>());
         let mut y = 0;
@@ -727,6 +784,61 @@ mod tests {
         )
         .unwrap();
         assert_eq!(b.flow_index(MAIN, r).total_height, before.total_height);
+    }
+
+    #[test]
+    fn attached_elements_follow_their_anchor_out_of_the_order() {
+        use crate::order::decor::{AttachKind, Attachment};
+        let mut b = book(&[3, 2]);
+        let note = |id| Attachment {
+            id,
+            kind: AttachKind::Note { text: "x".into() },
+            width: Some(300),
+            height: None,
+            break_before: false,
+            full_width: false,
+        };
+        // M0_1 (row 2) carries two notes
+        let anchor = b.key_of("M0_1").unwrap();
+        b.set_attached(anchor, vec![note(1), note(2)]).unwrap();
+        let idx = b.flow_index(MAIN, P);
+        check(&b, &idx);
+        let lines = b.flow_lines(MAIN, &idx, 0, idx.total_height);
+        let flat: Vec<&Placed> = lines
+            .iter()
+            .filter(|l| !l.header)
+            .flat_map(|l| &l.cards)
+            .collect();
+        let at = flat
+            .iter()
+            .position(|c| c.key == anchor && c.att.is_none())
+            .unwrap();
+        assert_eq!(flat[at + 1].att, Some(1), "right after the anchor");
+        assert_eq!(flat[at + 2].att, Some(2));
+        assert!(
+            flat.iter().all(|c| c.att.is_none() || c.row == flat[at].row),
+            "an element shares its anchor's row"
+        );
+        assert_eq!(b.row_count(MAIN), 7, "elements are not rows");
+        // the anchor moves to the next block: its notes go with it
+        let s1 = b.key_of("S1_separator").unwrap();
+        b.move_keys(&[anchor], None).unwrap();
+        let idx = b.flow_index(MAIN, P);
+        check(&b, &idx);
+        let lines = b.flow_lines(MAIN, &idx, 0, idx.total_height);
+        let last = lines.last().unwrap();
+        assert_eq!(
+            last.cards.iter().map(|c| c.att).collect::<Vec<_>>(),
+            vec![Some(1), Some(2)],
+            "the notes follow the moved anchor to the end"
+        );
+        assert!(b.seq.pos(s1) < b.seq.pos(anchor));
+        // the project keeps them by name; undo removes them
+        assert_eq!(b.decor().attached["M0_1"].len(), 2);
+        b.undo();
+        b.undo();
+        assert!(b.attached(anchor).is_empty());
+        assert!(b.decor().attached.is_empty());
     }
 
     #[test]

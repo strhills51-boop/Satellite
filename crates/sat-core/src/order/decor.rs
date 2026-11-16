@@ -38,6 +38,54 @@ pub struct Decor {
     /// Tags, stickers and notes by entry name (`@sat:order.decor.marks`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub marks: BTreeMap<String, Marks>,
+    /// Elements without an indicator, by the name of the entry they stand after (`@sat:order.decor.attached`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attached: BTreeMap<String, Vec<Attachment>>,
+}
+
+// @sat:order.decor.attached
+/// An element of the list without an indicator (ADR 0016 «Вспомогательные элементы», ADR 0020 §6): out of the load
+/// order, it stands in the flow right after the entry it is attached to (its anchor) and moves with it. The list is
+/// not one standard of mods: the user keeps here what they think of a mod — a note, a picture, a family summary.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Attachment {
+    /// Unique in the project (the window and edits name an element by it).
+    pub id: u32,
+    #[serde(flatten)]
+    pub kind: AttachKind,
+    /// Size in the flow; absent — the element's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u16>,
+    /// Starts a new line (otherwise it follows its anchor in the same line when there is room).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub break_before: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub full_width: bool,
+}
+
+/// What an element shows.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum AttachKind {
+    /// The user's text.
+    Note { text: String },
+    /// A file of the build as the game sees it (a picture, a mesh, a text): the window shows its preview.
+    Preview { path: String },
+    /// A family summary: how many entries carry the tag, how many of them are on.
+    Summary { tag: String },
+}
+
+impl Attachment {
+    /// Default size: (width, height) in pixels, before the user's own.
+    pub fn default_size(&self) -> (u32, u32) {
+        match self.kind {
+            AttachKind::Note { .. } => (240, 52),
+            AttachKind::Preview { .. } => (200, 140),
+            AttachKind::Summary { .. } => (180, 26),
+        }
+    }
 }
 
 // @sat:order.decor.style

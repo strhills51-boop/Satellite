@@ -143,6 +143,11 @@ pub enum Command {
         name: String,
         checked: bool,
     },
+    /// Add, change or remove an element without an indicator after an entry (`@sat:app.attached`). One undo step.
+    Attach {
+        key: Key,
+        edit: AttachEdit,
+    },
     /// Edit tags, stickers or the note of entries; each entry keeps its other marks. One undo step.
     EditMarks {
         keys: Vec<Key>,
@@ -241,6 +246,43 @@ pub struct TagView {
     pub name: String,
     pub entries: usize,
     pub color: u32,
+}
+
+/// One change of the elements after an entry (`@sat:order.decor.attached`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "kebab-case")]
+pub enum AttachEdit {
+    /// A new element at the end of the entry's elements; the app gives it the next free id.
+    Add {
+        #[serde(flatten)]
+        kind: sat_core::order::AttachKind,
+        #[serde(default)]
+        width: Option<u16>,
+        #[serde(default)]
+        height: Option<u16>,
+    },
+    /// Replaces the element with the same id (content, size, line breaks).
+    Update {
+        attachment: sat_core::order::Attachment,
+    },
+    Remove {
+        id: u32,
+    },
+}
+
+/// An element without an indicator as the window draws it: the element and, for a family summary, its counts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachView {
+    pub attachment: sat_core::order::Attachment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<FamilyCount>,
+}
+
+/// Entries carrying a tag and how many of them are on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FamilyCount {
+    pub total: u32,
+    pub enabled: u32,
 }
 
 /// One change of marks (`@sat:order.decor.marks`).
@@ -608,7 +650,10 @@ pub struct CardView {
     pub x: u32,
     pub width: u32,
     pub height: u32,
+    /// The anchor's row for an element without an indicator (`att`), else the card's own row.
     pub row: RowView,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub att: Option<AttachView>,
 }
 
 /// One line of the flow layout: a separator header or a line of cards.
@@ -1151,6 +1196,27 @@ impl App {
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             // @sat:app.marks
+            // @sat:app.attached
+            C::Attach { key, edit } => self.session.command(|b| {
+                let mut items = b.attached(key).to_vec();
+                match edit {
+                    AttachEdit::Add { kind, width, height } => items.push(sat_core::order::Attachment {
+                        id: b.last_attachment_id() + 1,
+                        kind,
+                        width,
+                        height,
+                        break_before: false,
+                        full_width: false,
+                    }),
+                    AttachEdit::Update { attachment } => {
+                        if let Some(a) = items.iter_mut().find(|a| a.id == attachment.id) {
+                            *a = attachment;
+                        }
+                    }
+                    AttachEdit::Remove { id } => items.retain(|a| a.id != id),
+                }
+                b.set_attached(key, items)
+            })?,
             C::EditMarks { keys, edit } => self.session.command(|b| {
                 b.patch_marks(&keys, |mut m| {
                     match &edit {
@@ -1778,8 +1844,39 @@ impl App {
                 } else {
                     Vec::new()
                 };
-                // every row of the window is on exactly one line
-                let mut take = |r: u32| rows[(r - lo) as usize].take().expect("row placed once");
+                // every row of the window is on exactly one line; an element without an indicator comes after its
+                // anchor on the lines and carries a copy of the anchor's row
+                let book = self.session.book();
+                let mut anchors: std::collections::HashMap<u32, RowView> = Default::default();
+                let mut take = |r: u32, att: bool| {
+                    if att {
+                        // the anchor's line may be above the window: its row is then still unused
+                        return anchors
+                            .get(&r)
+                            .cloned()
+                            .or_else(|| rows[(r - lo) as usize].clone())
+                            .expect("the anchor's row is in the window");
+                    }
+                    let row = rows[(r - lo) as usize].take().expect("row placed once");
+                    if !book.attached(row.key).is_empty() {
+                        anchors.insert(r, row.clone());
+                    }
+                    row
+                };
+                let attach = |k: Key, id: u32| {
+                    let a = book.attached(k).iter().find(|a| a.id == id)?.clone();
+                    let summary = match &a.kind {
+                        sat_core::order::AttachKind::Summary { tag } => {
+                            let (total, enabled) = book.tag_members(tag);
+                            Some(FamilyCount { total, enabled })
+                        }
+                        _ => None,
+                    };
+                    Some(AttachView {
+                        attachment: a,
+                        summary,
+                    })
+                };
                 let lines = lines
                     .into_iter()
                     .map(|l| LineView {
@@ -1794,7 +1891,8 @@ impl App {
                                 x: c.x,
                                 width: c.width,
                                 height: c.height,
-                                row: take(c.row),
+                                row: take(c.row, c.att.is_some()),
+                                att: c.att.and_then(|id| attach(c.key, id)),
                             })
                             .collect(),
                     })
@@ -2792,6 +2890,83 @@ pub(crate) mod tests {
             panic!()
         };
         assert_eq!(focus_row, Some(2), "B is below A after the move");
+    }
+
+    #[test]
+    fn attached_elements_come_with_their_anchor_in_lines() {
+        let mut a = app();
+        let k = a.session().book().key_of("A").unwrap();
+        a.command(Command::EditMarks {
+            keys: vec![k],
+            edit: MarksEdit::AddTag { tag: "3BA".into() },
+        })
+        .unwrap();
+        for edit in [
+            AttachEdit::Add {
+                kind: order::AttachKind::Note { text: "check".into() },
+                width: None,
+                height: None,
+            },
+            AttachEdit::Add {
+                kind: order::AttachKind::Summary { tag: "3ba".into() },
+                width: None,
+                height: None,
+            },
+        ] {
+            a.command(Command::Attach { key: k, edit }).unwrap();
+        }
+        let flow = FlowParams {
+            width: 2000,
+            card_width: 240,
+            card_height: 40,
+            header_height: 30,
+            gap: 4,
+            reserve: 0,
+            natural: None,
+        };
+        let lines = |a: &mut App| {
+            let Reply::Lines { lines, len, .. } = a
+                .query(Query::Lines {
+                    view: order::MAIN,
+                    y: 0,
+                    height: 10_000,
+                    flow: flow.clone(),
+                    badges: 3,
+                    measures: None,
+                })
+                .unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!(len, 3, "elements are not rows");
+            lines.into_iter().flat_map(|l| l.cards).collect::<Vec<_>>()
+        };
+        let cards = lines(&mut a);
+        let atts: Vec<&CardView> = cards.iter().filter(|c| c.att.is_some()).collect();
+        assert_eq!(atts.len(), 2);
+        assert!(atts.iter().all(|c| c.row.key == k), "they carry the anchor's row");
+        let ids: Vec<u32> = atts
+            .iter()
+            .map(|c| c.att.as_ref().unwrap().attachment.id)
+            .collect();
+        assert_eq!(ids, vec![1, 2], "ids are given in turn");
+        assert_eq!(
+            atts[1].att.as_ref().unwrap().summary,
+            Some(FamilyCount { total: 1, enabled: 1 }),
+            "the family summary counts the tag case-folded"
+        );
+        a.command(Command::Attach {
+            key: k,
+            edit: AttachEdit::Remove { id: 1 },
+        })
+        .unwrap();
+        assert_eq!(lines(&mut a).iter().filter(|c| c.att.is_some()).count(), 1);
+        a.command(Command::Undo).unwrap();
+        assert_eq!(
+            lines(&mut a).iter().filter(|c| c.att.is_some()).count(),
+            2,
+            "one undo step"
+        );
     }
 
     #[test]

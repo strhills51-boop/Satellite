@@ -18,7 +18,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use super::cursor::Cursor;
-use super::decor::{CardStyle, Decor, DecorIssue, GroupDef, Marks};
+use super::decor::{Attachment, CardStyle, Decor, DecorIssue, GroupDef, Marks};
 use super::seq::{Key, Layer, Seq};
 use crate::canon::{Entry, EntryKind, Modlist};
 use crate::engine::{self, Keys, Truth};
@@ -187,6 +187,8 @@ enum Op {
     Style(Vec<(Key, Option<u32>)>),
     /// Marks by interned id.
     Marks(Vec<(Key, Option<u32>)>),
+    /// Elements attached after an entry (the whole list of each entry).
+    Attached(Vec<(Key, Vec<Attachment>)>),
     Muted(Vec<(Key, bool)>),
     /// Separator levels.
     Level(Vec<(Key, u8)>),
@@ -306,6 +308,9 @@ pub struct OrderBook {
     /// Interned marks (most entries share none; tag sets repeat).
     marks: Vec<Marks>,
     mark_ids: FxHashMap<Marks, u32>,
+    /// Elements without an indicator after each anchor (`@sat:order.book.attached`); an anchor's block is laid out
+    /// entry by entry, like a styled one.
+    pub(super) attached: FxHashMap<Key, Vec<Attachment>>,
     revision: u64,
     undo: Vec<(Op, Op)>,
     redo: Vec<(Op, Op)>,
@@ -352,6 +357,7 @@ impl OrderBook {
             styled: FxHashSet::default(),
             marks: Vec::new(),
             mark_ids: FxHashMap::default(),
+            attached: FxHashMap::default(),
             revision: 0,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -786,6 +792,24 @@ impl OrderBook {
         self.apply_recorded(Op::Marks(each))
     }
 
+    // @sat:order.book.attached
+    /// Replaces the elements attached after an entry (ADR 0016): one undoable step. They are not entries — no
+    /// indicator, no place in the load order; they stand right after their anchor in the flow and move with it.
+    pub fn set_attached(&mut self, k: Key, items: Vec<Attachment>) -> Result<Option<Change>, OrderError> {
+        self.check_key(k)?;
+        self.apply_recorded(Op::Attached(vec![(k, items)]))
+    }
+
+    /// Elements attached after an entry, in their order.
+    pub fn attached(&self, k: Key) -> &[Attachment] {
+        self.attached.get(&k).map_or(&[], Vec::as_slice)
+    }
+
+    /// The greatest attachment id in use (a new one takes the next).
+    pub fn last_attachment_id(&self) -> u32 {
+        self.attached.values().flatten().map(|a| a.id).max().unwrap_or(0)
+    }
+
     /// Marks of an entry.
     pub fn marks(&self, k: Key) -> Option<&Marks> {
         self.items[k as usize].marks.map(|i| &self.marks[i as usize])
@@ -799,6 +823,25 @@ impl OrderBook {
         self.marks.push(m.clone());
         self.mark_ids.insert(m, i);
         i
+    }
+
+    /// Entries carrying a tag (case-folded) and how many of them are on: a family summary (ADR 0016).
+    pub fn tag_members(&self, tag: &str) -> (u32, u32) {
+        let tag = tag.trim().to_lowercase();
+        let (mut total, mut on) = (0, 0);
+        for (k, it) in self.items.iter().enumerate() {
+            let Some(i) = it.marks else { continue };
+            if self.seq.contains(k as Key)
+                && self.marks[i as usize]
+                    .tags
+                    .iter()
+                    .any(|t| t.to_lowercase() == tag)
+            {
+                total += 1;
+                on += u32::from(it.enabled);
+            }
+        }
+        (total, on)
     }
 
     /// Every tag in use, with the number of entries carrying it (for a tag list and filters).
@@ -1193,6 +1236,25 @@ impl OrderBook {
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Level(inv))
             }
+            Op::Attached(each) => {
+                let mut inv = Vec::new();
+                let mut touched = HashSet::new();
+                for (k, items) in each {
+                    let old = self.attached.get(k).cloned().unwrap_or_default();
+                    if old != *items {
+                        if items.is_empty() {
+                            self.attached.remove(k);
+                        } else {
+                            self.attached.insert(*k, items.clone());
+                        }
+                        inv.push((*k, old));
+                        touched.insert(*k);
+                    }
+                }
+                p.truth(Truth::Decoration, touched.iter().copied());
+                self.after_content_change(touched, p);
+                (!inv.is_empty()).then_some(Op::Attached(inv))
+            }
             Op::Muted(each) => {
                 let mut inv = Vec::new();
                 let mut touched = HashSet::new();
@@ -1495,6 +1557,9 @@ impl OrderBook {
             if let Some(i) = it.marks {
                 d.marks.insert(it.name.clone(), self.marks[i as usize].clone());
             }
+            if let Some(a) = self.attached.get(&k) {
+                d.attached.insert(it.name.clone(), a.clone());
+            }
         }
         for (g, gr) in self.groups.iter().enumerate() {
             let Some(gr) = gr else { continue };
@@ -1526,6 +1591,7 @@ impl OrderBook {
             it.marks = None;
         }
         self.styled.clear();
+        self.attached.clear();
         let mut collapsed: FxHashSet<Key> = FxHashSet::default();
         let mut open_groups: FxHashSet<GroupId> = FxHashSet::default();
         self.groups.clear();
@@ -1557,6 +1623,15 @@ impl OrderBook {
                         self.items[k as usize].marks = Some(id);
                     }
                 }
+                None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+            }
+        }
+        for (name, items) in &d.attached {
+            match self.key_of(name) {
+                Some(k) if !items.is_empty() => {
+                    self.attached.insert(k, items.clone());
+                }
+                Some(_) => {}
                 None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
             }
         }
