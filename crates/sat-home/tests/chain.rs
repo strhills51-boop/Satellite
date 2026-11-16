@@ -75,6 +75,7 @@ fn run_decide_commit_run() {
     p.sync[0].status = Status::Confirmed;
     p.sync[0].resolution = Some(Resolution::AdoptToProject);
     project::save(&mut stll, &p).unwrap();
+    drop(stll);
 
     let (stll, p) = project::require(&layout.project_file).unwrap();
     let full = plan::full(&inst, &layout, &p, &[]);
@@ -219,10 +220,31 @@ fn save_refuses_a_file_changed_outside() {
     let (mut stll, mut r) = project::require(&path).unwrap();
     r.pinned_files.push("y".into());
     project::save(&mut stll, &r).unwrap();
+    // that program is done with the file (Windows does not replace a file another handle keeps open)
+    drop(stll);
     assert_eq!(
         project::save_checked(&path, &q, Some(s2), false),
         Err(project::SaveError::ChangedOutside)
     );
     project::save_checked(&path, &q, Some(s2), true).unwrap();
     assert_eq!(project::require(&path).unwrap().1.pinned_files, ["x"]);
+}
+
+#[test]
+fn a_folder_changed_after_the_run_makes_the_commit_stale() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    file(&base.join("mods/A/a.esp"), "x");
+    file(&base.join("profiles/Default/modlist.txt"), "+A\n");
+    let inst = Instance::from_dirs(
+        base.join("mods"),
+        base.join("profiles"),
+        base.join("overwrite"),
+        None,
+    );
+    run_once(&inst, true);
+    let (_, p) = project::require(&project::default_path(&inst)).unwrap();
+    assert!(sat_home::commit::stale(&inst, &p).is_empty());
+    file(&base.join("mods/B/b.esp"), "y");
+    assert_eq!(sat_home::commit::stale(&inst, &p), ["fs_created::mod::b"]);
 }
