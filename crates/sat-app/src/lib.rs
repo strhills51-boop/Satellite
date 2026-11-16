@@ -143,6 +143,21 @@ pub enum Command {
         name: String,
         checked: bool,
     },
+    /// Join contiguous mods into a logical group (`@sat:app.groups`): it starts collapsed — one row, one result.
+    CreateGroup {
+        name: String,
+        keys: Vec<Key>,
+    },
+    /// Dissolve the logical group of an entry; its members stay where they are.
+    DissolveGroup {
+        key: Key,
+    },
+    /// Fold a logical group into one row, or open it: its members in the list, outlined as a family.
+    SetGroupCollapsed {
+        view: ViewId,
+        key: Key,
+        collapsed: bool,
+    },
     /// Add, change or remove an element without an indicator after an entry (`@sat:app.attached`). One undo step.
     Attach {
         key: Key,
@@ -783,6 +798,19 @@ pub struct RowView {
     /// in `marks` (the card draws both: labels above its top-left corner, a contour per sticker around it).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_stickers: Vec<String>,
+    /// A member of an open logical group (the family outline) or a collapsed group's row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<GroupMark>,
+}
+
+/// The logical group a row belongs to, as the window outlines it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupMark {
+    pub name: String,
+    /// The first member in canon order (the outline carries the name there).
+    pub first: bool,
+    pub last: bool,
+    pub size: u32,
 }
 
 // @sat:app.badges
@@ -1196,6 +1224,20 @@ impl App {
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             // @sat:app.marks
+            // @sat:app.groups
+            C::CreateGroup { name, keys } => self
+                .session
+                .command(|b| b.create_group(&name, &keys).map(|(_, c)| Some(c)))?,
+            C::DissolveGroup { key } => self.session.command(|b| match b.group_id_of(key) {
+                Some(g) => b.dissolve_group(g),
+                None => Ok(None),
+            })?,
+            C::SetGroupCollapsed { view, key, collapsed } => {
+                self.session.command(|b| match b.group_id_of(key) {
+                    Some(g) => b.set_group_collapsed(view, g, collapsed),
+                    None => Ok(None),
+                })?
+            }
             // @sat:app.attached
             C::Attach { key, edit } => self.session.command(|b| {
                 let mut items = b.attached(key).to_vec();
@@ -1640,9 +1682,21 @@ impl App {
                     counters,
                     custom: Vec::new(),
                     rule_stickers: Vec::new(),
+                    group: None,
                 }
             })
             .collect::<Vec<_>>();
+        let book = self.session.book();
+        for r in &mut rows {
+            if let Some((name, members)) = book.group_of(r.key) {
+                r.group = Some(GroupMark {
+                    name,
+                    first: members.first() == Some(&r.key),
+                    last: members.last() == Some(&r.key),
+                    size: members.len() as u32,
+                });
+            }
+        }
         for r in &mut rows {
             if r.kind == RowKind::Mod {
                 r.rule_stickers = self.rule_stickers(r.key);
@@ -1666,8 +1720,13 @@ impl App {
         // counters as the window writes them: `W12`, `L3`, `M1`, `+40`, `2 esp`, `X`
         self.row_views(view, 0, len, badges)
             .into_iter()
-            .filter(|r| r.kind == RowKind::Mod)
+            .filter(|r| matches!(r.kind, RowKind::Mod | RowKind::Group))
             .map(|r| {
+                // a collapsed group: its unfold mark on the left, its size on the right
+                if r.kind == RowKind::Group {
+                    let right = digits(r.size) * m.digit10;
+                    return (r.key, (2 * m.lead10.max(right)).div_ceil(10));
+                }
                 // the name stands in the middle of the container (monolith): the badges on the left and the
                 // counters on the right each get the wider side's room, so at its natural width nothing covers it
                 let (mut left, mut w) = (m.lead10, 0);
@@ -2890,6 +2949,52 @@ pub(crate) mod tests {
             panic!()
         };
         assert_eq!(focus_row, Some(2), "B is below A after the move");
+    }
+
+    #[test]
+    fn groups_fold_open_with_an_outline_and_dissolve() {
+        let mut a = app();
+        let (ka, kb) = {
+            let b = a.session().book();
+            (b.key_of("A").unwrap(), b.key_of("B").unwrap())
+        };
+        a.command(Command::CreateGroup {
+            name: "Fam".into(),
+            keys: vec![ka, kb],
+        })
+        .unwrap();
+        let rows = |a: &mut App| match a
+            .query(Query::Rows {
+                view: order::MAIN,
+                start: 0,
+                count: 10,
+                badges: 0,
+            })
+            .unwrap()
+        {
+            Reply::Rows { rows, .. } => rows,
+            _ => unreachable!(),
+        };
+        let r = rows(&mut a);
+        assert_eq!(r.len(), 2, "a collapsed group is one row");
+        assert_eq!((r[1].kind, r[1].name.as_str()), (RowKind::Group, "Fam"));
+        a.command(Command::SetGroupCollapsed {
+            view: order::MAIN,
+            key: kb,
+            collapsed: false,
+        })
+        .unwrap();
+        let r = rows(&mut a);
+        let marks: Vec<_> = r.iter().filter_map(|r| r.group.clone()).collect();
+        assert_eq!(marks.len(), 2, "open: both members, outlined");
+        assert!(marks[0].first && marks[1].last && marks[0].size == 2);
+        a.command(Command::DissolveGroup { key: ka }).unwrap();
+        assert!(rows(&mut a).iter().all(|r| r.group.is_none()));
+        a.command(Command::Undo).unwrap();
+        assert!(
+            rows(&mut a).iter().any(|r| r.group.is_some()),
+            "dissolving is one undo step"
+        );
     }
 
     #[test]

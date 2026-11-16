@@ -908,6 +908,24 @@ impl OrderBook {
         Some((g.name.clone(), m))
     }
 
+    /// The name a row shows in view `v`: a collapsed group's row shows the group's name.
+    pub(super) fn shown_name(&self, k: Key, v: ViewId) -> &str {
+        match self.group(k) {
+            Some((g, gr)) if gr.valid && gr.first == k && self.group_collapsed(g, v) => &gr.name,
+            _ => self.name(k),
+        }
+    }
+
+    /// The id of an entry's logical group.
+    pub fn group_id_of(&self, k: Key) -> Option<GroupId> {
+        self.group(k).map(|(g, _)| g)
+    }
+
+    /// Whether a group is collapsed in view `v` (one row) or open (its members, outlined).
+    pub fn is_group_collapsed(&self, g: GroupId, v: ViewId) -> bool {
+        self.group_collapsed(g, v)
+    }
+
     /// Ids of the live logical groups, in the order `decor().groups` lists them.
     pub fn group_ids(&self) -> Vec<GroupId> {
         (0..self.groups.len() as GroupId)

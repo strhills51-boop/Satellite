@@ -461,7 +461,7 @@ impl OrderBook {
             } else {
                 match (st.and_then(|s| s.width), &p.natural) {
                     (Some(w), _) => u32::from(w).min(p.width),
-                    (None, Some(n)) => n.width(self.name(k), extra(k), p.width),
+                    (None, Some(n)) => n.width(self.shown_name(k, v), extra(k), p.width),
                     (None, None) => cw,
                 }
             };
