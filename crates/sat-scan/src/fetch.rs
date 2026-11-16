@@ -61,7 +61,9 @@ fn resolve(dir: &Path, rel: &str) -> Option<PathBuf> {
     Some(at)
 }
 
-fn find(dir: &Path, rel: &str) -> Option<PathBuf> {
+// @sat:scan.fetch.find
+/// A file under `dir` by a relative path, case-insensitively folder by folder; `..` never resolves.
+pub fn find(dir: &Path, rel: &str) -> Option<PathBuf> {
     resolve(dir, rel).filter(|p| p.is_file())
 }
 

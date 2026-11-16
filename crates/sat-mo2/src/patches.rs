@@ -6,30 +6,13 @@
 
 use std::path::Path;
 
-use sat_core::patch::{FilePatch, PatchOp, content_signature};
-use sat_formats::ini::IniFile;
+use sat_core::patch::{FilePatch, apply, content_signature};
 
 /// Whether the file a patch was made on is still the one in its mod (`Ok(false)` — it changed).
 pub fn base_holds(mods_dir: &Path, p: &FilePatch) -> Result<bool, String> {
     let file = mods_dir.join(&p.source).join(&p.path);
     let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     Ok(p.base.as_deref().is_none_or(|b| b == content_signature(&bytes)))
-}
-
-/// The patched bytes of one file.
-pub fn apply(bytes: &[u8], ops: &[PatchOp]) -> Vec<u8> {
-    let mut f = IniFile::parse(bytes);
-    for op in ops {
-        match op {
-            PatchOp::Set { section, key, value } => {
-                f.set(section, key, value);
-            }
-            PatchOp::Remove { section, key } => {
-                f.remove(section, key);
-            }
-        }
-    }
-    f.to_bytes()
 }
 
 // @sat:mo2.patches.build
@@ -75,6 +58,7 @@ pub fn build(mods_dir: &Path, patches: &[FilePatch], target: &Path) -> Result<us
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sat_core::patch::PatchOp;
 
     #[test]
     fn a_patched_copy_goes_to_the_output_and_the_original_stays() {

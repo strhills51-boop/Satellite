@@ -1,7 +1,7 @@
 //! The app's truth and the project: what a project gives the app, what the app gives back. @sat:app.project
 //!
 //! Owns: the project as loaded (its sections the window does not edit) and the one mapping between the app's truth (book, settled chains, ignores, plugin canon, sync records, tags,
-//! chain identities / layout / lineage, pins) and the sections of a [`Project`] — read when a build or a project
+//! chain identities / layout / lineage, pins, file patches) and the sections of a [`Project`] — read when a build or a project
 //! opens, written back before a run (the run reconciles the canon the user has now) and when the project is saved.
 //! Not here: the project file (`@sat:stll.file`, `@sat:home.project`), the project's meaning (`@sat:project`).
 
@@ -54,6 +54,21 @@ impl App {
         self.set_chain_layout(p.chain_layout.clone());
         self.set_chain_lineage(p.chain_lineage.clone());
         self.set_pinned_files(p.pinned_files.clone());
+        // patches name their mod by entity id in the project, by name in the window
+        let by_name = |id: &str| {
+            p.entities
+                .name_of(&sat_core::entity::EntityId(id.to_string()))
+                .map_or_else(|| id.to_string(), str::to_string)
+        };
+        self.set_patches(
+            p.patches
+                .iter()
+                .map(|x| sat_core::patch::FilePatch {
+                    source: by_name(&x.source),
+                    ..x.clone()
+                })
+                .collect(),
+        );
         let mut problems = self.set_sticker_rules(&p.sticker_rules);
         self.set_system_stickers(p.system_stickers());
         self.set_sources(p.sources_by_name());
@@ -140,6 +155,17 @@ impl App {
         p.chain_layout = self.chain_layout().clone();
         p.chain_lineage = self.chain_lineage().clone();
         p.pinned_files = self.pinned_files().to_vec();
+        let ids = &p.entities;
+        p.patches = self
+            .patches()
+            .iter()
+            .map(|x| sat_core::patch::FilePatch {
+                source: ids
+                    .id_of(&x.source)
+                    .map_or_else(|| x.source.clone(), |i| i.0.clone()),
+                ..x.clone()
+            })
+            .collect();
     }
 }
 

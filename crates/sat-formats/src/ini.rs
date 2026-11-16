@@ -93,6 +93,26 @@ impl IniFile {
         None
     }
 
+    // @sat:formats.ini.entries
+    /// Every key in file order: (section as written, `""` before the first; key as written; value).
+    pub fn entries(&self) -> Vec<(String, String, String)> {
+        let mut cur = String::new();
+        let mut out = Vec::new();
+        for l in &self.lines {
+            match l {
+                Line::Section { raw, .. } => {
+                    let t = raw.trim();
+                    cur = t[1..t.len() - 1].trim().to_string();
+                }
+                Line::Key { key_raw, value, .. } => {
+                    out.push((cur.clone(), key_raw.trim().to_string(), value.clone()))
+                }
+                Line::Other(_) => {}
+            }
+        }
+        out
+    }
+
     pub fn get(&self, section: &str, key: &str) -> Option<&str> {
         match &self.lines[self.find(section, key)?] {
             Line::Key { value, .. } => Some(value),

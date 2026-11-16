@@ -60,6 +60,15 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; borde
 #passPanel { position: absolute; z-index: 40; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
   padding: 12px; width: min(420px, calc(100vw - 32px)); font-size: 13px; display: grid; gap: 10px; }
 #passPanel[hidden] { display: none; }
+.pe { display: grid; gap: 8px; } .pe h4 { margin: 0; display: flex; gap: 8px; align-items: center; } .pe h4 span { flex: 1; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.pe .note { font-size: 12px; color: var(--muted); } .pe .warn { color: var(--l-txt); font-size: 12px; display: flex; gap: 8px; align-items: center; }
+.pe table { border-collapse: collapse; width: 100%; font: 12px var(--mono); }
+.pe td, .pe th { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: middle; }
+.pe th { color: var(--muted); font-weight: 400; } .pe tr.sec td { color: var(--accent2); padding-top: 8px; }
+.pe tr.set td.k { color: var(--ok); } .pe tr.rm td.k, .pe tr.rm td.v { text-decoration: line-through; color: var(--muted); }
+.pe input { width: 100%; padding: 1px 6px; border-radius: 6px; font: 12px var(--mono); }
+.pe td.b { white-space: nowrap; width: 1%; } .pe td.b button { font-size: 11px; padding: 0 6px; }
+.pe .add { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; }
 #passPanel h3 { margin: 0; font-size: 14px; }
 #passPanel .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 #passPanel .modes button { display: grid; text-align: left; gap: 2px; padding: 8px 10px; }
@@ -840,7 +849,8 @@ function pvHtml(f, compact) {
   if (!f) return `<div class="muted">Файл не найден в сборке.</div>`;
   const p = f.preview, cur = f.copies[f.shown], pin = f.pin || f.path;
   let h = `<div class="pv"><h4><span>${esc(f.title || f.path)}</span><button class="pin${f.pinned ? " on" : ""}" data-pin="${esc(pin)}" data-v="${f.pinned ? 0 : 1}" title="${f.pinned ? "Открепить" : "Закрепить: быстрый доступ из «Проводник ▾»"}">${f.pinned ? "★" : "☆"}</button>` +
-    (compact ? `<button data-fxopen="${esc(f.path)}" title="Открыть в проводнике">↗</button>` : "") + `</h4>`;
+    (compact ? `<button data-fxopen="${esc(f.path)}" title="Открыть в проводнике">↗</button>` : "") +
+    (!compact && p && p.text && p.text.lang === "ini" && cur && !cur.archive ? `<button data-patch="${esc(cur.name)}" data-ppath="${esc(f.path)}" title="Править значения: копия с правкой уйдёт в мод Satellite Patches при фиксации, файл мода не меняется">✎ Править</button>` : "") + `</h4>`;
   if (p) h += `<div class="fmt">${esc(p.format || "")}</div>`;
   // copies
   if (f.copies.length > 1 || (cur && cur.archive)) {
@@ -903,6 +913,8 @@ async function previewClicks(ev, where) {
   if (g) return where === "fx" ? fxReveal(g.dataset.goto) : fxOpen(g.dataset.goto);
   const o = ev.target.closest("[data-fxopen]");
   if (o) return fxOpen(o.dataset.fxopen);
+  const pe = ev.target.closest("[data-patch]");
+  if (pe) return peOpen(pe.dataset.patch, pe.dataset.ppath);
   const img = ev.target.closest(".pic img");
   if (img) img.classList.toggle("full");
 }
@@ -2508,6 +2520,56 @@ async function syLoad() {
     : p.blockers.length && !onlyConfirm ? "фиксация заблокирована, пока есть блокеры"
     : "перед записью окно сверит папку mods с записями; после — перечитает сборку";
 }
+
+// ---------------------------------------------------------------- patches of a mod's ini (`@sat:app.patches`)
+let PE = null;
+async function peOpen(mod, path) {
+  PE = { mod, path };
+  const { file: v } = await query({ type: "file-patch", mod_name: mod, path });
+  if (!PE || PE.mod !== mod || PE.path !== path) return;
+  const box = $("fxPrev");
+  if (!v.found) { box.innerHTML = `<div class="muted">Файл не читается.</div>`; return; }
+  let sec = null, rows = "";
+  for (const k of v.keys) {
+    if (k.section !== sec) { sec = k.section; rows += `<tr class="sec"><td colspan="4">${sec ? "[" + esc(sec) + "]" : "(до первой секции)"}</td></tr>`; }
+    const cls = k.op === "set" ? "set" : k.op === "remove" ? "rm" : "";
+    const now = k.op === "set" ? k.patched : k.op === "remove" ? "" : k.value;
+    rows += `<tr class="${cls}" data-s="${esc(k.section)}" data-k="${esc(k.key)}"><td class="k">${esc(k.key)}</td><td class="v">${k.value == null ? "<i class=muted>нет в файле</i>" : esc(k.value)}</td>` +
+      `<td>${k.op === "remove" ? "<i class=muted>удалён</i>" : `<input value="${esc(now ?? "")}" data-orig="${esc(now ?? "")}" aria-label="${esc(k.key)}">`}</td>` +
+      `<td class="b">${k.op ? `<button data-pe="revert" title="вернуть значение мода">↺</button>` : ""}${k.op !== "remove" && k.value != null ? `<button data-pe="remove" title="убрать ключ из копии">✕</button>` : ""}</td></tr>`;
+  }
+  box.innerHTML = `<div class="pe"><h4><span>${esc(mod)} / ${esc(path)}</span><button data-pe="back">Готово</button>${v.patched ? `<button data-pe="drop" title="убрать всю правку этого файла">Убрать правку</button>` : ""}</h4>` +
+    `<div class="note">Файл мода не меняется: при фиксации исправленная копия уйдёт в мод <b>Satellite Patches</b> (в конце порядка — он и выигрывает). ` +
+    `${v.patched ? "Правка есть." : "Правки пока нет — измени значение и нажми Enter."} В проекте правок файлов: ${v.total}.${PROJ && PROJ.writable ? "" : " Песочница: правка живёт в памяти окна."}</div>` +
+    (v.base_changed ? `<div class="warn">⚠ файл мода изменился после правки (мод обновили?) — фиксация остановится, пока не посмотришь <button data-pe="rebase">Принять текущий файл как основу</button></div>` : "") +
+    `<table><tr><th>ключ</th><th>значение мода</th><th>в копии</th><th></th></tr>${rows}</table>` +
+    `<div class="add"><input id="peS" placeholder="секция"><input id="peK" placeholder="ключ"><input id="peV" placeholder="значение"><button data-pe="add">Добавить</button></div>` +
+    (v.text ? `<details><summary>Исправленная копия целиком</summary><pre class="txt">${v.text.split("\n").map((l, i) => `<span class="ln">${i + 1}</span>${hl("ini", l)}`).join("\n")}</pre></details>` : "") + `</div>`;
+}
+async function peEdit(edit) {
+  try { await command({ type: "patch-file", mod_name: PE.mod, path: PE.path, edit }); } catch (e) { $("err").textContent = e.message; }
+  await peOpen(PE.mod, PE.path);
+  syLoad();
+}
+$("fxPrev").addEventListener("click", ev => {
+  const b = ev.target.closest("[data-pe]"); if (!b || !PE) return;
+  ev.stopPropagation();
+  const tr = b.closest("tr"), key = tr ? { section: tr.dataset.s, key: tr.dataset.k } : null;
+  switch (b.dataset.pe) {
+    case "back": { const m = PE; PE = null; fxShow(m.path, FX.copy); return; }
+    case "drop": return peEdit({ drop: true });
+    case "rebase": return peEdit({ rebase: true });
+    case "revert": return peEdit({ revert: [key] });
+    case "remove": return peEdit({ remove: [key] });
+    case "add": { const k = $("peK").value.trim(); if (!k) return; return peEdit({ set: [{ section: $("peS").value.trim(), key: k, value: $("peV").value.trim() }] }); }
+  }
+}, true);
+$("fxPrev").addEventListener("keydown", ev => {
+  const i = ev.target.closest(".pe input[data-orig]"); if (!i || ev.key !== "Enter") return;
+  ev.preventDefault();
+  const tr = i.closest("tr");
+  if (i.value !== i.dataset.orig) peEdit({ set: [{ section: tr.dataset.s, key: tr.dataset.k, value: i.value }] });
+});
 
 let SY = null, syTimer = 0;
 $("syCommit").onclick = async () => {

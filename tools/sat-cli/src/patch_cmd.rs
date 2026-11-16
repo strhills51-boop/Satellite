@@ -61,28 +61,12 @@ pub fn patch(args: &[String]) -> Result<(), String> {
             if has(args, "--rebase") {
                 p.base = Some(content_signature(&bytes));
             }
-            let mut put = |op: PatchOp| {
-                let same = |o: &PatchOp| match (o, &op) {
-                    (
-                        PatchOp::Set {
-                            section: a, key: b, ..
-                        }
-                        | PatchOp::Remove { section: a, key: b },
-                        PatchOp::Set {
-                            section: c, key: d, ..
-                        }
-                        | PatchOp::Remove { section: c, key: d },
-                    ) => a.eq_ignore_ascii_case(c) && b.eq_ignore_ascii_case(d),
-                };
-                p.ops.retain(|o| !same(o));
-                p.ops.push(op);
-            };
             for s in flag_values(args, "--set") {
                 let (sk, value) = s
                     .split_once('=')
                     .ok_or_else(|| format!("--set {s:?}: SECTION/KEY=VALUE"))?;
                 let (section, key) = section_key(sk);
-                put(PatchOp::Set {
+                p.put(PatchOp::Set {
                     section,
                     key,
                     value: value.trim().to_string(),
@@ -90,7 +74,7 @@ pub fn patch(args: &[String]) -> Result<(), String> {
             }
             for s in flag_values(args, "--unset") {
                 let (section, key) = section_key(s);
-                put(PatchOp::Remove { section, key });
+                p.put(PatchOp::Remove { section, key });
             }
         }
         sat_home::project::save(&mut stll, &project)?;

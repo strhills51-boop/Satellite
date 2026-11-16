@@ -1,33 +1,33 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 16,
+ "revision": 18,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T15:04:28Z",
+ "updatedAt": "2026-11-16T15:10:17Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
-  "activeDistanceId": "D6-commit-window",
+  "activeDistanceId": "D7-file-edits",
   "activity": "CHANGE",
   "deepeningStack": [
    {
     "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
-    "childDistanceId": "D6-commit-window",
+    "childDistanceId": "D7-file-edits",
     "returnPoint": {
-     "tacticalFocus": "Код и проверки готовы: коммит, CI, печать D6; затем D7 «Правки файлов в плане из окна» (ini-патчи из предпросмотра).",
+     "tacticalFocus": "Код и проверки готовы: прогнать clippy/тесты, коммит, CI, печать D7. Потом — обещание о переимпорте (теряет фабрики, патчи и др.) отдельной Distance, затем итог миссии и проверки владельцу.",
      "posture": "ARCHITECT"
     },
-    "openedAt": "2026-11-16T15:04:28Z"
+    "openedAt": "2026-11-16T15:10:17Z"
    }
   ],
   "returnPoint": {
-   "tacticalFocus": "Код и проверки готовы: коммит, CI, печать D6; затем D7 «Правки файлов в плане из окна» (ini-патчи из предпросмотра).",
+   "tacticalFocus": "Код и проверки готовы: прогнать clippy/тесты, коммит, CI, печать D7. Потом — обещание о переимпорте (теряет фабрики, патчи и др.) отдельной Distance, затем итог миссии и проверки владельцу.",
    "posture": "ARCHITECT"
   },
-  "tacticalFocus": "Код и проверки готовы: коммит, CI, печать D6; затем D7 «Правки файлов в плане из окна» (ini-патчи из предпросмотра).",
+  "tacticalFocus": "Код и проверки готовы: прогнать clippy/тесты, коммит, CI, печать D7. Потом — обещание о переимпорте (теряет фабрики, патчи и др.) отдельной Distance, затем итог миссии и проверки владельцу.",
   "scheduler": {
    "events": [
     {
@@ -165,9 +165,9 @@
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
    "summary": "",
    "createdAt": "2026-11-16T14:17:55Z",
-   "updatedAt": "2026-11-16T15:04:28Z",
+   "updatedAt": "2026-11-16T15:10:17Z",
    "sealedAt": null,
-   "suspendedAt": "2026-11-16T15:04:28Z",
+   "suspendedAt": "2026-11-16T15:10:17Z",
    "readyAt": "2026-11-16T14:17:55Z",
    "resumableAt": null,
    "resumedAt": "2026-11-16T14:22:51Z",
@@ -346,11 +346,50 @@
    "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "objective": "Фиксация из окна: Command::Commit / Query::Commit (@sat:app.commit), только с --write; ворота в оболочке — файл проекта не тронут извне, поверхность совпадает с записями (@sat:home.commit.fresh), полный план без блокеров (подтверждения по имени); транзакция на своём потоке; после успеха сборка открывается заново, её пробег сохраняет факты и проект (как analyze после commit) и показывает расхождения после; страница перечитывается и показывает итог.",
    "closureContract": "Тесты sat-home (stale) и sat-app (commit: песочница, повтор, итог); в браузере на копии сборки: ответы → «Зафиксировать…» → modlist.txt, папки, проект, версия-бэкап, после — 0 расхождений и «сохранено»; ворота: новая папка после пробега → отказ, файл проекта переписан CLI → отказ; CI; галочки.",
+   "status": "sealed",
+   "reason": "",
+   "summary": "D6 «Фиксация в окне» запечатан.",
+   "createdAt": "2026-11-16T15:04:28Z",
+   "updatedAt": "2026-11-16T15:10:17Z",
+   "sealedAt": "2026-11-16T15:10:17Z",
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": {
+    "items": [
+     {
+      "commit": "58a9a73"
+     },
+     {
+      "ci": "GitHub Actions run (58a9a73) success"
+     },
+     {
+      "test": "sat-app commit::tests::asked_taken_ended; sat-home a_folder_changed_after_the_run_makes_the_commit_stale"
+     },
+     {
+      "text": "в браузере на копии s11 c --write: ответы → «Зафиксировать…» → modlist.txt/папки/проект/версия-бэкап; после — расхождений 0 и «проект сохранён»; ворота: новая папка → отказ, проект переписан CLI → отказ"
+     }
+    ],
+    "at": "2026-11-16T15:10:17Z"
+   }
+  },
+  "D7-file-edits": {
+   "id": "D7-file-edits",
+   "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "objective": "Правки ini модов из окна: «✎ Править» в предпросмотре проводника (значения, удаление, новые ключи, вернуть, убрать правку, принять текущий файл как основу); правки — истина приложения (@sat:app.patches), в проекте по id сущности; полный план и фиксация пишут исправленную копию в Satellite Patches, файл мода не меняется. Попутно: применение патча перенесено из sat-mo2 в sat-core (@sat:patch.apply), операции put/revert — в FilePatch, ключи ini по порядку — в модель ini.",
+   "closureContract": "Тест sat-app (правка, основа изменилась, принять основу, вернуть всё → правки нет); в браузере на копии с --write: правка → план «записать Satellite Patches» → фиксация → исправленная копия с CRLF и комментариями, оригинал цел, Satellite Patches последним по приоритету; clippy/fmt/check-map/тесты; CI; галочка.",
    "status": "active",
    "reason": "",
    "summary": "",
-   "createdAt": "2026-11-16T15:04:28Z",
-   "updatedAt": "2026-11-16T15:04:28Z",
+   "createdAt": "2026-11-16T15:10:17Z",
+   "updatedAt": "2026-11-16T15:10:17Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
@@ -663,6 +702,28 @@
    "artifacts": [],
    "distanceId": "D6-commit-window",
    "summary": "Шаг 5 ADR 0019: фиксация в окне."
+  },
+  {
+   "id": "worklog:1a1e4e8afe3:b7783ca9",
+   "revision": 17,
+   "at": "2026-11-16T15:10:17Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "D6 «Фиксация в окне» запечатан."
+  },
+  {
+   "id": "worklog:1a1e4e8b007:f40661ec",
+   "revision": 18,
+   "at": "2026-11-16T15:10:17Z",
+   "action": "DEEPEN",
+   "activity": "CHANGE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "D7-file-edits",
+   "summary": "Шаг 6 ADR 0019: правки файлов в плане из окна."
   }
  ],
  "humanRequests": {
@@ -815,13 +876,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T14:15:20Z"
  },
- "acceptanceSequence": 16,
+ "acceptanceSequence": 18,
  "lastControl": {
-  "at": "2026-11-16T15:04:28Z",
-  "revision": 16,
+  "at": "2026-11-16T15:10:17Z",
+  "revision": 18,
   "semanticChanged": true,
-  "acceptanceSequence": 16,
-  "modelSummary": "Шаг 5 ADR 0019: фиксация в окне."
+  "acceptanceSequence": 18,
+  "modelSummary": "Шаг 6 ADR 0019: правки файлов в плане из окна."
  },
  "hold": null,
  "completedAt": null

@@ -216,7 +216,8 @@ fn load(args: &[String], after_commit: bool) -> Result<(App, Option<home::Home>)
             } else {
                 mods_dir.join(m)
             };
-            std::fs::read(dir.join(rel)).ok()
+            // the path as the game sees it may differ in case from the folder on disk; `..` never resolves
+            sat_scan::fetch::find(&dir, rel).and_then(|f| std::fs::read(f).ok())
         }));
         // the file explorer reads copies of files, loose or packed (`@sat:scan.fetch`)
         // and the folders outside the build: the game, the profile, the instance, the game's documents

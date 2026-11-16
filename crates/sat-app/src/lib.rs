@@ -19,6 +19,7 @@ mod domains;
 pub mod find;
 mod participants;
 pub mod pass;
+pub mod patches;
 mod preview;
 pub mod project;
 pub mod records;
@@ -201,6 +202,14 @@ pub enum Command {
     },
     /// Stop the running run: nothing of it is published.
     CancelPass,
+    /// Edit the patch of a mod's ini file (`@sat:app.patches`): the commit writes the patched copy into Satellite
+    /// Patches; the mod's file is never touched.
+    PatchFile {
+        mod_name: String,
+        path: String,
+        #[serde(default)]
+        edit: patches::PatchEdit,
+    },
     /// Commit the plan to the build (`@sat:app.commit`; only when the shell writes): `confirmed` names steps not
     /// undone by a later commit (sealing a group).
     Commit {
@@ -293,6 +302,11 @@ pub enum Query {
     Project,
     /// The commit: state and the last result (`@sat:app.commit`).
     Commit,
+    /// A mod's ini file with its patch: keys, the mod's and the patched values (`@sat:app.patches.view`).
+    FilePatch {
+        mod_name: String,
+        path: String,
+    },
     /// Conflict contexts for the table's selector, largest first.
     Contexts,
     /// A page of record chains (`@sat:app.records.page`), largest first; with `plugin` only its chains.
@@ -813,6 +827,9 @@ pub enum Reply {
     Commit {
         commit: commit::CommitView,
     },
+    FilePatch {
+        file: patches::FilePatchView,
+    },
     Domains {
         domains: Vec<DomainItem>,
     },
@@ -923,6 +940,8 @@ pub enum AppError {
     Chord(String, String),
     #[error("bad chain signature {0:?}")]
     Signature(String),
+    #[error("file {0}")]
+    File(String),
     #[error("sync record {0}")]
     Record(String),
     #[error("no plugin {0:?}")]
@@ -996,6 +1015,8 @@ pub struct App {
     save: project::SaveSlot,
     /// The commit (`@sat:app.commit`).
     commit: commit::CommitSlot,
+    /// File patches as edited, sources by mod name (`@sat:app.patches`).
+    patches: Vec<sat_core::patch::FilePatch>,
 }
 
 impl App {
@@ -1019,6 +1040,7 @@ impl App {
             preview_source: Default::default(),
             pinned_files: Vec::new(),
             project_base: None,
+            patches: Vec::new(),
             commit: Default::default(),
             save: Default::default(),
             plan_source: None,
@@ -1332,6 +1354,14 @@ impl App {
             }
             C::StartPass { mode } => {
                 return Ok(if self.request_pass(mode) {
+                    Event::Decided
+                } else {
+                    Event::Nothing
+                });
+            }
+            C::PatchFile { mod_name, path, edit } => {
+                return Ok(if self.patch_file(&mod_name, &path, &edit)? {
+                    self.revision += 1;
                     Event::Decided
                 } else {
                     Event::Nothing
@@ -1675,6 +1705,9 @@ impl App {
             },
             Query::Commit => Reply::Commit {
                 commit: self.commit_view(),
+            },
+            Query::FilePatch { mod_name, path } => Reply::FilePatch {
+                file: self.file_patch_view(&mod_name, &path),
             },
             Query::Sync => {
                 let (plan, extras) = self.commit_plan();
