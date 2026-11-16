@@ -1,0 +1,240 @@
+{
+ "schema": "vibe-go-semantic-session/v1",
+ "id": "semantic-session:1a1e4b60bf0:abe6c17b",
+ "revision": 1,
+ "status": "active",
+ "createdAt": "2026-11-16T14:14:58Z",
+ "updatedAt": "2026-11-16T14:15:20Z",
+ "mission": {
+  "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
+  "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
+ },
+ "route": {
+  "activeDistanceId": "D1-audit-adr",
+  "activity": "PLANNING",
+  "deepeningStack": [
+   {
+    "distanceId": "distance:1a1e4b60bf0:783a0491",
+    "childDistanceId": "D1-audit-adr",
+    "returnPoint": {
+     "tacticalFocus": "Разведка: MAP.md — якоря sync/scan/commit/mo2/plan/intent; затем код и монолит 08-conflicts.",
+     "posture": "ARCHITECT"
+    },
+    "openedAt": "2026-11-16T14:15:20Z"
+   }
+  ],
+  "returnPoint": {
+   "tacticalFocus": "Разведка: MAP.md — якоря sync/scan/commit/mo2/plan/intent; затем код и монолит 08-conflicts.",
+   "posture": "ARCHITECT"
+  },
+  "tacticalFocus": "Разведка: MAP.md — якоря sync/scan/commit/mo2/plan/intent; затем код и монолит 08-conflicts.",
+  "scheduler": {
+   "events": []
+  }
+ },
+ "distances": {
+  "distance:1a1e4b60bf0:783a0491": {
+   "id": "distance:1a1e4b60bf0:783a0491",
+   "parentId": null,
+   "objective": "Связка синхронизация → обработка → фиксация работает из окна Satellite на сборке владельца: пробег, долги синхронизации, решения с сохранением, план фиксации с предпросмотром, запись одним поколением с бэкапом, проверкой и откатом.",
+   "closureContract": "Каждая стадия запечатана с доказательствами (коммиты, тесты, CI); владелец проверил цепочку на своей сборке X:\\MO2\\SSE; дорожная карта PHILOSOPHY.md отмечена.",
+   "status": "suspended",
+   "reason": "",
+   "summary": "",
+   "createdAt": "2026-11-16T14:14:58Z",
+   "updatedAt": "2026-11-16T14:15:20Z",
+   "sealedAt": null,
+   "suspendedAt": "2026-11-16T14:15:20Z",
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": null
+  },
+  "D1-audit-adr": {
+   "id": "D1-audit-adr",
+   "parentId": "distance:1a1e4b60bf0:783a0491",
+   "objective": "Аудит существующих частей цепочки (скан/кэш, записи синхронизации, решения и штампы, @sat:sync.plan, @sat:mo2.commit, sat-cli sync/commit, запись плагинов, доноры, намерения) по MAP, коду и анализу монолита (08-conflicts, pass S01–S23) и ADR конвейера: кто владеет какой истиной, поколение, сохранение проекта, пробег из окна, как любая правка попадает в план фиксации.",
+   "closureContract": "Аудит (docs/research или раздел ADR) и ADR в docs/adr закоммичены, check-map проходит; владелец просмотрел ADR (ответ в Human Inbox) или его замечания внесены.",
+   "status": "active",
+   "reason": "",
+   "summary": "",
+   "createdAt": "2026-11-16T14:15:20Z",
+   "updatedAt": "2026-11-16T14:15:20Z",
+   "sealedAt": null,
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": null
+  }
+ },
+ "notes": [],
+ "decisions": [],
+ "worklog": [
+  {
+   "id": "worklog:1a1e4b6635b:d725b201",
+   "revision": 1,
+   "at": "2026-11-16T14:15:20Z",
+   "action": "DEEPEN",
+   "activity": "PLANNING",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "D1-audit-adr",
+   "summary": "Миссия составная: до кода нужен аудит того, что уже есть по всей цепочке, и ADR, который владелец просмотрит. Углубляюсь в D1."
+  }
+ ],
+ "humanRequests": {},
+ "activities": [
+  {
+   "name": "RECON",
+   "meaning": "разведка: что есть, где, какие факты",
+   "provenance": "runner"
+  },
+  {
+   "name": "ANALYSIS",
+   "meaning": "разбор: причины, связи, варианты",
+   "provenance": "runner"
+  },
+  {
+   "name": "CHANGE",
+   "meaning": "изменение артефакта (код, документ)",
+   "provenance": "runner"
+  },
+  {
+   "name": "VALIDATION",
+   "meaning": "проверка утверждения доказательством, способным изменить решение",
+   "provenance": "runner"
+  },
+  {
+   "name": "PACKAGING",
+   "meaning": "оформление и поставка",
+   "provenance": "runner"
+  },
+  {
+   "name": "CLOSURE",
+   "meaning": "закрытие: печать, итог, передача",
+   "provenance": "runner"
+  },
+  {
+   "name": "PLANNING",
+   "meaning": "планировка: декомпозиция, порядок, контракты закрытия, развилки",
+   "provenance": "owner 2026-11-16"
+  }
+ ],
+ "strategicFrontier": {
+  "activeTheory": "Большая часть кирпичей уже есть по CLI (скан, синк-план, коммит MO2); не хватает единого владельца поколения, сохранения решений в проект и запуска из окна. Аудит это подтвердит или опровергнет.",
+  "posture": "ARCHITECT",
+  "strategyReminder": "Tactical focus is advisory. Optimize Mission progress; prefer batch/tooling or abstraction shifts when they have higher leverage.",
+  "fronts": [
+   {
+    "frontId": "F-audit-adr",
+    "title": "Аудит и ADR",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "HIGH",
+    "leverage": "HIGH",
+    "mechanicality": "LOW",
+    "blockingValue": "HIGH",
+    "cost": "MEDIUM",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "F-run-window",
+    "title": "Пробег анализов из окна (вместо CLI/PowerShell)",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "MEDIUM",
+    "leverage": "HIGH",
+    "mechanicality": "MEDIUM",
+    "blockingValue": "HIGH",
+    "cost": "MEDIUM",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "F-sync-window",
+    "title": "Синхронизация в окне: долги синхронизации, сверка с менеджером",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "MEDIUM",
+    "leverage": "HIGH",
+    "mechanicality": "MEDIUM",
+    "blockingValue": "HIGH",
+    "cost": "MEDIUM",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "F-processing-save",
+    "title": "Обработка с сохранением решений в проект",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "MEDIUM",
+    "leverage": "HIGH",
+    "mechanicality": "LOW",
+    "blockingValue": "HIGH",
+    "cost": "HIGH",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "F-commit-window",
+    "title": "Фиксация в окне: план, предпросмотр, поколение, бэкап, проверка, откат",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "MEDIUM",
+    "leverage": "HIGH",
+    "mechanicality": "LOW",
+    "blockingValue": "MEDIUM",
+    "cost": "HIGH",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "F-file-edits",
+    "title": "Правки файлов (патчи содержимого) в плане фиксации",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "MEDIUM",
+    "leverage": "MEDIUM",
+    "mechanicality": "LOW",
+    "blockingValue": "LOW",
+    "cost": "HIGH",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   }
+  ],
+  "reviewRevision": 1,
+  "reviewAcceptanceSequence": 0,
+  "reviewedAt": "2026-11-16T14:15:20Z"
+ },
+ "acceptanceSequence": 1,
+ "lastControl": {
+  "at": "2026-11-16T14:15:20Z",
+  "revision": 1,
+  "semanticChanged": true,
+  "acceptanceSequence": 1,
+  "modelSummary": "Миссия составная: до кода нужен аудит того, что уже есть по всей цепочке, и ADR, который владелец просмотрит. Углубляюсь в D1."
+ },
+ "hold": null,
+ "completedAt": null
+}
