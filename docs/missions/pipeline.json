@@ -1,20 +1,20 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 21,
+ "revision": 22,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T15:30:52Z",
+ "updatedAt": "2026-11-16T15:31:20Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
   "activeDistanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
-  "activity": "CLOSURE",
+  "activity": "VALIDATION",
   "deepeningStack": [],
   "returnPoint": null,
-  "tacticalFocus": "Код и тест готовы: коммит, CI, печать; затем итог миссии: отчёт владельцу, проверки на его сборке пачкой (WAIT_OPERATOR или BLOCKING-вопрос).",
+  "tacticalFocus": "WAIT_OPERATOR: пачка проверок владельцу на X:\\MO2\\SSE.",
   "scheduler": {
    "events": [
     {
@@ -501,6 +501,28 @@
    "revision": 14,
    "createdAt": "2026-11-16T14:59:24Z",
    "updatedAt": "2026-11-16T14:59:24Z"
+  },
+  {
+   "id": "note:1a1e4fbc1d6:1d4ee5bf",
+   "kind": "promise",
+   "text": "Переоткрытие сборки после фиксации сейчас синхронно в цикле запросов: на большой сборке окно будет недоступно, пока идёт пробег (по кешу — секунды–минуты). Если владелец заметит — вынести в задачу как пробег.",
+   "status": "open",
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "meta": null,
+   "revision": 22,
+   "createdAt": "2026-11-16T15:31:06Z",
+   "updatedAt": "2026-11-16T15:31:06Z"
+  },
+  {
+   "id": "note:1a1e4fbc1d6:269efc5a",
+   "kind": "promise",
+   "text": "Ошибки ворот фиксации и сохранения приходят из оболочки по-английски; окно — по-русски. Локализовать вместе с прочими сообщениями оболочки.",
+   "status": "open",
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "meta": null,
+   "revision": 22,
+   "createdAt": "2026-11-16T15:31:06Z",
+   "updatedAt": "2026-11-16T15:31:06Z"
   }
  ],
  "decisions": [
@@ -799,6 +821,21 @@
    "artifacts": [],
    "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "summary": "D8 «Переимпорт» запечатан."
+  },
+  {
+   "id": "worklog:1a1e4fbc1d7:1e19324f",
+   "revision": 22,
+   "at": "2026-11-16T15:31:06Z",
+   "action": "CONTINUE",
+   "activity": "VALIDATION",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    {
+     "commit": "7333205"
+    }
+   ],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "Пересмотр фронтира: смысловое доказательство цепочки закрыто на синтетических копиях (все шесть шагов ADR 0019 запечатаны с тестами и CI); открытым остаётся то, что я проверить не могу — работа на настоящей сборке владельца (Windows, 7,5 тыс. модов, ~2 ТБ): время пробега в окне, блокировка окна при переоткрытии после фиксации, Windows-замена файлов, его реальные расхождения."
   }
  ],
  "humanRequests": {
@@ -858,15 +895,15 @@
   }
  ],
  "strategicFrontier": {
-  "activeTheory": "Большая часть кирпичей уже есть по CLI (скан, синк-план, коммит MO2); не хватает единого владельца поколения, сохранения решений в проект и запуска из окна. Аудит это подтвердит или опровергнет.",
-  "posture": "ARCHITECT",
+  "activeTheory": "Цепочка работает на копиях; риск переместился в масштаб и Windows: проверка владельцем пачкой решит, нужна ли ещё работа (например, переоткрытие после фиксации без блокировки окна, прогресс полного пробега на 7,5 тыс. модов).",
+  "posture": "VALIDATE",
   "strategyReminder": "Tactical focus is advisory. Optimize Mission progress; prefer batch/tooling or abstraction shifts when they have higher leverage.",
   "fronts": [
    {
     "frontId": "F-audit-adr",
     "title": "Аудит и ADR",
     "objective": "",
-    "status": "OPEN",
+    "status": "CLOSED",
     "informationGain": "HIGH",
     "leverage": "HIGH",
     "mechanicality": "LOW",
@@ -880,7 +917,7 @@
     "frontId": "F-run-window",
     "title": "Пробег анализов из окна (вместо CLI/PowerShell)",
     "objective": "",
-    "status": "OPEN",
+    "status": "CLOSED",
     "informationGain": "MEDIUM",
     "leverage": "HIGH",
     "mechanicality": "MEDIUM",
@@ -894,7 +931,7 @@
     "frontId": "F-sync-window",
     "title": "Синхронизация в окне: долги синхронизации, сверка с менеджером",
     "objective": "",
-    "status": "OPEN",
+    "status": "CLOSED",
     "informationGain": "MEDIUM",
     "leverage": "HIGH",
     "mechanicality": "MEDIUM",
@@ -908,7 +945,7 @@
     "frontId": "F-processing-save",
     "title": "Обработка с сохранением решений в проект",
     "objective": "",
-    "status": "OPEN",
+    "status": "CLOSED",
     "informationGain": "MEDIUM",
     "leverage": "HIGH",
     "mechanicality": "LOW",
@@ -922,7 +959,7 @@
     "frontId": "F-commit-window",
     "title": "Фиксация в окне: план, предпросмотр, поколение, бэкап, проверка, откат",
     "objective": "",
-    "status": "OPEN",
+    "status": "CLOSED",
     "informationGain": "MEDIUM",
     "leverage": "HIGH",
     "mechanicality": "LOW",
@@ -936,7 +973,7 @@
     "frontId": "F-file-edits",
     "title": "Правки файлов (патчи содержимого) в плане фиксации",
     "objective": "",
-    "status": "OPEN",
+    "status": "CLOSED",
     "informationGain": "MEDIUM",
     "leverage": "MEDIUM",
     "mechanicality": "LOW",
@@ -945,20 +982,39 @@
     "relatedDistanceIds": [],
     "rationale": "",
     "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "F-owner-check",
+    "title": "Проверка цепочки на сборке владельца X:\\MO2\\SSE",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "HIGH",
+    "leverage": "HIGH",
+    "mechanicality": "LOW",
+    "blockingValue": "HIGH",
+    "cost": "LOW",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
    }
   ],
-  "reviewRevision": 1,
-  "reviewAcceptanceSequence": 0,
-  "reviewedAt": "2026-11-16T14:15:20Z"
+  "reviewRevision": 22,
+  "reviewAcceptanceSequence": 21,
+  "reviewedAt": "2026-11-16T15:31:06Z"
  },
- "acceptanceSequence": 21,
+ "acceptanceSequence": 23,
  "lastControl": {
-  "at": "2026-11-16T15:30:52Z",
-  "revision": 21,
-  "semanticChanged": true,
-  "acceptanceSequence": 21,
-  "modelSummary": "D8 «Переимпорт» запечатан."
+  "at": "2026-11-16T15:31:20Z",
+  "revision": 22,
+  "semanticChanged": false,
+  "acceptanceSequence": 23,
+  "modelSummary": "Вся оставшаяся работа миссии — проверка владельцем на его сборке."
  },
  "hold": null,
- "completedAt": null
+ "completedAt": null,
+ "operatorPrerequisite": {
+  "status": "waiting",
+  "text": "Владелец на своей сборке X:\\MO2\\SSE (артефакт CI sat-cli-windows c коммита 7333205 или новее): 1) sat-devserver X:\\MO2\\SSE — открытие, «Пробег»: поверхность и полный, время и что видно; 2) «Sync»: расхождения и план совпадают с sat-cli sync / sat-cli commit (без --apply); 3) на копии профиля или после бэкапа — sat-devserver X:\\MO2\\SSE --write: правка в окне → «● не сохранено» → Ctrl+S; «Зафиксировать…» с одним ответом SYNC → modlist.txt, версия в <профиль>\\satellite\\versions, после — «расхождений после: 0»; 4) «✎ Править» на ini любого мода → план «записать Satellite Patches» → фиксация → копия в моде Satellite Patches, оригинал цел. Ответ — что работает, что нет, сколько длится.",
+  "at": "2026-11-16T15:31:20Z"
+ }
 }
