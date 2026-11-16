@@ -36,6 +36,19 @@ pub trait FileSource: Send + Sync {
     fn read(&self, _place: &str, _path: &str) -> Option<Preview> {
         None
     }
+    /// A data path from the game's own `Data` (loose, else its archives): what the build does not override.
+    fn game(&self, _path: &str) -> Option<Preview> {
+        None
+    }
+}
+
+/// A data path read for a viewer (a mesh's texture, an animation's skeleton): from the build, else the game.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Asset {
+    pub path: String,
+    /// The mod the copy comes from, or `игра`.
+    pub from: String,
+    pub preview: Preview,
 }
 
 /// The shell's file source, if any.
@@ -109,6 +122,9 @@ pub struct VfsEntry {
     /// A file: packed in an archive (the game's copy).
     #[serde(default)]
     pub archived: bool,
+    /// A file: the size of the game's copy.
+    #[serde(default)]
+    pub size: u64,
 }
 
 /// A pinned file and whether the build still has it.
@@ -285,6 +301,7 @@ impl App {
                     winner: None,
                     copies: 0,
                     archived: false,
+                    size: 0,
                 }
             })
             .collect();
@@ -294,6 +311,10 @@ impl App {
             .map(|&p| {
                 let copies = table.path_providers(p).len() as u32;
                 let owners = distinct_owners(&table, p);
+                let size = table
+                    .path_providers(p)
+                    .find(|&i| ow.priorities().is_active(table.owner(i)))
+                    .map_or(0, |i| table.size(i));
                 let (winner, archived) = match ow.path_chain(p) {
                     Some(c) => (
                         Some(self.session.unit_label(ow.chain_mods(c)[0]).to_string()),
@@ -323,6 +344,7 @@ impl App {
                     winner,
                     copies,
                     archived,
+                    size,
                 }
             })
             .collect();
@@ -352,6 +374,109 @@ impl App {
         }
         out.sort_unstable();
         (out, total)
+    }
+
+    // @sat:app.preview.asset
+    /// A data path as the game would load it: the build's copy (the game's), else the game's own `Data`.
+    pub(crate) fn asset(&mut self, path: &str) -> Option<Asset> {
+        let path = path.trim_matches('/').replace('\\', "/").to_lowercase();
+        let src = self.preview_source.0.clone()?;
+        let table = self.session.table().clone();
+        if let Some(p) = table.find_path(&path) {
+            let copies = self.copies(p);
+            if let Some(c) = copies.iter().find(|c| c.wins).or(copies.first())
+                && let Some(preview) = src.copy(&c.name, &table.path_string(p), c.archive.as_deref())
+            {
+                return Some(Asset {
+                    path,
+                    from: c.name.clone(),
+                    preview,
+                });
+            }
+        }
+        let preview = src.game(&path)?;
+        Some(Asset {
+            path,
+            from: "игра".into(),
+            preview,
+        })
+    }
+
+    // @sat:app.preview.skeleton
+    /// The skeleton an animation plays on: `…/character assets*/skeleton.hkx` of the actor folder the animation
+    /// lies in (the part before `animations/` or `behaviors/`) — the build's first, else the game's.
+    pub(crate) fn skeleton_for(&mut self, path: &str) -> Option<Asset> {
+        let mut lower = path.trim_matches('/').replace('\\', "/").to_lowercase();
+        // a file of a place (`Data/…`, `Data/x.bsa/…`): the data path starts at `meshes/`
+        if let Some(i) = lower.find("meshes/").filter(|&i| i > 0) {
+            lower = lower[i..].to_string();
+        }
+        let cut = [
+            "/animations/",
+            "/behaviors/",
+            "/behaviours/",
+            "/character animations/",
+        ]
+        .iter()
+        .filter_map(|m| lower.find(m))
+        .min()?;
+        let actor = &lower[..cut];
+        let mut candidates: Vec<String> = Vec::new();
+        let table = self.session.table().clone();
+        let it = table.interner();
+        if let Some(d) = it.find_dir(actor) {
+            if !self
+                .vfs
+                .as_ref()
+                .is_some_and(|v| v.table == Arc::as_ptr(&table) as usize)
+            {
+                self.vfs = Some(Arc::new(VfsIndex::build(&table)));
+            }
+            let ix = self.vfs.clone()?;
+            for &c in &ix.dirs[d.0 as usize] {
+                let cd = sat_core::ids::DirId(c);
+                let name = it.segment(it.dir_segment(cd)).to_lowercase();
+                if !name.starts_with("character assets") {
+                    continue;
+                }
+                let mut files: Vec<String> = ix.files[c as usize]
+                    .iter()
+                    .map(|&p| table.path_string(p))
+                    .filter(|p| {
+                        let f = p.rsplit('/').next().unwrap_or("").to_lowercase();
+                        f.starts_with("skeleton") && f.ends_with(".hkx")
+                    })
+                    .collect();
+                files.sort_by_key(|f| (f.len(), f.clone()));
+                candidates.extend(files);
+            }
+        }
+        candidates.sort_by_key(|f| {
+            (
+                !f.to_lowercase().ends_with("/character assets/skeleton.hkx"),
+                f.len(),
+            )
+        });
+        candidates.push(format!("{actor}/character assets/skeleton.hkx"));
+        candidates.into_iter().find_map(|c| {
+            self.asset(&c)
+                .filter(|a| a.preview.motion.as_ref().is_some_and(|m| m.kind == "skeleton"))
+        })
+    }
+
+    // @sat:app.preview.thumb
+    /// A small picture of an image file (tiles of the explorer): a build path, or a file of a place.
+    pub(crate) fn thumb(
+        &mut self,
+        path: &str,
+        place: Option<&str>,
+        side: u32,
+    ) -> Option<sat_formats::preview::Picture> {
+        let preview = match place {
+            Some(pl) => self.preview_source.0.clone()?.read(pl, path)?,
+            None => self.asset(path)?.preview,
+        };
+        sat_formats::preview::thumbnail(&preview, side.clamp(16, 512))
     }
 
     /// A file of a place.

@@ -1,7 +1,8 @@
 //! NIF meshes for the preview: header, Bethesda stream, block types, names, texture sets. @sat:formats.preview.nif
 //!
-//! Owns: reading the NIF header and block table, texture-set blocks, files a mesh names.
-//! Not here: geometry (not rendered).
+//! Owns: reading the NIF header and block table (`Layout`, shared with the geometry reader), texture-set blocks,
+//! files a mesh names.
+//! Not here: geometry for the 3D view (`@sat:formats.preview.mesh`).
 
 use super::{Cur, Kind, Preview};
 
@@ -42,7 +43,11 @@ pub(super) fn read(b: &[u8]) -> Preview {
     let mut c = Cur::new(b);
     c.at = nl + 1;
     match parse(&mut c, &mut p) {
-        Some(()) => {}
+        Some(l) => {
+            if let Some(m) = super::mesh::read(b, &l) {
+                p.mesh = Some(m);
+            }
+        }
         None => p.note("заголовок прочитан не полностью"),
     }
     // textures and other files named anywhere in the data (effect shaders, attachments)
@@ -56,7 +61,20 @@ pub(super) fn read(b: &[u8]) -> Preview {
     p
 }
 
-fn parse(c: &mut Cur<'_>, p: &mut Preview) -> Option<()> {
+/// The block table of a NIF: what the geometry reader needs to walk blocks.
+pub(super) struct Layout {
+    pub bs: u32,
+    pub types: Vec<String>,
+    /// Block → its type's index.
+    pub idx: Vec<usize>,
+    /// Block → its size (20.2.0.5 and later).
+    pub sizes: Vec<usize>,
+    pub strings: Vec<String>,
+    /// Where block 0 starts.
+    pub data_at: usize,
+}
+
+fn parse(c: &mut Cur<'_>, p: &mut Preview) -> Option<Layout> {
     let ver = c.u32()?;
     let verstr = format!(
         "{}.{}.{}.{}",
@@ -98,7 +116,7 @@ fn parse(c: &mut Cur<'_>, p: &mut Preview) -> Option<()> {
     p.fact("Блоков", blocks);
     p.format = format!("NIF {verstr} · {} · блоков {blocks}", game_of(bs, user));
     if ver < 0x0A000000 {
-        return Some(());
+        return None;
     }
     let ntypes = c.u16()? as usize;
     let mut types = Vec::with_capacity(ntypes.min(2048));
@@ -185,7 +203,14 @@ fn parse(c: &mut Cur<'_>, p: &mut Preview) -> Option<()> {
         }
         p.section("Наборы текстур", sets);
     }
-    Some(())
+    Some(Layout {
+        bs,
+        types,
+        idx,
+        sizes,
+        strings,
+        data_at: c.at,
+    })
 }
 
 #[cfg(test)]

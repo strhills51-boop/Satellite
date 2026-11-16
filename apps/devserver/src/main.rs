@@ -516,4 +516,7 @@ impl sat_app::FileSource for Files {
     fn read(&self, place: &str, path: &str) -> Option<sat_formats::preview::Preview> {
         self.disk.read(place, path)
     }
+    fn game(&self, path: &str) -> Option<sat_formats::preview::Preview> {
+        self.disk.game(path)
+    }
 }

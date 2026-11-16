@@ -25,11 +25,15 @@ mod tree;
 pub use advisor::{AdviceRow, OrderAdvice};
 pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
-pub use preview::{FileCopy, FilePreview, FileSource, PinnedFile, PlaceFile, VfsEntry};
+pub use preview::{Asset, FileCopy, FilePreview, FileSource, PinnedFile, PlaceFile, VfsEntry};
 pub use tree::{ChainRef, FileRow, FileTree, PathOwners, TreeSubject};
 
 fn yes() -> bool {
     true
+}
+
+fn thumb_side() -> u32 {
+    128
 }
 
 fn tree_limit() -> usize {
@@ -435,6 +439,22 @@ pub enum Query {
         place: String,
         path: String,
     },
+    /// A data path as the game loads it (the build's copy, else the game's): a mesh's texture.
+    Asset {
+        path: String,
+    },
+    /// The skeleton an animation plays on.
+    SkeletonFor {
+        path: String,
+    },
+    /// A small picture of an image file (a build path, or a file of `place`).
+    Thumb {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+        #[serde(default = "thumb_side")]
+        side: u32,
+    },
     /// What the decoration editor edits: the mods of the view's selection (the focused one when none) and
     /// their distinct styles with counts, so the editor can mark fields that differ ("mixed").
     Decoration {
@@ -796,6 +816,12 @@ pub enum Reply {
     },
     PlaceFile {
         file: Option<Box<PlaceFile>>,
+    },
+    Asset {
+        asset: Option<Box<Asset>>,
+    },
+    Thumb {
+        picture: Option<sat_formats::preview::Picture>,
     },
     ChainOrphans {
         orphans: find::Orphans,
@@ -1702,6 +1728,15 @@ impl App {
             },
             Query::PlaceFile { place, path } => Reply::PlaceFile {
                 file: self.place_file(&place, &path).map(Box::new),
+            },
+            Query::Asset { path } => Reply::Asset {
+                asset: self.asset(&path).map(Box::new),
+            },
+            Query::SkeletonFor { path } => Reply::Asset {
+                asset: self.skeleton_for(&path).map(Box::new),
+            },
+            Query::Thumb { path, place, side } => Reply::Thumb {
+                picture: self.thumb(&path, place.as_deref(), side),
             },
             Query::ContextCard { key, index, limit } => Reply::ChainCard {
                 card: self.context_card(key, index, limit.min(5000)).map(Box::new),

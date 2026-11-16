@@ -278,6 +278,34 @@ impl Disk {
         Some(out)
     }
 
+    // @sat:scan.fetch.game
+    /// A data path from the game's `Data` (place `game`): loose, else the first of its archives that has it.
+    pub fn game(&self, rel: &str) -> Option<Preview> {
+        let root = self.root("game")?;
+        let data = resolve(root, "Data").filter(|d| d.is_dir())?;
+        let want = rel.trim_matches('/').replace('\\', "/").to_lowercase();
+        if let Some(f) = find(&data, &want) {
+            return preview_file(&f, &want);
+        }
+        let mut archives: Vec<PathBuf> = std::fs::read_dir(&data)
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && is_archive_name(&p.to_string_lossy()))
+            .collect();
+        archives.sort();
+        for a in archives {
+            if self
+                .manifest(&a)
+                .is_some_and(|m| m.iter().any(|(p, _)| *p == want))
+            {
+                let label = a.file_name()?.to_string_lossy().into_owned();
+                return Some(preview_entry(&a, &label, &want));
+            }
+        }
+        None
+    }
+
     /// Preview of file `rel` of place `id` (an archive's entry too).
     pub fn read(&self, id: &str, rel: &str) -> Option<Preview> {
         let (at, inner) = self.locate(id, rel)?;

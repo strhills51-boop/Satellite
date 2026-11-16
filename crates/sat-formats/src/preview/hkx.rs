@@ -1,6 +1,7 @@
 //! Havok files for the preview: packfile header, bits, classes, what the file is. @sat:formats.preview.hkx
 //!
-//! Owns: packfile / tagfile detection, Havok version, pointer size (LE / SE), class names and the kind they make.
+//! Owns: packfile / tagfile detection, Havok version, pointer size (LE / SE), class names and the kind they make;
+//! facts of the skeleton or animation decoded for playback (`@sat:formats.preview.motion`).
 
 use super::{Cur, Kind, Preview};
 
@@ -47,6 +48,34 @@ pub(super) fn read(b: &[u8]) -> Preview {
         ),
     );
     let kind = classes(&mut p, b);
+    match super::motion::read(b) {
+        Ok(Some(m)) => {
+            if m.kind == "skeleton" {
+                p.fact("Костей", m.names.len());
+                if !m.skeleton.is_empty() {
+                    p.fact("Скелет", &m.skeleton);
+                }
+                let bones = m.names.clone();
+                p.section("Кости", bones);
+            } else {
+                p.fact("Длительность", format!("{:.2} с", m.duration));
+                p.fact("Кадров", m.frames);
+                p.fact("Дорожек", m.names.len());
+                p.fact("Сжатие", &m.compression);
+                if m.additive {
+                    p.fact("Смешивание", "аддитивная");
+                }
+                if !m.skeleton.is_empty() {
+                    p.fact("Для скелета", &m.skeleton);
+                }
+                let ev: Vec<String> = m.events.iter().map(|(t, e)| format!("{t:.2} с — {e}")).collect();
+                p.section("События", ev);
+            }
+            p.motion = Some(m);
+        }
+        Ok(None) => {}
+        Err(e) => p.note(e),
+    }
     p.format = format!(
         "HKX · {version} · {} бит{}",
         ptr as u32 * 8,

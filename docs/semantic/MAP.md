@@ -62,6 +62,9 @@
 | Проводник: копии пути (у кого, свободная / в каком архиве, какую берёт игра), предпросмотр выбранной, вся сборка по папкам, поиск по путям, закреплённые файлы | `@sat:app.preview` (`@sat:app.preview.copies`, `@sat:app.preview.file`, `@sat:app.preview.vfs`, `@sat:app.preview.find`; `Query::FilePreview`, `VfsDir`, `FindPaths`, `PinnedFiles`, `Command::PinFile`); архивы мода — папками дерева — `@sat:app.tree` | закреплённые — в проекте (`pinned_files`; файл места — `место:путь`) |
 | Места вне сборки в проводнике: папка игры (Data и её архивы), профиль (ini профиля, plugins.txt), экземпляр MO2, документы игры (`My Games`: ini, логи, сохранения) — по папкам, архивы — папками записей | места и чтение — `@sat:scan.fetch.disk` (`Disk`, модель — `Place`, `DiskEntry` в `@sat:formats.preview`); документы игры — `@sat:mo2.instance.documents`; в приложении — `Query::Places`, `PlaceDir`, `PlaceFile` (`@sat:app.preview`) | только чтение; путь не выходит из места (`..` не разрешается) |
 | Папка игры, когда экземпляр её не называет: глобальный экземпляр (ini в `%LOCALAPPDATA%\ModOrganizer`, найденный по `base_directory`), портативная рядом, библиотеки Steam (`libraryfolders.vdf`), GOG | `@sat:mo2.instance.game` | — |
+| 3D-просмотр меша: фигуры NIF в пространстве модели (узлы, `BSTriShape` / `BSSubIndexTriShape` / `BSDynamicTriShape`, SSE-скиннинг через `NiSkinPartition`, `NiTriShape` / `NiTriStrips` LE), UV, диффузная текстура набора | геометрия — `@sat:formats.preview.mesh` (`Mesh`, `Shape`; таблица блоков — `Layout` из `@sat:formats.preview.nif`); текстура — `Query::Asset` (`@sat:app.preview.asset`: копия сборки, иначе `Data` игры — `@sat:scan.fetch.game`); рисует просмотрщик проводника (WebGL2) | Starfield (внешние `.mesh`) — не рисуется |
+| Проигрывание анимации: скелет и кадры Havok (сплайновое сжатие, interleaved), привязка дорожек к костям, аддитивные, события | разбор — `@sat:formats.preview.motion` (`Motion`), факты — `@sat:formats.preview.hkx`; скелет анимации — `@sat:app.preview.skeleton` (`Query::SkeletonFor`: `…/character assets*/skeleton.hkx` папки актёра) | формат прочитан по публичным описаниям; сверено с PyNifly на 26 файлах Skyrim LE/SE и Fallout 4 |
+| Виды папки в проводнике: дерево, таблица (колонки, сортировка), список, плитки с миниатюрами, содержимое; хлебные крошки | миниатюра — `@sat:formats.preview.thumb` (`thumbnail`), запрос — `@sat:app.preview.thumb` (`Query::Thumb`); размер копии игры — `VfsEntry.size` | — |
 | Перепись расширений сборки и чем каждое читает проводник | `@sat:cli.extensions` (`analyze --extensions`), читатели — `@sat:formats.preview.readers` (`reader_of`) | — |
 | Единая архитектура конфликтов: домен — адаптер с общей формой вывода (централь — откуда порядок, семантика, цепочки, клетки, контексты, счётчики) | общая форма — `@sat:conflict` (сборщик `@sat:conflict.builder`, случай — `@sat:conflict.contest`, контексты — `@sat:conflict.contexts`); пакет игры — `@sat:game` (`@sat:game.pack`, встроенный `games/skyrimse.json`, выбор по `gameName`) | ADR 0018; файлы и записи — специализированные адаптеры, отвечают на те же запросы окна |
 | Стаки: цели, которые проходят цепочку одинаково (у каждого участника та же клетка), — одна единица: считаются, вычисляются и показываются одним столбцом / зубом с числом | сборка — `@sat:conflict.stacks` (`Chain::stacks`, `Counts::stacks`), вычисление один раз на форму поставщиков — `@sat:conflict.stacks.compute` (архивы); файлы — точная цепочка = стак (`group_stacks`), записи — `RecordChain::stacks`; подпись стака — `@sat:app.stack-label`, его цели — `@sat:app.domains.stack` (`StackTargets`) | в таблице столбец — стак (квадрат клетки выше с размером, клик по шапке — список), в карточке зуб шириной по логарифму числа |
@@ -173,7 +176,7 @@
 - `crates/sat-app/src/records.rs` — `@sat:app.records`: слой записей в окне — отчёт, состояние, страницы цепочек, записи у плагина, контексты и таблица для окна «Конфликты».
 - `crates/sat-scan/src/records.rs` — `@sat:scan.records`: записи плагина с диска и их кэш.
 - `crates/sat-scan/src/content.rs` — `@sat:scan.content-hash`: хеш содержимого файла и кэш хешей.
-- `crates/sat-scan/src/fetch.rs` — `@sat:scan.fetch`: копия файла с диска (свободная или из архива) → предпросмотр; места вне сборки — `@sat:scan.fetch.disk`.
+- `crates/sat-scan/src/fetch.rs` — `@sat:scan.fetch`: копия файла с диска (свободная или из архива) → предпросмотр; места вне сборки — `@sat:scan.fetch.disk`, путь данных из `Data` игры — `@sat:scan.fetch.game`.
 - `crates/sat-core/src/profile.rs` — `@sat:profile`: профиль содержимого мода (семейства, области путей, расширения, метки).
 - `crates/sat-core/src/interner.rs` — `@sat:interner`: арена строк, свёртка регистра, каталоги, `file_key`.
 - `crates/sat-core/src/jobs.rs` — `@sat:jobs`: задачи с отменой и поколениями, ворота публикации.
@@ -230,7 +233,7 @@
 - `crates/sat-app/src/participants.rs` — `@sat:app.participants`: выключенные владельцы, стеки владельцев, W / L / M / X.
 - `crates/sat-app/src/advisor.rs` — `@sat:app.advisor`: мастер порядка контекста, `Reorder`.
 - `crates/sat-app/src/tree.rs` — `@sat:app.tree`: проводник — деревья модов, выделения и цепочек, владельцы пути.
-- `crates/sat-app/src/preview.rs` — `@sat:app.preview`: копии файла и предпросмотр, вся сборка по папкам, поиск, закреплённые.
+- `crates/sat-app/src/preview.rs` — `@sat:app.preview`: копии файла и предпросмотр, вся сборка по папкам, поиск, закреплённые; путь как его грузит игра — `@sat:app.preview.asset`, скелет анимации — `@sat:app.preview.skeleton`, миниатюра — `@sat:app.preview.thumb`.
 - `crates/sat-app/src/context.rs` — `@sat:app.context-table`: таблица конфликтов контекста, окно строк × столбцов.
 - `crates/sat-app/src/sync.rs` — `@sat:app.sync`: записи SYNC в приложении — решения командой, план запросом.
 - `crates/sat-app/src/sheet.rs` — `@sat:app.sheet`: карточка мода — схема, уровни, слои наблюдённого и пользователя.
@@ -260,12 +263,14 @@
 - `crates/sat-formats/src/ini.rs` — `@sat:formats.ini`: ini как модель с сохранением файла — чтение, задать, убрать, запись.
 - `crates/sat-formats/src/preview/mod.rs` — `@sat:formats.preview`: модель предпросмотра и разбор по расширению, читатель расширения — `@sat:formats.preview.readers`, места вне сборки — `Place`, `DiskEntry`.
 - `crates/sat-formats/src/preview/text.rs` — `@sat:formats.preview.text`: текст, кодировки, ini, JSON, XML, исходники Papyrus.
-- `crates/sat-formats/src/preview/image.rs` — `@sat:formats.preview.image`: DDS (BC1–BC7) и TGA в картинку, размеры PNG/JPEG/BMP/GIF.
+- `crates/sat-formats/src/preview/image.rs` — `@sat:formats.preview.image`: DDS (BC1–BC7) и TGA в картинку, размеры PNG/JPEG/BMP/GIF, миниатюра — `@sat:formats.preview.thumb`.
 - `crates/sat-formats/src/preview/nif.rs` — `@sat:formats.preview.nif`: заголовок и блоки NIF, наборы текстур.
 - `crates/sat-formats/src/preview/hkx.rs` — `@sat:formats.preview.hkx`: Havok — версия, разрядность, классы.
 - `crates/sat-formats/src/preview/pex.rs` — `@sat:formats.preview.pex`: скомпилированный Papyrus.
 - `crates/sat-formats/src/preview/media.rs` — `@sat:formats.preview.media`: WAV, XWM, FUZ, LIP, BIK, SWF.
 - `crates/sat-formats/src/preview/game.rs` — `@sat:formats.preview.game`: плагины, архивы, материалы, zip, SEQ, TRI, строки, DLL, шрифты, PDF/PSD.
+- `crates/sat-formats/src/preview/mesh.rs` — `@sat:formats.preview.mesh`: геометрия NIF для 3D-просмотра.
+- `crates/sat-formats/src/preview/motion.rs` — `@sat:formats.preview.motion`: скелеты и анимации Havok для проигрывания.
 - `crates/sat-formats/src/preview/save.rs` — `@sat:formats.preview.save`: сохранения Skyrim (`.ess`) и Fallout 4 (`.fos`) — персонаж, место, снимок, плагины.
 - `crates/sat-mo2/src/install.rs` — `@sat:mo2.install`: установка мода из архива — корень Data, факты до установки, безопасная распаковка.
 - `crates/sat-mo2/src/profile.rs` — `@sat:mo2.profile`: файлы профиля байт в байт.

@@ -21,13 +21,18 @@ pub(crate) fn png(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
 
 /// Nearest-neighbour downscale so the larger side is at most [`THUMB`].
 fn fit(w: u32, h: u32, rgba: Vec<u8>) -> (u32, u32, Vec<u8>) {
+    fit_to(w, h, rgba, THUMB)
+}
+
+/// Downscale (box filter for small targets) so the larger side is at most `side`.
+fn fit_to(w: u32, h: u32, rgba: Vec<u8>, side: u32) -> (u32, u32, Vec<u8>) {
     let s = w.max(h);
-    if s <= THUMB {
+    if s <= side {
         return (w, h, rgba);
     }
     let (nw, nh) = (
-        (w as u64 * THUMB as u64 / s as u64).max(1) as u32,
-        (h as u64 * THUMB as u64 / s as u64).max(1) as u32,
+        (w as u64 * side as u64 / s as u64).max(1) as u32,
+        (h as u64 * side as u64 / s as u64).max(1) as u32,
     );
     let mut out = vec![0u8; (nw * nh * 4) as usize];
     for y in 0..nh {
@@ -39,6 +44,32 @@ fn fit(w: u32, h: u32, rgba: Vec<u8>) -> (u32, u32, Vec<u8>) {
         }
     }
     (nw, nh, out)
+}
+
+// @sat:formats.preview.thumb
+/// A small picture of a preview's picture (tiles of the explorer): its PNG decoded and shrunk to `side`.
+pub fn thumbnail(p: &Preview, side: u32) -> Option<Picture> {
+    let pic = p.picture.as_ref()?;
+    if pic.mime != "image/png" {
+        return Some(pic.clone());
+    }
+    let bytes = super::unbase64(&pic.data);
+    let dec = png::Decoder::new(std::io::Cursor::new(bytes));
+    let mut r = dec.read_info().ok()?;
+    let mut buf = vec![0; r.output_buffer_size()];
+    let info = r.next_frame(&mut buf).ok()?;
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    buf.truncate(info.buffer_size());
+    let (w, h, rgba) = fit_to(info.width, info.height, buf, side);
+    Some(Picture {
+        mime: "image/png".into(),
+        data: base64(&png(w, h, &rgba)?),
+        width: w,
+        height: h,
+        note: String::new(),
+    })
 }
 
 /// A picture from RGBA, fitted to a thumbnail (saves' screenshots too).
@@ -543,5 +574,15 @@ mod tests {
         let p = inspect("a.tga", &b);
         assert!(p.picture.is_some(), "{:?}", p.notes);
         assert!(p.format.contains("2×1"));
+    }
+
+    #[test]
+    fn a_thumbnail_shrinks_the_picture() {
+        // an uncompressed 32-bit TGA, 200×100
+        let mut b = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 100, 0, 32, 8];
+        b.extend(std::iter::repeat_n([10u8, 20, 30, 255], 200 * 100).flatten());
+        let p = inspect("t.tga", &b);
+        let t = super::thumbnail(&p, 64).expect("thumbnail");
+        assert_eq!((t.width, t.height), (64, 32));
     }
 }

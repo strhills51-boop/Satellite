@@ -196,6 +196,19 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #fx .fxt { overflow: auto; border-right: 1px solid var(--line); padding: 6px 8px; }
 #fx .fxt .tree { max-height: none; }
 #fx .fxp { overflow: auto; padding: 10px 14px; min-width: 0; }
+#fx .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-size: 12px; margin-bottom: 6px; position: sticky; top: -6px; background: var(--panel); padding: 4px 0; z-index: 1; }
+#fx .crumbs a { cursor: pointer; padding: 1px 5px; border-radius: 4px; } #fx .crumbs a:hover { background: var(--bg2); } #fx .crumbs .sep { color: var(--muted); }
+#fx .crumbs button { padding: 0 8px; font-size: 12px; margin-right: 4px; }
+table.fxtab { width: 100%; border-collapse: collapse; font-size: 12px; } .fxtab th { text-align: left; font-weight: 500; color: var(--muted); padding: 3px 6px; cursor: pointer; white-space: nowrap; border-bottom: 1px solid var(--line); user-select: none; }
+.fxtab th.on { color: var(--fg, #e5e7eb); } .fxtab td { padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; } .fxtab tr.it { cursor: pointer; } .fxtab tr.it:hover td { background: var(--bg2); }
+.fxtab td.n { text-align: right; font-variant-numeric: tabular-nums; } .fxtab tr.sel2 td { background: rgba(59,130,246,.22); } .fxtab tr.inar td { background: rgba(167,139,250,.07); }
+.fxlist { column-width: 230px; column-gap: 12px; font-size: 12px; } .fxlist .it { break-inside: avoid; padding: 2px 4px; border-radius: 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .fxlist .it:hover { background: var(--bg2); } .fxlist .it.sel2 { background: rgba(59,130,246,.22); }
+.fxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; } .fxgrid .it { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; border-radius: 8px; cursor: pointer; font-size: 11px; text-align: center; word-break: break-all; }
+.fxgrid .it:hover { background: var(--bg2); } .fxgrid .it.sel2 { background: rgba(59,130,246,.22); } .fxgrid .th { width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; font-size: 46px; border-radius: 6px; background: rgba(255,255,255,.03); overflow: hidden; }
+.fxgrid .th img, .fxcont .th img { max-width: 100%; max-height: 100%; image-rendering: auto; } .fxgrid .nm { max-height: 2.6em; overflow: hidden; } .fxgrid .mt, .fxcont .mt { color: var(--muted); font-size: 10px; }
+.fxgrid .it.inar .th, .fxcont .it.inar .th { box-shadow: inset 0 0 0 1px rgba(167,139,250,.45); }
+.fxcont .it { display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,.04); font-size: 12px; } .fxcont .it:hover { background: var(--bg2); } .fxcont .it.sel2 { background: rgba(59,130,246,.22); }
+.fxcont .th { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; font-size: 28px; border-radius: 6px; background: rgba(255,255,255,.03); overflow: hidden; }
 .te.sel2 { background: rgba(59,130,246,.18); }
 .te.arch > .nm { color: #c4b5fd; } .te.inar { background: rgba(167,139,250,.07); }
 .te .cp { font: 10px var(--mono); color: var(--muted); }
@@ -203,6 +216,14 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .fhit:hover, .fhit.sel2 { background: rgba(59,130,246,.18); }
 .pv h4 { margin: 0 0 4px; font-size: 14px; display: flex; gap: 8px; align-items: center; word-break: break-all; }
 .pv .fmt { font: 12px var(--mono); color: var(--muted); margin-bottom: 8px; }
+.v3d { position: relative; margin: 6px 0 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #111827; }
+.v3d canvas { display: block; width: 100%; height: 420px; cursor: grab; touch-action: none; } .v3d.compact canvas { height: 220px; }
+.v3d .v3bar { display: flex; gap: 6px; align-items: center; padding: 4px 6px; font-size: 12px; background: var(--bg2); flex-wrap: wrap; }
+.v3d .v3bar button, .v3d .v3bar select { padding: 1px 8px; font-size: 12px; } .v3d .v3bar button.on { background: rgba(59,130,246,.3); }
+.v3d .v3bar .tl { position: relative; flex: 1; min-width: 120px; display: flex; } .v3d .v3bar .tl input { width: 100%; }
+.v3d .v3bar .tl i { position: absolute; top: -3px; width: 2px; height: 8px; background: #f59e0b; pointer-events: auto; }
+.v3d .v3bar .fr { font: 11px var(--mono); color: var(--muted); min-width: 64px; }
+.v3d .v3msg { position: absolute; left: 8px; top: 6px; font-size: 11px; pointer-events: none; }
 .pv .pin { font-size: 14px; padding: 0 8px; border-radius: 999px; }
 .pv .pin.on { color: #f59e0b; border-color: #f59e0b; }
 .pv table.facts { border-collapse: collapse; font-size: 12px; margin: 6px 0 10px; }
@@ -213,6 +234,11 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .pv .copies .cp1.off { opacity: .6; font-style: italic; } .pv .copies .w { color: var(--w-txt); } .pv .copies .ar { color: #c4b5fd; font: 11px var(--mono); }
 .pv .pic { background-color: #888; background-image: linear-gradient(45deg,#aaa 25%,transparent 25%),linear-gradient(-45deg,#aaa 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#aaa 75%),linear-gradient(-45deg,transparent 75%,#aaa 75%); background-size: 16px 16px; background-position: 0 0,0 8px,8px -8px,-8px 0; display: inline-block; border-radius: 6px; overflow: hidden; max-width: 100%; }
 .pv .pic img { display: block; max-width: 100%; max-height: 60vh; image-rendering: auto; cursor: zoom-in; } .pv .pic img.full { max-width: none; max-height: none; cursor: zoom-out; }
+.pv .picv { position: relative; height: 56vh; min-height: 260px; border-radius: 6px; overflow: hidden; cursor: grab; touch-action: none; border: 1px solid var(--line); }
+.pv .picv.bg-dark { background: #111; } .pv .picv.bg-light { background: #eee; }
+.pv .picv.bg-check { background-color: #888; background-image: linear-gradient(45deg,#aaa 25%,transparent 25%),linear-gradient(-45deg,#aaa 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#aaa 75%),linear-gradient(-45deg,transparent 75%,#aaa 75%); background-size: 16px 16px; background-position: 0 0,0 8px,8px -8px,-8px 0; }
+.pv .picv canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; image-rendering: pixelated; }
+.pv .picbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 8px; font-size: 12px; } .pv .picbar button { padding: 0 8px; font-size: 12px; } .pv .picbar button.on { background: rgba(59,130,246,.3); }
 .pv .picn { font-size: 11px; color: var(--muted); margin: 2px 0 8px; }
 .pv pre.txt { font: 12px/1.45 var(--mono); background: var(--bg2); border-radius: 6px; padding: 8px 10px; max-height: 60vh; overflow: auto; white-space: pre; counter-reset: ln; }
 .pv pre.txt .ln { display: inline-block; width: 4ch; color: var(--muted); user-select: none; text-align: right; margin-right: 10px; }
@@ -407,6 +433,7 @@ footer b { color: var(--accent2); font-weight: 500; }
   <div class="fxh"><b>Проводник</b>
     <span class="seg" id="fxSubj"><button data-subj="selection" title="Выделенные моды: их файлы и архивы как папки">выделение</button><button data-subj="build" title="Все файлы сборки, как их видит игра: победившие копии">вся сборка</button></span>
     <span class="tmodes" id="fxModes"></span>
+    <span class="seg" id="fxView" title="Вид проводника"></span>
     <input type="search" id="fxQ" placeholder="Поиск по путям всей сборки (от 2 символов)">
     <button id="fxClose">Закрыть</button></div>
   <div class="fxb"><div class="fxt" id="fxTree"></div><div class="fxp" id="fxPrev"><div class="muted">Выбери файл слева.</div></div></div>
@@ -775,7 +802,9 @@ function pvHtml(f, compact) {
   }
   if (!p) return h + `<div class="muted">Предпросмотр недоступен: файл не читается с диска.</div></div>`;
   if (p.notes && p.notes.length) h += `<div class="notes">${p.notes.map(esc).join("<br>")}</div>`;
-  if (p.picture) h += `<div class="pic"><img src="data:${p.picture.mime};base64,${p.picture.data}" alt=""></div>${p.picture.note ? `<div class="picn">показан ${esc(p.picture.note)}</div>` : ""}`;
+  h += v3dSlot(p, f.path, compact);
+  if (p.picture && !compact) h += picViewer(p.picture);
+  else if (p.picture) h += `<div class="pic"><img src="data:${p.picture.mime};base64,${p.picture.data}" alt=""></div>${p.picture.note ? `<div class="picn">показан ${esc(p.picture.note)}</div>` : ""}`;
   if (p.audio) h += `<audio controls src="data:${p.audio.mime};base64,${p.audio.data}" style="width:100%;margin:6px 0"></audio>`;
   const facts = compact ? p.facts.slice(0, 8) : p.facts;
   if (facts.length) h += `<table class="facts">${facts.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>`;
@@ -832,11 +861,254 @@ async function previewClicks(ev, where) {
 }
 $("bPrev").addEventListener("click", ev => previewClicks(ev, "side"));
 
+// ---------------------------------------------------------------- picture viewer
+// Zoom with the wheel at the cursor, drag to move, double click — fit; channels R / G / B / A, background; the zoom
+// and channel stay when another copy of the file is shown (as in MO2's DDS preview and its zoom add-on).
+const PIC = { chan: "rgb", bg: "check", keep: null }; const PICS = new Map(); let picSeq = 0;
+function picViewer(pic) {
+  const id = "p" + (++picSeq); PICS.set(id, pic);
+  const b = (v, n, t) => `<button data-pch="${v}" class="${PIC.chan === v ? "on" : ""}" title="${t}">${n}</button>`;
+  const g = (v, n) => `<button data-pbg="${v}" class="${PIC.bg === v ? "on" : ""}">${n}</button>`;
+  return `<div class="picbar">${b("rgb", "RGB", "Цвет")}${b("r", "R", "Красный канал")}${b("g", "G", "Зелёный канал")}${b("b", "B", "Синий канал")}${b("a", "A", "Альфа")}${b("rgba", "RGBA", "Цвет с прозрачностью")} <span class="muted">фон</span> ${g("check", "▦")}${g("dark", "■")}${g("light", "□")}<button data-pfit title="Вписать (или двойной клик)">⤢</button><button data-p11 title="1:1">1:1</button><span class="muted pz"></span></div>` +
+    `<div class="picv bg-${PIC.bg}" data-pic="${id}"><canvas></canvas></div>`;
+}
+function picMount(el) {
+  const pic = PICS.get(el.dataset.pic); PICS.delete(el.dataset.pic); if (!pic) return;
+  const cv = el.querySelector("canvas"), img = new Image(), bar = el.previousElementSibling;
+  const st = { s: 1, x: 0, y: 0 };
+  const apply = () => { cv.style.transform = `translate(${st.x}px,${st.y}px) scale(${st.s})`; const z = bar.querySelector(".pz"); if (z) z.textContent = Math.round(st.s * 100) + "%"; PIC.keep = { ...st, w: cv.width }; };
+  const fit = () => { const r = el.getBoundingClientRect(); st.s = Math.min(r.width / cv.width, r.height / cv.height, 8); st.x = (r.width - cv.width * st.s) / 2; st.y = (r.height - cv.height * st.s) / 2; apply(); };
+  const draw = () => {
+    const c = cv.getContext("2d"); cv.width = img.naturalWidth; cv.height = img.naturalHeight; c.drawImage(img, 0, 0);
+    if (PIC.chan !== "rgba") {
+      const d = c.getImageData(0, 0, cv.width, cv.height), a = d.data, k = { r: 0, g: 1, b: 2, a: 3 }[PIC.chan];
+      for (let i = 0; i < a.length; i += 4) { if (k == null) a[i + 3] = 255; else { const v = a[i + k]; a[i] = a[i + 1] = a[i + 2] = v; a[i + 3] = 255; } }
+      c.putImageData(d, 0, 0);
+    }
+  };
+  img.onload = () => { draw(); if (PIC.keep && PIC.keep.w === cv.width) { Object.assign(st, PIC.keep); apply(); } else fit(); };
+  img.src = `data:${pic.mime};base64,${pic.data}`;
+  let drag = null;
+  el.addEventListener("pointerdown", e => { drag = { x: e.clientX - st.x, y: e.clientY - st.y }; el.setPointerCapture(e.pointerId); });
+  el.addEventListener("pointermove", e => { if (!drag) return; st.x = e.clientX - drag.x; st.y = e.clientY - drag.y; apply(); });
+  el.addEventListener("pointerup", () => { drag = null; });
+  el.addEventListener("dblclick", fit);
+  el.addEventListener("wheel", e => { e.preventDefault(); const r = el.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, f = Math.exp(-e.deltaY * 0.0015), ns = Math.max(0.02, Math.min(64, st.s * f));
+    st.x = mx - (mx - st.x) * ns / st.s; st.y = my - (my - st.y) * ns / st.s; st.s = ns; apply(); }, { passive: false });
+  bar.addEventListener("click", e => {
+    const t = e.target.closest("button"); if (!t) return;
+    if (t.dataset.pch) { PIC.chan = t.dataset.pch; draw(); bar.querySelectorAll("[data-pch]").forEach(x => x.classList.toggle("on", x === t)); }
+    if (t.dataset.pbg) { PIC.bg = t.dataset.pbg; el.className = "picv on bg-" + PIC.bg; bar.querySelectorAll("[data-pbg]").forEach(x => x.classList.toggle("on", x === t)); }
+    if (t.hasAttribute("data-pfit")) fit();
+    if (t.hasAttribute("data-p11")) { const r = el.getBoundingClientRect(); st.s = 1; st.x = (r.width - cv.width) / 2; st.y = (r.height - cv.height) / 2; apply(); }
+  });
+}
+
+// ---------------------------------------------------------------- 3D viewer: meshes and animations
+// A mesh (`preview.mesh`: shapes with base64 positions / uvs / indices, the diffuse texture as a data path) or a
+// Havok motion (`preview.motion`: a skeleton's pose, an animation's frames; the animation's skeleton is asked for
+// with `skeleton-for`). WebGL2, orbit with the mouse (drag — turn, right drag / shift — move, wheel — zoom), Z up.
+const V3D = new Map(); let v3dSeq = 0;
+function v3dSlot(p, path, compact) {
+  if (!p || !(p.mesh || p.motion)) return "";
+  const id = "v" + (++v3dSeq); V3D.set(id, { p, path, compact });
+  return `<div class="v3d${compact ? " compact" : ""}" data-v3d="${id}"><canvas></canvas><div class="v3bar"></div><div class="v3msg muted"></div></div>`;
+}
+function b64f(s) { const b = atob(s || ""), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; }
+const M4 = {
+  persp(f, a, n, fa) { const t = 1 / Math.tan(f / 2); return [t / a, 0, 0, 0, 0, t, 0, 0, 0, 0, (fa + n) / (n - fa), -1, 0, 0, 2 * fa * n / (n - fa), 0]; },
+  look(e, c, u) {
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], nrm = v => { const l = Math.hypot(...v) || 1; return v.map(x => x / l); };
+    const cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const z = nrm(sub(e, c)), x = nrm(cr(u, z)), y = cr(z, x);
+    return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, e), -dot(y, e), -dot(z, e), 1];
+  },
+  mul(a, b) { const o = new Array(16).fill(0); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) o[j * 4 + i] += a[k * 4 + i] * b[j * 4 + k]; return o; },
+};
+const Q = {
+  mul(a, b) { return [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]]; },
+  rot(q, v) { const [x, y, z, w] = q, ix = w * v[0] + y * v[2] - z * v[1], iy = w * v[1] + z * v[0] - x * v[2], iz = w * v[2] + x * v[1] - y * v[0], iw = -x * v[0] - y * v[1] - z * v[2];
+    return [ix * w + iw * -x + iy * -z - iz * -y, iy * w + iw * -y + iz * -x - ix * -z, iz * w + iw * -z + ix * -y - iy * -x]; },
+};
+function glProg(gl, vs, fs) {
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; };
+  const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); return p;
+}
+const MESH_VS = `#version 300 es
+in vec3 a_p; in vec3 a_n; in vec2 a_t; uniform mat4 u_m; out vec3 v_n; out vec2 v_t;
+void main(){ v_n=a_n; v_t=a_t; gl_Position=u_m*vec4(a_p,1.); }`;
+const MESH_FS = `#version 300 es
+precision mediump float; in vec3 v_n; in vec2 v_t; uniform sampler2D u_s; uniform int u_tex; uniform vec3 u_c; uniform vec3 u_l; out vec4 o;
+void main(){ vec3 n=normalize(v_n); float d=abs(dot(n,normalize(u_l)))*.75+.3; vec4 c=u_tex==1?texture(u_s,v_t):vec4(u_c,1.);
+ if(u_tex==1&&c.a<.3) discard; o=vec4(c.rgb*d,1.); }`;
+const LINE_VS = `#version 300 es
+in vec3 a_p; uniform mat4 u_m; uniform float u_ps; void main(){ gl_Position=u_m*vec4(a_p,1.); gl_PointSize=u_ps; }`;
+const LINE_FS = `#version 300 es
+precision mediump float; uniform vec4 u_c; out vec4 o; void main(){ o=u_c; }`;
+class Viewer {
+  constructor(el, slot) {
+    this.el = el; this.slot = slot; this.cv = el.querySelector("canvas"); this.msg = el.querySelector(".v3msg"); this.bar = el.querySelector(".v3bar");
+    const gl = this.gl = this.cv.getContext("webgl2", { antialias: true });
+    if (!gl) { this.msg.textContent = "WebGL2 недоступен в этом браузере"; return; }
+    this.mp = glProg(gl, MESH_VS, MESH_FS); this.lp = glProg(gl, LINE_VS, LINE_FS);
+    this.yaw = -Math.PI / 2.4; this.pitch = 0.25; this.dist = 200; this.target = [0, 0, 0]; this.shapes = []; this.lines = null; this.points = null;
+    this.mouse(); this.grid = null; this.t0 = performance.now(); this.playing = true; this.speed = 1; this.time = 0;
+    const p = slot.p;
+    if (p.mesh) this.loadMesh(p.mesh); else this.loadMotion(p.motion);
+    const loop = () => { if (!this.el.isConnected) { const x = gl.getExtension("WEBGL_lose_context"); if (x) x.loseContext(); return; } this.frame(); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  }
+  mouse() {
+    let drag = null;
+    this.cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey }; this.cv.setPointerCapture(e.pointerId); });
+    this.cv.addEventListener("pointermove", e => {
+      if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+      if (drag.pan) { const s = this.dist / 400, cy = Math.cos(this.yaw), sy = Math.sin(this.yaw); this.target[0] += (sy * dx) * s; this.target[1] -= (cy * dx) * s; this.target[2] += dy * s; }
+      else { this.yaw -= dx * 0.01; this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch + dy * 0.01)); }
+    });
+    this.cv.addEventListener("pointerup", () => { drag = null; });
+    this.cv.addEventListener("contextmenu", e => e.preventDefault());
+    this.cv.addEventListener("wheel", e => { e.preventDefault(); this.dist *= Math.exp(e.deltaY * 0.001); }, { passive: false });
+    this.cv.addEventListener("dblclick", () => this.fit());
+  }
+  fit() { const b = this.bounds; if (!b) return; this.target = [(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2]; this.dist = Math.max(1, Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) * 1.5); }
+  buffer(target, data) { const gl = this.gl, b = gl.createBuffer(); gl.bindBuffer(target, b); gl.bufferData(target, data, gl.STATIC_DRAW); return b; }
+  makeGrid() {
+    const b = this.bounds, size = Math.max(b[3] - b[0], b[4] - b[1], 1) * 1.5, cx = (b[0] + b[3]) / 2, cy = (b[1] + b[4]) / 2, z = b[2], v = [];
+    for (let i = -5; i <= 5; i++) { const o = size * i / 10; v.push(cx - size / 2, cy + o, z, cx + size / 2, cy + o, z, cx + o, cy - size / 2, z, cx + o, cy + size / 2, z); }
+    this.grid = { buf: this.buffer(this.gl.ARRAY_BUFFER, new Float32Array(v)), n: v.length / 3 };
+  }
+  loadMesh(m) {
+    const gl = this.gl; this.bounds = m.bounds; this.fit(); this.makeGrid();
+    let tris = 0, verts = 0;
+    for (const s of m.shapes) {
+      const pos = new Float32Array(b64f(s.positions)), ix = new Uint32Array(b64f(s.indices)), uv = s.uvs ? new Float32Array(b64f(s.uvs)) : null;
+      const nrm = new Float32Array(pos.length);
+      for (let i = 0; i < ix.length; i += 3) {
+        const a = ix[i] * 3, b = ix[i + 1] * 3, c = ix[i + 2] * 3;
+        const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        for (const k of [a, b, c]) { nrm[k] += nx; nrm[k + 1] += ny; nrm[k + 2] += nz; }
+      }
+      const sh = { n: ix.length, pos: this.buffer(gl.ARRAY_BUFFER, pos), nrm: this.buffer(gl.ARRAY_BUFFER, nrm), uv: uv ? this.buffer(gl.ARRAY_BUFFER, uv) : null, ix: this.buffer(gl.ELEMENT_ARRAY_BUFFER, ix), tex: null, name: s.name, on: true };
+      this.shapes.push(sh); tris += s.triangles; verts += s.vertices;
+      if (s.texture && uv) this.texture(s.texture).then(t => { sh.tex = t; });
+    }
+    this.bar.innerHTML = `<span>${m.shapes.length} фигур · ${num(verts)} вершин · ${num(tris)} треугольников</span><button data-v="wire" title="Каркас">▦</button><button data-v="fit" title="Показать целиком (или двойной клик)">⤢</button>`;
+    this.bar.onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; if (b.dataset.v === "fit") this.fit(); else { this.wire = !this.wire; b.classList.toggle("on", this.wire); } };
+    if (m.notes && m.notes.length) this.msg.textContent = m.notes.join("; ");
+  }
+  async texture(path) {
+    const key = path.toLowerCase();
+    if (!Viewer.tex.has(key)) Viewer.tex.set(key, query({ type: "asset", path }).then(r => r.asset && r.asset.preview.picture ? r.asset.preview.picture : null).catch(() => null));
+    const pic = await Viewer.tex.get(key); if (!pic || !this.el.isConnected) return null;
+    const img = new Image(); img.src = `data:${pic.mime};base64,${pic.data}`; await img.decode().catch(() => {});
+    const gl = this.gl, t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img); gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); return t;
+  }
+  async loadMotion(m) {
+    let skel = m.kind === "skeleton" ? m : null;
+    if (!skel) {
+      this.msg.textContent = "ищу скелет…";
+      const r = await query({ type: "skeleton-for", path: this.slot.path }).catch(() => ({}));
+      if (r.asset) { skel = r.asset.preview.motion; this.skelFrom = `${r.asset.path} (${r.asset.from})`; }
+      if (!skel) { this.msg.textContent = "Скелет для этой анимации не найден (нужен …/character assets/skeleton.hkx в сборке или в игре)."; return; }
+      this.msg.textContent = "";
+    }
+    const pose = new Float32Array(b64f(skel.pose)), nb = skel.names.length;
+    this.skel = { parents: skel.parents, names: skel.names, t: [], q: [] };
+    for (let i = 0; i < nb; i++) { this.skel.t.push([pose[i * 10], pose[i * 10 + 1], pose[i * 10 + 2]]); this.skel.q.push([pose[i * 10 + 3], pose[i * 10 + 4], pose[i * 10 + 5], pose[i * 10 + 6]]); }
+    if (m.kind === "animation") {
+      this.anim = m; this.samples = new Float32Array(b64f(m.samples)); this.tracks = m.names.length;
+      // tracks → bones: the binding, else by name, else in order
+      const byName = new Map(skel.names.map((n, i) => [n.toLowerCase(), i]));
+      this.map = m.names.map((n, i) => m.track_bones && m.track_bones.length ? m.track_bones[i] : byName.has((n || "").toLowerCase()) ? byName.get(n.toLowerCase()) : i);
+    }
+    const w = this.pose(0); const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const p of w) for (let a = 0; a < 3; a++) { b[a] = Math.min(b[a], p[a]); b[a + 3] = Math.max(b[a + 3], p[a]); }
+    this.bounds = b; this.fit(); this.makeGrid();
+    const gl = this.gl; this.lines = gl.createBuffer(); this.points = gl.createBuffer();
+    if (this.anim) {
+      const a = this.anim, fps = a.frames > 1 && a.duration > 0 ? (a.frames - 1) / a.duration : 30;
+      this.fps = fps;
+      const ev = (a.events || []).map(([t, e]) => `<i style="left:${(t / Math.max(a.duration, 1e-3) * 100).toFixed(2)}%" title="${esc(t.toFixed(2) + " с — " + e)}"></i>`).join("");
+      this.bar.innerHTML = `<button data-v="play" title="Пауза / пуск (пробел)">⏸</button><span class="tl"><input type="range" min="0" max="${Math.max(a.frames - 1, 0)}" step="1" value="0">${ev}</span><span class="fr">0 / ${a.frames - 1}</span>` +
+        `<select data-v="speed" title="Скорость"><option value="0.25">×¼</option><option value="0.5">×½</option><option value="1" selected>×1</option><option value="2">×2</option></select><button data-v="fit" title="Показать целиком">⤢</button>`;
+      const range = this.bar.querySelector("input");
+      range.oninput = () => { this.playing = false; this.time = +range.value / fps; this.bar.querySelector("[data-v=play]").textContent = "▶"; };
+      this.bar.onclick = e => { const v = e.target.closest("[data-v]")?.dataset.v; if (v === "play") { this.playing = !this.playing; e.target.textContent = this.playing ? "⏸" : "▶"; this.t0 = performance.now() - this.time * 1000 / this.speed; } if (v === "fit") this.fit(); };
+      this.bar.querySelector("select").onchange = e => { this.speed = +e.target.value; };
+      if (this.skelFrom) this.msg.textContent = "скелет: " + this.skelFrom;
+    } else this.bar.innerHTML = `<span>${nb} костей · исходная поза</span><button data-v="fit">⤢</button>`, this.bar.onclick = () => this.fit();
+  }
+  // world positions of the bones at frame f (the reference pose without an animation)
+  pose(f) {
+    const s = this.skel, n = s.names.length, t = s.t.map(x => x.slice()), q = s.q.map(x => x.slice());
+    if (this.anim && this.samples.length) {
+      const a = this.anim, fr = Math.max(0, Math.min(a.frames - 1, f)), base = fr * this.tracks * 7;
+      for (let k = 0; k < this.tracks; k++) {
+        const b = this.map[k]; if (b == null || b < 0 || b >= n) continue; const o = base + k * 7, sm = this.samples;
+        const st = [sm[o], sm[o + 1], sm[o + 2]], sq = [sm[o + 3], sm[o + 4], sm[o + 5], sm[o + 6]];
+        if (a.additive) { t[b] = [t[b][0] + st[0], t[b][1] + st[1], t[b][2] + st[2]]; q[b] = Q.mul(q[b], sq); } else { t[b] = st; q[b] = sq; }
+      }
+    }
+    const wt = new Array(n), wq = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const p = s.parents[i];
+      if (p < 0 || p >= i) { wt[i] = t[i]; wq[i] = q[i]; continue; }
+      const r = Q.rot(wq[p], t[i]); wt[i] = [wt[p][0] + r[0], wt[p][1] + r[1], wt[p][2] + r[2]]; wq[i] = Q.mul(wq[p], q[i]);
+    }
+    return wt;
+  }
+  frame() {
+    const gl = this.gl, cv = this.cv, dpr = window.devicePixelRatio || 1, w = cv.clientWidth * dpr | 0, h = cv.clientHeight * dpr | 0;
+    if (!w || !h) return;
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    gl.viewport(0, 0, w, h); gl.clearColor(0.07, 0.09, 0.13, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+    const cp = Math.cos(this.pitch), eye = [this.target[0] + this.dist * cp * Math.cos(this.yaw), this.target[1] + this.dist * cp * Math.sin(this.yaw), this.target[2] + this.dist * Math.sin(this.pitch)];
+    const mvp = M4.mul(M4.persp(0.8, w / h, this.dist / 200, this.dist * 20), M4.look(eye, this.target, [0, 0, 1]));
+    const line = (buf, n, mode, color, ps) => {
+      gl.useProgram(this.lp); gl.uniformMatrix4fv(gl.getUniformLocation(this.lp, "u_m"), false, mvp); gl.uniform4fv(gl.getUniformLocation(this.lp, "u_c"), color); gl.uniform1f(gl.getUniformLocation(this.lp, "u_ps"), ps || 1);
+      const loc = gl.getAttribLocation(this.lp, "a_p"); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0); gl.drawArrays(mode, 0, n);
+    };
+    if (this.grid) line(this.grid.buf, this.grid.n, gl.LINES, [0.3, 0.35, 0.45, 1]);
+    if (this.shapes.length) {
+      const p = this.mp; gl.useProgram(p); gl.uniformMatrix4fv(gl.getUniformLocation(p, "u_m"), false, mvp); gl.uniform3fv(gl.getUniformLocation(p, "u_l"), [eye[0] - this.target[0], eye[1] - this.target[1], eye[2] - this.target[2] + this.dist * 0.5]);
+      for (const s of this.shapes) {
+        const at = (name, buf, size) => { const l = gl.getAttribLocation(p, name); if (l < 0) return; if (!buf) { gl.disableVertexAttribArray(l); gl.vertexAttrib2f(l, 0, 0); return; } gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, size, gl.FLOAT, false, 0, 0); };
+        at("a_p", s.pos, 3); at("a_n", s.nrm, 3); at("a_t", s.uv, 2);
+        gl.uniform1i(gl.getUniformLocation(p, "u_tex"), s.tex && !this.wire ? 1 : 0); gl.uniform3fv(gl.getUniformLocation(p, "u_c"), this.wire ? [0.5, 0.75, 1] : [0.72, 0.72, 0.7]);
+        if (s.tex) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, s.tex); gl.uniform1i(gl.getUniformLocation(p, "u_s"), 0); }
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, s.ix); gl.drawElements(this.wire ? gl.LINES : gl.TRIANGLES, s.n, gl.UNSIGNED_INT, 0);
+      }
+    }
+    if (this.skel) {
+      let f = 0;
+      if (this.anim) {
+        if (this.playing) { this.time = ((performance.now() - this.t0) / 1000 * this.speed) % Math.max(this.anim.duration, 1e-3); }
+        f = Math.round(this.time * this.fps);
+        const r = this.bar.querySelector("input"); if (r && this.playing) r.value = f; const fr = this.bar.querySelector(".fr"); if (fr) fr.textContent = `${f} / ${this.anim.frames - 1}`;
+      }
+      const wt = this.pose(f), seg = [], pts = [];
+      for (let i = 0; i < wt.length; i++) { pts.push(...wt[i]); const p = this.skel.parents[i]; if (p >= 0 && p < wt.length) seg.push(...wt[p], ...wt[i]); }
+      gl.disable(gl.DEPTH_TEST);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lines); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(seg), gl.DYNAMIC_DRAW); line(this.lines, seg.length / 3, gl.LINES, [0.98, 0.75, 0.25, 1]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.points); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pts), gl.DYNAMIC_DRAW); line(this.points, pts.length / 3, gl.POINTS, [0.55, 0.85, 1, 1], 4 * (window.devicePixelRatio || 1));
+    }
+  }
+}
+Viewer.tex = new Map();
+new MutationObserver(() => {
+  document.querySelectorAll(".picv[data-pic]:not(.on)").forEach(el => { el.classList.add("on"); picMount(el); });
+  document.querySelectorAll(".v3d[data-v3d]:not(.on)").forEach(el => { el.classList.add("on"); const s = V3D.get(el.dataset.v3d); if (s) { V3D.delete(el.dataset.v3d); new Viewer(el, s); } });
+}).observe(document.body, { childList: true, subtree: true });
+
 // ---------------------------------------------------------------- explorer modal
 // Subjects: the selection (its trees in the three modes, archives as folders) or the whole build (folders as the
 // game sees them, lazily); search over all paths; a file opens in the preview on the right.
-const FX = { subj: "selection", mode: "classic", opened: new Set(), closed: new Set(), vopen: new Set(), vkids: new Map(), sel: null, copy: null, q: "", hits: null, places: null };
-try { FX.subj = localStorage.getItem("sat-fx-subj") || "selection"; FX.mode = localStorage.getItem("sat-fx-mode") || "classic"; } catch (_) {}
+const FX = { subj: "selection", mode: "classic", opened: new Set(), closed: new Set(), vopen: new Set(), vkids: new Map(), sel: null, copy: null, q: "", hits: null, places: null, view: "tree", cwd: {}, sort: { key: "name", desc: false } };
+try { FX.subj = localStorage.getItem("sat-fx-subj") || "selection"; FX.mode = localStorage.getItem("sat-fx-mode") || "classic"; FX.view = localStorage.getItem("sat-fx-view") || "tree"; } catch (_) {}
 // Places outside the build (the game, the profile, MO2, the game's documents): subjects `place:<id>`.
 async function fxPlaces() {
   if (!FX.places) {
@@ -866,6 +1138,7 @@ async function fxShowPlace(id, path) {
 }
 async function fxRevealPlace(id, path) {
   FX.subj = "place:" + id; FX.q = ""; $("fxQ").value = ""; FX.hits = null;
+  FX.cwd[FX.subj] = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   const parts = path.split("/"); parts.pop();
   for (let i = 1; i <= parts.length; i++) FX.vopen.add((id + ":" + parts.slice(0, i).join("/")).toLowerCase());
   await fxDraw(); await fxShowPlace(id, path);
@@ -905,6 +1178,7 @@ async function fxShow(path, copy, archive) {
 // Open the build tree down to `path` and show it.
 async function fxReveal(path) {
   FX.subj = "build"; FX.q = ""; $("fxQ").value = ""; FX.hits = null;
+  FX.cwd.build = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   const parts = path.toLowerCase().split("/"); parts.pop();
   for (let i = 1; i <= parts.length; i++) FX.vopen.add(parts.slice(0, i).join("/"));
   await fxDraw(); await fxShow(path);
@@ -932,7 +1206,8 @@ async function vfsHtml(dir, depth) {
   return h;
 }
 async function fxDraw() {
-  try { localStorage.setItem("sat-fx-subj", FX.subj); localStorage.setItem("sat-fx-mode", FX.mode); } catch (_) {}
+  try { localStorage.setItem("sat-fx-subj", FX.subj); localStorage.setItem("sat-fx-mode", FX.mode); localStorage.setItem("sat-fx-view", FX.view); } catch (_) {}
+  $("fxView").innerHTML = FX.subj === "selection" || FX.hits ? "" : FX_VIEWS.map(([v, n, d]) => `<button data-view="${v}" class="${FX.view === v ? "on" : ""}" title="${d}">${n}</button>`).join("");
   document.querySelectorAll("#fxSubj button").forEach(b => b.classList.toggle("on", b.dataset.subj === FX.subj && !FX.hits));
   $("fxModes").innerHTML = FX.subj === "selection" && !FX.hits ? TREE_MODES.map(([m, n, d]) => `<button data-fxmode="${m}" class="${FX.mode === m ? "on" : ""}" title="${d}">${n}</button>`).join("") : "";
   const box = $("fxTree");
@@ -941,6 +1216,7 @@ async function fxDraw() {
       FX.hits.paths.map(p => `<div class="fhit${FX.sel === p ? " sel2" : ""}" data-hit="${esc(p)}" data-gp="${esc(p.toLowerCase())}" title="${esc(p)}">${fileIcon(p)} ${esc(p)}</div>`).join("");
     return;
   }
+  if (fxFolderView()) { box.innerHTML = await fxFolderHtml(); fxThumbs(); return; }
   if (FX.subj === "build") { box.innerHTML = `<div class="tree">${await vfsHtml("", 0)}</div>`; return; }
   if (FX.subj.startsWith("place:")) {
     const id = FX.subj.slice(6), pl = (FX.places || []).find(p => p.id === id);
@@ -951,6 +1227,62 @@ async function fxDraw() {
   box.innerHTML = `<div class="tmeta">${t.subject.length > 1 ? `${t.subject.length} модов` : esc(t.subject[0] || "")} · файлов ${num(t.files)} · в конфликтах ${num(t.conflicts)}</div>` +
     `<div class="tree">${t.rows.map(r => treeRowHtml(r, t, false)).join("")}${t.hidden ? `<div class="te"><span class="c">… ещё ${num(t.hidden)} строк</span></div>` : ""}</div>`;
 }
+// ---- views of a folder: table (details), list, tiles (thumbnails), content — like a file manager
+const FX_VIEWS = [["tree", "Дерево", "Вложенное дерево папок"], ["table", "Таблица", "Строки с колонками: тип, размер, мод, копии; сортировка по заголовку"], ["list", "Список", "Только имена в колонках"], ["tiles", "Плитки", "Крупные значки и миниатюры картинок"], ["content", "Содержимое", "Миниатюра и подробности в строке"]];
+const IMG_EXT = /\.(dds|tga|png|jpe?g|bmp|gif|webp)$/i;
+function fxFolderView() { return FX.view !== "tree" && !FX.hits && (FX.subj === "build" || FX.subj.startsWith("place:")); }
+function fxCwd() { return FX.cwd[FX.subj] || ""; }
+async function fxEntries(dir) {
+  if (FX.subj === "build") return (await vfsKids(dir)).map(e => ({ ...e, kind: "build" }));
+  const id = FX.subj.slice(6); return (await placeKids(id, dir)).map(e => ({ ...e, kind: "place", contested: 0, copies: 0, archived: e.inside }));
+}
+function fxExt(n) { const m = n.match(/\.([^./]+)$/); return m ? m[1].toLowerCase() : ""; }
+function fxSortRows(rows) {
+  const { key, desc } = FX.sort, k = r => key === "size" ? (r.dir ? -1 : r.size || 0) : key === "type" ? (r.dir ? "" : fxExt(r.name)) : key === "mod" ? (r.winner || "") : key === "copies" ? (r.copies || 0) : key === "files" ? (r.files || 0) : r.name.toLowerCase();
+  return rows.slice().sort((a, b) => (b.dir - a.dir) || ((k(a) > k(b) ? 1 : k(a) < k(b) ? -1 : 0) * (desc ? -1 : 1)));
+}
+function fxIcon(e) { return e.dir ? (e.archive || /\.(bsa|ba2)$/i.test(e.name) ? "📦" : FOLDER_ICON[e.name.toLowerCase()] || "📁") : fileIcon(e.name); }
+function fxSel(e) { return !!FX.sel && FX.sel.toLowerCase() === (FX.subj === "build" ? e.path : FX.subj.slice(6) + ":" + e.path).toLowerCase(); }
+function fxMeta(e) {
+  if (e.dir) return e.kind === "build" ? `${num(e.files)} файлов${e.contested ? ` · ⚔${num(e.contested)}` : ""}` : e.archive ? `архив · ${fmtSize(e.size)}` : e.inside ? `${num(e.files)} файлов` : "папка";
+  return [fxExt(e.name).toUpperCase(), e.size ? fmtSize(e.size) : "", e.winner ? "→ " + e.winner : "", e.copies > 1 ? `×${e.copies}` : ""].filter(Boolean).join(" · ");
+}
+async function fxFolderHtml() {
+  const dir = fxCwd(), rows = fxSortRows(await fxEntries(dir)), id = FX.subj.slice(6), pl = (FX.places || []).find(p => p.id === id);
+  const parts = dir ? dir.split("/") : [], root = FX.subj === "build" ? "Сборка" : pl ? pl.label : id;
+  let h = `<div class="crumbs"><button data-up title="На уровень вверх"${dir ? "" : " disabled"}>↑</button><a data-cd="">${esc(root)}</a>` + parts.map((p, i) => `<span class="sep">›</span><a data-cd="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</a>`).join("") + `<span class="muted" style="margin-left:auto">${num(rows.length)}</span></div>`;
+  const shown = rows.slice(0, 4000), at = e => `data-it="${esc(e.path)}" data-dir="${e.dir ? 1 : 0}"`;
+  const cls = e => `it${fxSel(e) ? " sel2" : ""}${e.archived ? " inar" : ""}`;
+  const thumb = e => !e.dir && IMG_EXT.test(e.name) ? `<span class="th" data-thumb="${esc(e.path)}">${fxIcon(e)}</span>` : `<span class="th">${fxIcon(e)}</span>`;
+  if (FX.view === "table") {
+    const cols = FX.subj === "build" ? [["name", "Имя"], ["type", "Тип"], ["size", "Размер"], ["mod", "Мод (берёт игра)"], ["copies", "Копий"], ["files", "Файлов"]] : [["name", "Имя"], ["type", "Тип"], ["size", "Размер"], ["files", "Файлов"]];
+    h += `<table class="fxtab"><tr>${cols.map(([k, n]) => `<th data-sort="${k}" class="${FX.sort.key === k ? "on" : ""}">${n}${FX.sort.key === k ? (FX.sort.desc ? " ▼" : " ▲") : ""}</th>`).join("")}</tr>` +
+      shown.map(e => `<tr class="${cls(e)}" ${at(e)}><td title="${esc(e.path)}">${fxIcon(e)} ${esc(e.name)}</td><td>${e.dir ? (e.archive ? "архив" : "папка") : esc(fxExt(e.name))}</td><td class="n">${e.dir && !e.archive ? "" : fmtSize(e.size || 0)}</td>` +
+        (FX.subj === "build" ? `<td>${esc(e.winner || "")}${e.archived ? " 📦" : ""}</td><td class="n">${e.copies > 1 ? e.copies : ""}${e.contested ? " ⚔" : ""}</td>` : "") + `<td class="n">${e.dir ? num(e.files || 0) : ""}</td></tr>`).join("") + `</table>`;
+  } else if (FX.view === "list") {
+    h += `<div class="fxlist">${shown.map(e => `<div class="${cls(e)}" ${at(e)} title="${esc(e.path + (e.dir ? "" : " · " + fxMeta(e)))}">${fxIcon(e)} ${esc(e.name)}</div>`).join("")}</div>`;
+  } else if (FX.view === "tiles") {
+    h += `<div class="fxgrid">${shown.map(e => `<div class="${cls(e)}" ${at(e)} title="${esc(e.path)}">${thumb(e)}<span class="nm">${esc(e.name)}</span><span class="mt">${esc(fxMeta(e))}</span></div>`).join("")}</div>`;
+  } else {
+    h += `<div class="fxcont">${shown.map(e => `<div class="${cls(e)}" ${at(e)} title="${esc(e.path)}">${thumb(e)}<div><div>${esc(e.name)}</div><div class="mt">${esc(fxMeta(e))}</div></div></div>`).join("")}</div>`;
+  }
+  if (rows.length > shown.length) h += `<div class="muted">… ещё ${num(rows.length - shown.length)} — воспользуйся поиском</div>`;
+  return h;
+}
+// thumbnails of visible image tiles, a few at a time
+const THUMBS = new Map(); let thumbBusy = 0; const thumbQueue = [];
+const thumbObs = new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) { thumbObs.unobserve(e.target); thumbQueue.push(e.target); } thumbPump(); }, { root: null, rootMargin: "200px" });
+function thumbPump() {
+  while (thumbBusy < 3 && thumbQueue.length) {
+    const el = thumbQueue.shift(); if (!el.isConnected) continue;
+    const path = el.dataset.thumb, place = FX.subj.startsWith("place:") ? FX.subj.slice(6) : undefined, key = (place || "") + ":" + path;
+    thumbBusy++;
+    (THUMBS.has(key) ? Promise.resolve(THUMBS.get(key)) : query({ type: "thumb", path, place, side: 160 }).then(r => (THUMBS.set(key, r.picture), r.picture)).catch(() => null))
+      .then(pic => { if (pic && el.isConnected) el.innerHTML = `<img src="data:${pic.mime};base64,${pic.data}" alt="">`; })
+      .finally(() => { thumbBusy--; thumbPump(); });
+  }
+}
+function fxThumbs() { document.querySelectorAll("#fxTree [data-thumb]").forEach(el => thumbObs.observe(el)); }
 $("fxBtn").onclick = () => fxOpen();
 $("fxClose").onclick = () => { $("fx").hidden = true; };
 $("fxSubj").onclick = ev => { const b = ev.target.closest("[data-subj]"); if (!b) return; FX.subj = b.dataset.subj; FX.hits = null; FX.q = ""; $("fxQ").value = ""; fxDraw(); };
@@ -967,6 +1299,15 @@ $("fxQ").addEventListener("input", ev => {
 });
 $("fxTree").addEventListener("click", async ev => {
   const h = ev.target.closest("[data-hit]"); if (h) return fxShow(h.dataset.hit);
+  if (ev.target.closest("[data-up]")) { const d = fxCwd(); FX.cwd[FX.subj] = d.includes("/") ? d.slice(0, d.lastIndexOf("/")) : ""; return fxDraw(); }
+  const cd = ev.target.closest("[data-cd]"); if (cd) { FX.cwd[FX.subj] = cd.dataset.cd; return fxDraw(); }
+  const so = ev.target.closest("[data-sort]"); if (so) { const k = so.dataset.sort; FX.sort = { key: k, desc: FX.sort.key === k ? !FX.sort.desc : false }; return fxDraw(); }
+  const it = ev.target.closest("[data-it]");
+  if (it) {
+    if (it.dataset.dir === "1") { FX.cwd[FX.subj] = it.dataset.it; return fxDraw(); }
+    if (FX.subj === "build") return fxShow(it.dataset.it).then(fxMarkSel);
+    return fxShowPlace(FX.subj.slice(6), it.dataset.it).then(fxMarkSel);
+  }
   const pd = ev.target.closest("[data-pdir]");
   if (pd) { const k = pd.dataset.pk; if (FX.vopen.has(k)) FX.vopen.delete(k); else FX.vopen.add(k); return fxDraw(); }
   const pf = ev.target.closest("[data-pfile]"); if (pf) return fxShowPlace(FX.subj.slice(6), pf.dataset.pfile);
@@ -979,6 +1320,8 @@ $("fxTree").addEventListener("click", async ev => {
   if (f) { const g = rowGame(f.dataset.file, !!f.dataset.arch); return fxShow(g.game, null, g.archive); }
 });
 $("fxPrev").addEventListener("click", ev => previewClicks(ev, "fx"));
+function fxMarkSel() { document.querySelectorAll("#fxTree [data-it]").forEach(x => x.classList.toggle("sel2", fxSel({ path: x.dataset.it }))); }
+$("fxView").onclick = ev => { const b = ev.target.closest("[data-view]"); if (!b) return; FX.view = b.dataset.view; fxDraw(); };
 // pinned files: the header's drop-down
 $("fxPinBtn").onclick = async ev => {
   ev.stopPropagation();

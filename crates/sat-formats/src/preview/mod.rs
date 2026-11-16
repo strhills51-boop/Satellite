@@ -14,12 +14,18 @@ mod game;
 mod hkx;
 mod image;
 mod media;
+mod mesh;
+mod motion;
 mod nif;
 mod pex;
 mod save;
 mod text;
 
 use serde::{Deserialize, Serialize};
+
+pub use image::thumbnail;
+pub use mesh::{Mesh, Shape};
+pub use motion::Motion;
 
 /// Text shown at most (bytes of the decoded text).
 pub const TEXT_LIMIT: usize = 512 * 1024;
@@ -122,7 +128,7 @@ pub struct DiskEntry {
 }
 
 /// The preview of one file.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Preview {
     pub kind: Kind,
     /// One line: `DDS · BC7 · 2048×2048`.
@@ -141,6 +147,12 @@ pub struct Preview {
     /// lower case, forward slashes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<String>,
+    /// Geometry to draw in 3D (meshes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh: Option<Mesh>,
+    /// A skeleton or an animation to play (Havok).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<Motion>,
     /// Hex of the head, for binaries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hex: Option<String>,
@@ -415,6 +427,31 @@ pub(crate) fn base64(b: &[u8]) -> String {
     out
 }
 
+/// Base64 back to bytes (tests).
+#[cfg(test)]
+pub(crate) fn tests_b64_decode(s: &str) -> Vec<u8> {
+    unbase64(s)
+}
+
+/// Base64 back to bytes.
+pub(crate) fn unbase64(s: &str) -> Vec<u8> {
+    const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    let (mut acc, mut bits) = (0u32, 0);
+    for c in s.bytes() {
+        let Some(v) = A.iter().position(|&x| x == c) else {
+            continue;
+        };
+        acc = (acc << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    out
+}
+
 /// A bounds-checked little-endian cursor: every read is `None` past the end.
 pub(crate) struct Cur<'a> {
     pub b: &'a [u8],
@@ -520,12 +557,18 @@ mod tests {
             let t = std::time::Instant::now();
             let p = inspect(&f.to_string_lossy(), &b);
             println!(
-                "{:?} {} [{:?}] {} ms pic={} notes={:?}",
+                "{:?} {} [{:?}] {} ms pic={} mesh={:?} notes={:?}",
                 p.kind,
                 p.format,
                 f.file_name().unwrap(),
                 t.elapsed().as_millis(),
                 p.picture.as_ref().map_or(0, |x| x.data.len()),
+                p.mesh.as_ref().map(|m| (
+                    m.shapes.len(),
+                    m.shapes.iter().map(|s| s.vertices).sum::<u32>(),
+                    m.shapes.iter().filter(|s| s.texture.is_some()).count(),
+                    m.notes.clone()
+                )),
                 p.notes
             );
         }
