@@ -42,6 +42,21 @@ pub struct Shape {
     /// Uses alpha (has an `NiAlphaProperty`).
     #[serde(default)]
     pub alpha: bool,
+    /// How the shape bends with a skeleton (`positions` placed by the nodes, as the bind transforms expect).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skin: Option<Skin>,
+}
+
+/// Skinning of a shape: bones by name, each bone's bind transform, four weights per vertex.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Skin {
+    pub bones: Vec<String>,
+    /// Base64 `f32` × 13 per bone: skin space → bone space (rotation row-major 9, translation 3, scale 1).
+    pub bind: String,
+    /// Base64 `u8` × 4 per vertex: indices into `bones`.
+    pub joints: String,
+    /// Base64 `f32` × 4 per vertex.
+    pub weights: String,
 }
 
 /// The shapes of a mesh and their bounds.
@@ -105,8 +120,15 @@ pub(crate) fn half(h: u16) -> f32 {
     }
 }
 
-/// Positions, UVs, triangles.
-type Geo = (Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[u32; 3]>);
+/// Positions, UVs, triangles, vertex skinning.
+#[derive(Default, Clone)]
+struct Geo {
+    pos: Vec<[f32; 3]>,
+    uv: Vec<[f32; 2]>,
+    ix: Vec<[u32; 3]>,
+    /// Per vertex: four weights and four bone indices (of the skin instance), when the vertex data has them.
+    skin: Vec<([f32; 4], [u8; 4])>,
+}
 
 /// What a block is, read only as far as the 3D view needs.
 #[derive(Default, Clone)]
@@ -124,6 +146,12 @@ struct Block {
     texture: Option<String>,
     texture_set: i32,
     material: Option<String>,
+    /// A skin instance: its skin data block and bones (node blocks).
+    skin_data: i32,
+    bones: Vec<i32>,
+    /// Skin data: per bone, skin space → bone space (rotation 9, translation 3, scale 1), and its vertex weights.
+    bind: Vec<[f32; 13]>,
+    weights: Vec<Vec<(u16, f32)>>,
 }
 
 struct R<'a> {
@@ -194,23 +222,25 @@ impl R<'_> {
     }
 }
 
-/// Packed vertices (`BSVertexData` / `BSVertexDataSSE`): positions and the first UVs.
-#[allow(clippy::type_complexity)]
-fn vertices(data: &[u8], desc: u64, bs: u32) -> Option<(Vec<[f32; 3]>, Vec<[f32; 2]>)> {
+/// Packed vertices (`BSVertexData` / `BSVertexDataSSE`): positions, the first UVs, skin weights and bones.
+fn vertices(data: &[u8], desc: u64, bs: u32) -> Option<Geo> {
     let stride = (desc & 0xf) as usize * 4;
     if stride == 0 {
         return None;
     }
     let attrs = (desc >> 44) as u32;
     let uv_at = ((desc >> 8) & 0xf) as usize * 4;
+    let skin_at = ((desc >> 28) & 0xf) as usize * 4;
     let full = bs == 100 || attrs & 0x400 != 0;
     let n = data.len() / stride;
-    let mut pos = Vec::with_capacity(n);
-    let mut uv = Vec::new();
+    let mut g = Geo {
+        pos: Vec::with_capacity(n),
+        ..Default::default()
+    };
     for v in data.chunks_exact(stride) {
         let mut c = Cur::new(v);
         if attrs & 1 != 0 {
-            pos.push(if full {
+            g.pos.push(if full {
                 [
                     f32::from_bits(c.u32()?),
                     f32::from_bits(c.u32()?),
@@ -222,10 +252,25 @@ fn vertices(data: &[u8], desc: u64, bs: u32) -> Option<(Vec<[f32; 3]>, Vec<[f32;
         }
         if attrs & 2 != 0 {
             c.at = uv_at;
-            uv.push([half(c.u16()?), half(c.u16()?)]);
+            g.uv.push([half(c.u16()?), half(c.u16()?)]);
+        }
+        if attrs & 0x40 != 0 {
+            c.at = skin_at;
+            let w = [half(c.u16()?), half(c.u16()?), half(c.u16()?), half(c.u16()?)];
+            let j = [c.u8()?, c.u8()?, c.u8()?, c.u8()?];
+            g.skin.push((w, j));
         }
     }
-    Some((pos, uv))
+    Some(g)
+}
+
+/// An `NiTransform` (rotation, translation, scale) as 13 floats.
+fn transform(r: &mut R<'_>) -> Option<[f32; 13]> {
+    let mut t = [0f32; 13];
+    for x in &mut t {
+        *x = r.f32()?;
+    }
+    Some(t)
 }
 
 fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
@@ -239,6 +284,7 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
         alpha: -1,
         skin: -1,
         texture_set: -1,
+        skin_data: -1,
         ..Default::default()
     };
     match ty {
@@ -280,12 +326,11 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
             let n = r.c.u16()? as usize;
             let size = r.c.u32()? as usize;
             let stride = (desc & 0xf) as usize * 4;
-            let mut pos = Vec::new();
-            let mut uv = Vec::new();
+            let mut g = Geo::default();
             let mut ix = Vec::with_capacity(tris);
             if size > 0 && stride > 0 {
                 let data = r.c.take(stride.checked_mul(n)?)?;
-                (pos, uv) = vertices(data, desc, l.bs)?;
+                g = vertices(data, desc, l.bs)?;
                 for _ in 0..tris {
                     ix.push([r.c.u16()? as u32, r.c.u16()? as u32, r.c.u16()? as u32]);
                 }
@@ -303,8 +348,8 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
                     for _ in 0..tris {
                         pi.push([r.c.u16()? as u32, r.c.u16()? as u32, r.c.u16()? as u32]);
                     }
-                    if pos.is_empty() {
-                        pos = pv;
+                    if g.pos.is_empty() {
+                        g.pos = pv;
                         ix = pi;
                     }
                 }
@@ -313,15 +358,16 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
                 // SSE: the dynamic vertices (facegen heads)
                 let dn = r.c.u32()? as usize / 16;
                 if dn == n {
-                    pos.clear();
+                    g.pos.clear();
                     for _ in 0..dn {
                         let p = r.v3()?;
                         r.f32()?;
-                        pos.push(p);
+                        g.pos.push(p);
                     }
                 }
             }
-            b.geo = Some((pos, uv, ix));
+            g.ix = ix;
+            b.geo = Some(g);
         }
         "NiTriShape" | "NiTriStrips" | "BSLODTriShape" | "BSSegmentedTriShape" => {
             b.name = r.net(false)?;
@@ -336,7 +382,7 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
                 b.shader = r.i32()?;
                 b.alpha = r.i32()?;
             }
-            b.geo = Some((Vec::new(), Vec::new(), Vec::new()));
+            b.geo = Some(Geo::default());
         }
         "NiTriShapeData" | "NiTriStripsData" => {
             r.i32()?;
@@ -407,7 +453,12 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
                     }
                 }
             }
-            b.geo = Some((pos, uv, ix));
+            b.geo = Some(Geo {
+                pos,
+                uv,
+                ix,
+                skin: Vec::new(),
+            });
         }
         "BSLightingShaderProperty" => {
             b.name = r.net(true)?;
@@ -445,8 +496,40 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
             }
         }
         "NiSkinInstance" | "BSDismemberSkinInstance" => {
-            r.i32()?;
+            b.skin_data = r.i32()?;
             b.data = r.i32()?;
+            r.i32()?;
+            b.bones = r.refs()?;
+        }
+        "BSSkin::Instance" => {
+            r.i32()?;
+            b.skin_data = r.i32()?;
+            b.bones = r.refs()?;
+        }
+        "NiSkinData" => {
+            let overall = transform(&mut r)?;
+            let n = r.c.u32()? as usize;
+            let has = r.c.u8()? != 0;
+            for _ in 0..n.min(1024) {
+                let t = transform(&mut r)?;
+                r.c.skip(16)?;
+                let nv = r.c.u16()? as usize;
+                let mut w = Vec::new();
+                if has {
+                    for _ in 0..nv {
+                        w.push((r.c.u16()?, r.f32()?));
+                    }
+                }
+                b.bind.push(compose(&overall, &t));
+                b.weights.push(w);
+            }
+        }
+        "BSSkin::BoneData" => {
+            let n = r.c.u32()? as usize;
+            for _ in 0..n.min(1024) {
+                r.c.skip(16)?;
+                b.bind.push(transform(&mut r)?);
+            }
         }
         "NiSkinPartition" if l.bs == 100 => {
             // SSE keeps a skinned shape's vertices here, with the triangles of each partition (global indices)
@@ -454,10 +537,10 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
             let size = r.c.u32()? as usize;
             r.c.u32()?;
             let desc = r.c.u64()?;
-            let (pos, uv) = if size > 0 {
+            let mut g = if size > 0 {
                 vertices(r.c.take(size)?, desc, l.bs)?
             } else {
-                (Vec::new(), Vec::new())
+                Geo::default()
             };
             let mut ix = Vec::new();
             for _ in 0..parts.min(4096) {
@@ -492,7 +575,8 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
                     ix.push([r.c.u16()? as u32, r.c.u16()? as u32, r.c.u16()? as u32]);
                 }
             }
-            b.geo = Some((pos, uv, ix));
+            g.ix = ix;
+            b.geo = Some(g);
         }
         "BSShaderTextureSet" => {
             let n = r.c.u32()?;
@@ -508,9 +592,81 @@ fn read_block(l: &Layout, ty: &str, bytes: &[u8]) -> Option<Block> {
     Some(b)
 }
 
+/// `a` then `b` as transforms (13 floats each): the bone's skin transform applied after the overall one.
+fn compose(overall: &[f32; 13], bone: &[f32; 13]) -> [f32; 13] {
+    let x = |t: &[f32; 13]| Xf {
+        r: t[..9].try_into().unwrap_or(Xf::ID.r),
+        t: [t[9], t[10], t[11]],
+        s: t[12],
+    };
+    let c = x(bone).then(&x(overall));
+    let mut o = [0f32; 13];
+    o[..9].copy_from_slice(&c.r);
+    o[9..12].copy_from_slice(&c.t);
+    o[12] = c.s;
+    o
+}
+
 fn b64_f32(v: impl Iterator<Item = f32>) -> String {
     let bytes: Vec<u8> = v.flat_map(f32::to_le_bytes).collect();
     super::base64(&bytes)
+}
+
+/// The skin of a shape: bone names from its skin instance, bind transforms from its skin data, per-vertex weights from
+/// the vertex data (SSE, Fallout 4) or the skin data's weight lists (LE: the four heaviest).
+fn skin_of(blocks: &[Option<Block>], skin: i32, n: usize, vskin: &[([f32; 4], [u8; 4])]) -> Option<Skin> {
+    let get = |i: i32| -> Option<&Block> { blocks.get(usize::try_from(i).ok()?)?.as_ref() };
+    let inst = get(skin)?;
+    let data = get(inst.skin_data)?;
+    if inst.bones.is_empty() || data.bind.len() != inst.bones.len() {
+        return None;
+    }
+    let bones: Vec<String> = inst
+        .bones
+        .iter()
+        .map(|&b| get(b).map(|x| x.name.clone()).unwrap_or_default())
+        .collect();
+    let mut per: Vec<([f32; 4], [u8; 4])> = if vskin.len() == n {
+        vskin.to_vec()
+    } else {
+        let mut all: Vec<Vec<(f32, u8)>> = vec![Vec::new(); n];
+        for (bi, ws) in data.weights.iter().enumerate() {
+            for &(v, w) in ws {
+                if let Some(x) = all.get_mut(v as usize) {
+                    x.push((w, bi as u8));
+                }
+            }
+        }
+        all.into_iter()
+            .map(|mut x| {
+                x.sort_by(|a, b| b.0.total_cmp(&a.0));
+                let mut w = [0f32; 4];
+                let mut j = [0u8; 4];
+                for (k, (ww, jj)) in x.into_iter().take(4).enumerate() {
+                    w[k] = ww;
+                    j[k] = jj;
+                }
+                (w, j)
+            })
+            .collect()
+    };
+    if per.iter().all(|(w, _)| w.iter().sum::<f32>() <= 0.0) {
+        return None;
+    }
+    for (w, _) in &mut per {
+        let s: f32 = w.iter().sum();
+        if s > 0.0 {
+            for x in w.iter_mut() {
+                *x /= s;
+            }
+        }
+    }
+    Some(Skin {
+        bones,
+        bind: b64_f32(data.bind.iter().flatten().copied()),
+        joints: super::base64(&per.iter().flat_map(|(_, j)| *j).collect::<Vec<u8>>()),
+        weights: b64_f32(per.iter().flat_map(|(w, _)| *w)),
+    })
 }
 
 /// The geometry of a NIF, when it has drawable shapes.
@@ -569,29 +725,28 @@ pub(super) fn read(b: &[u8], l: &Layout) -> Option<Mesh> {
                 }
             }
         }
-        let Some((pos, uv, ix)) = &blk.geo else { continue };
-        let (pos, uv, ix) = if blk.data >= 0 {
+        let Some(own) = &blk.geo else { continue };
+        let empty = Geo::default();
+        let other = if blk.data >= 0 {
             match get(blk.data).and_then(|d| d.geo.as_ref()) {
-                Some(g) => (&g.0, &g.1, &g.2),
+                Some(g) => g,
                 None => continue,
             }
-        } else if (pos.is_empty() || ix.is_empty()) && blk.skin >= 0 {
+        } else if blk.skin >= 0 {
             // SSE skinned: the skin instance's partition holds the vertices and triangles (a dynamic shape — a
             // face — keeps its own positions)
-            match get(blk.skin)
+            get(blk.skin)
                 .and_then(|sk| get(sk.data))
                 .and_then(|d| d.geo.as_ref())
-            {
-                Some(g) => (
-                    if pos.is_empty() { &g.0 } else { pos },
-                    if uv.is_empty() { &g.1 } else { uv },
-                    if ix.is_empty() { &g.2 } else { ix },
-                ),
-                None => continue,
-            }
+                .unwrap_or(&empty)
         } else {
-            (pos, uv, ix)
+            &empty
         };
+        let pick = |a: bool| if a { other } else { own };
+        let pos = &pick(own.pos.is_empty()).pos;
+        let uv = &pick(own.uv.is_empty()).uv;
+        let ix = &pick(own.ix.is_empty()).ix;
+        let vskin = &pick(own.skin.is_empty()).skin;
         if pos.is_empty() || ix.is_empty() {
             continue;
         }
@@ -601,6 +756,9 @@ pub(super) fn read(b: &[u8], l: &Layout) -> Option<Mesh> {
             break;
         }
         total += pos.len();
+        let skin = skin_of(&blocks, blk.skin, pos.len(), vskin);
+        // skinned shapes too: their bind transforms take the placed positions (checked — vertices then lie next to
+        // their bones)
         let world: Vec<[f32; 3]> = pos.iter().map(|&v| xf.apply(v)).collect();
         for v in &world {
             for a in 0..3 {
@@ -642,6 +800,7 @@ pub(super) fn read(b: &[u8], l: &Layout) -> Option<Mesh> {
             material: shader.and_then(|s| s.material.clone()),
             skinned: blk.skin >= 0,
             alpha: blk.alpha >= 0,
+            skin,
         });
     }
     if failed > 0 {
@@ -777,6 +936,60 @@ mod tests {
             b.extend_from_slice(d);
         }
         b
+    }
+
+    /// Writes the preview JSON of each file of `SAT_DUMP_DIR` to `SAT_DUMP_OUT/<name>.json` (checks by scripts).
+    #[test]
+    #[ignore]
+    fn dump_previews() {
+        let (Ok(dir), Ok(out)) = (std::env::var("SAT_DUMP_DIR"), std::env::var("SAT_DUMP_OUT")) else {
+            return;
+        };
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let p = inspect(&name, &std::fs::read(e.path()).unwrap());
+            std::fs::write(format!("{out}/{name}.json"), serde_json::to_string(&p).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_skin_takes_bone_names_binds_and_the_four_heaviest_weights() {
+        use super::{Block, skin_of};
+        let node = |n: &str| Block {
+            name: n.into(),
+            ..Default::default()
+        };
+        let mut inst = Block {
+            skin_data: 3,
+            bones: vec![0, 1],
+            ..Default::default()
+        };
+        inst.data = -1;
+        let mut id = [0f32; 13];
+        id[0] = 1.;
+        id[4] = 1.;
+        id[8] = 1.;
+        id[12] = 1.;
+        let data = Block {
+            bind: vec![id, id],
+            // LE: weight lists per bone (vertex, weight)
+            weights: vec![vec![(0, 0.5), (1, 1.0)], vec![(0, 1.5)]],
+            ..Default::default()
+        };
+        let blocks = vec![Some(node("Pelvis")), Some(node("Spine")), Some(inst), Some(data)];
+        let s = skin_of(&blocks, 2, 2, &[]).expect("skin");
+        assert_eq!(s.bones, ["Pelvis", "Spine"]);
+        let w = crate::preview::unbase64(&s.weights);
+        let w: Vec<f32> = w
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
+            .collect();
+        // vertex 0: Spine 1.5, Pelvis 0.5 → normalized 0.75, 0.25; vertex 1: Pelvis 1
+        assert_eq!(&w[..4], &[0.75, 0.25, 0., 0.]);
+        assert_eq!(&w[4..8], &[1., 0., 0., 0.]);
+        assert_eq!(crate::preview::unbase64(&s.joints), [1, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]

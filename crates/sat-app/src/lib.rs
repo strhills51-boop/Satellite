@@ -443,8 +443,12 @@ pub enum Query {
     Asset {
         path: String,
     },
-    /// The skeleton an animation plays on.
+    /// The skeleton an animation (or a skinned mesh) plays on.
     SkeletonFor {
+        path: String,
+    },
+    /// Skinned meshes to put on an animation's skeleton.
+    BodyFor {
         path: String,
     },
     /// A small picture of an image file (a build path, or a file of `place`).
@@ -822,6 +826,9 @@ pub enum Reply {
     },
     Thumb {
         picture: Option<sat_formats::preview::Picture>,
+    },
+    Assets {
+        assets: Vec<Asset>,
     },
     ChainOrphans {
         orphans: find::Orphans,
@@ -1734,6 +1741,9 @@ impl App {
             },
             Query::SkeletonFor { path } => Reply::Asset {
                 asset: self.skeleton_for(&path).map(Box::new),
+            },
+            Query::BodyFor { path } => Reply::Assets {
+                assets: self.body_for(&path),
             },
             Query::Thumb { path, place, side } => Reply::Thumb {
                 picture: self.thumb(&path, place.as_deref(), side),

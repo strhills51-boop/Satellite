@@ -223,6 +223,7 @@ table.fxtab { width: 100%; border-collapse: collapse; font-size: 12px; } .fxtab 
 .v3d .v3bar .tl { position: relative; flex: 1; min-width: 120px; display: flex; } .v3d .v3bar .tl input { width: 100%; }
 .v3d .v3bar .tl i { position: absolute; top: -3px; width: 2px; height: 8px; background: #f59e0b; pointer-events: auto; }
 .v3d .v3bar .fr { font: 11px var(--mono); color: var(--muted); min-width: 64px; }
+.v3d .v3bar .anpick { flex: 1; min-width: 180px; font-size: 12px; padding: 1px 6px; }
 .v3d .v3msg { position: absolute; left: 8px; top: 6px; font-size: 11px; pointer-events: none; }
 .pv .pin { font-size: 14px; padding: 0 8px; border-radius: 999px; }
 .pv .pin.on { color: #f59e0b; border-color: #f59e0b; }
@@ -907,7 +908,10 @@ function picMount(el) {
 // ---------------------------------------------------------------- 3D viewer: meshes and animations
 // A mesh (`preview.mesh`: shapes with base64 positions / uvs / indices, the diffuse texture as a data path) or a
 // Havok motion (`preview.motion`: a skeleton's pose, an animation's frames; the animation's skeleton is asked for
-// with `skeleton-for`). WebGL2, orbit with the mouse (drag — turn, right drag / shift — move, wheel — zoom), Z up.
+// with `skeleton-for`). A skinned mesh bends with a skeleton (its actor's, `skeleton-for`) and plays any animation
+// picked from the build; an animation can put a body on its skeleton (`body-for`). Skinning on the CPU: each bone's
+// world transform × its bind transform, four weights per vertex. WebGL2, orbit with the mouse (drag — turn, right
+// drag / shift — move, wheel — zoom), Z up.
 const V3D = new Map(); let v3dSeq = 0;
 function v3dSlot(p, path, compact) {
   if (!p || !(p.mesh || p.motion)) return "";
@@ -951,8 +955,9 @@ class Viewer {
     const gl = this.gl = this.cv.getContext("webgl2", { antialias: true });
     if (!gl) { this.msg.textContent = "WebGL2 недоступен в этом браузере"; return; }
     this.mp = glProg(gl, MESH_VS, MESH_FS); this.lp = glProg(gl, LINE_VS, LINE_FS);
-    this.yaw = -Math.PI / 2.4; this.pitch = 0.25; this.dist = 200; this.target = [0, 0, 0]; this.shapes = []; this.lines = null; this.points = null;
-    this.mouse(); this.grid = null; this.t0 = performance.now(); this.playing = true; this.speed = 1; this.time = 0;
+    this.yaw = -Math.PI / 2.4; this.pitch = 0.25; this.dist = 200; this.target = [0, 0, 0]; this.shapes = []; this.lines = gl.createBuffer(); this.points = gl.createBuffer();
+    this.mouse(); this.grid = null; this.t0 = performance.now(); this.playing = true; this.speed = 1; this.time = 0; this.showBones = true; this.lastF = -1; this.info = "";
+    this.bar.addEventListener("click", e => this.barClick(e)); this.bar.addEventListener("change", e => this.barChange(e)); this.bar.addEventListener("input", e => this.barInput(e));
     const p = slot.p;
     if (p.mesh) this.loadMesh(p.mesh); else this.loadMotion(p.motion);
     const loop = () => { if (!this.el.isConnected) { const x = gl.getExtension("WEBGL_lose_context"); if (x) x.loseContext(); return; } this.frame(); requestAnimationFrame(loop); };
@@ -972,31 +977,50 @@ class Viewer {
     this.cv.addEventListener("dblclick", () => this.fit());
   }
   fit() { const b = this.bounds; if (!b) return; this.target = [(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2]; this.dist = Math.max(1, Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) * 1.5); }
-  buffer(target, data) { const gl = this.gl, b = gl.createBuffer(); gl.bindBuffer(target, b); gl.bufferData(target, data, gl.STATIC_DRAW); return b; }
+  buffer(target, data, dyn) { const gl = this.gl, b = gl.createBuffer(); gl.bindBuffer(target, b); gl.bufferData(target, data, dyn ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW); return b; }
   makeGrid() {
     const b = this.bounds, size = Math.max(b[3] - b[0], b[4] - b[1], 1) * 1.5, cx = (b[0] + b[3]) / 2, cy = (b[1] + b[4]) / 2, z = b[2], v = [];
     for (let i = -5; i <= 5; i++) { const o = size * i / 10; v.push(cx - size / 2, cy + o, z, cx + size / 2, cy + o, z, cx + o, cy - size / 2, z, cx + o, cy + size / 2, z); }
     this.grid = { buf: this.buffer(this.gl.ARRAY_BUFFER, new Float32Array(v)), n: v.length / 3 };
   }
-  loadMesh(m) {
-    const gl = this.gl; this.bounds = m.bounds; this.fit(); this.makeGrid();
-    let tris = 0, verts = 0;
+  static normals(pos, ix, out) {
+    const nrm = out || new Float32Array(pos.length); nrm.fill(0);
+    for (let i = 0; i < ix.length; i += 3) {
+      const a = ix[i] * 3, b = ix[i + 1] * 3, c = ix[i + 2] * 3;
+      const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      nrm[a] += nx; nrm[a + 1] += ny; nrm[a + 2] += nz; nrm[b] += nx; nrm[b + 1] += ny; nrm[b + 2] += nz; nrm[c] += nx; nrm[c + 1] += ny; nrm[c + 2] += nz;
+    }
+    return nrm;
+  }
+  // shapes of a mesh; skinned ones keep their skin to follow the skeleton
+  addMesh(m, onlySkinned) {
+    const gl = this.gl; let tris = 0, verts = 0, skinned = 0;
     for (const s of m.shapes) {
+      if (onlySkinned && !s.skin) continue;
       const pos = new Float32Array(b64f(s.positions)), ix = new Uint32Array(b64f(s.indices)), uv = s.uvs ? new Float32Array(b64f(s.uvs)) : null;
-      const nrm = new Float32Array(pos.length);
-      for (let i = 0; i < ix.length; i += 3) {
-        const a = ix[i] * 3, b = ix[i + 1] * 3, c = ix[i + 2] * 3;
-        const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
-        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-        for (const k of [a, b, c]) { nrm[k] += nx; nrm[k + 1] += ny; nrm[k + 2] += nz; }
+      const nrm = Viewer.normals(pos, ix);
+      const sh = { n: ix.length, ixa: ix, base: pos, pos: this.buffer(gl.ARRAY_BUFFER, pos, !!s.skin), nrm: this.buffer(gl.ARRAY_BUFFER, nrm, !!s.skin), uv: uv ? this.buffer(gl.ARRAY_BUFFER, uv) : null, ix: this.buffer(gl.ELEMENT_ARRAY_BUFFER, ix), tex: null, name: s.name };
+      if (s.skin) {
+        skinned++;
+        sh.skin = { bones: s.skin.bones, bind: new Float32Array(b64f(s.skin.bind)), joints: new Uint8Array(b64f(s.skin.joints)), weights: new Float32Array(b64f(s.skin.weights)) };
+        sh.cur = new Float32Array(pos.length); sh.curN = new Float32Array(pos.length);
+        if (this.skel) this.bindShape(sh);
       }
-      const sh = { n: ix.length, pos: this.buffer(gl.ARRAY_BUFFER, pos), nrm: this.buffer(gl.ARRAY_BUFFER, nrm), uv: uv ? this.buffer(gl.ARRAY_BUFFER, uv) : null, ix: this.buffer(gl.ELEMENT_ARRAY_BUFFER, ix), tex: null, name: s.name, on: true };
       this.shapes.push(sh); tris += s.triangles; verts += s.vertices;
       if (s.texture && uv) this.texture(s.texture).then(t => { sh.tex = t; });
     }
-    this.bar.innerHTML = `<span>${m.shapes.length} фигур · ${num(verts)} вершин · ${num(tris)} треугольников</span><button data-v="wire" title="Каркас">▦</button><button data-v="fit" title="Показать целиком (или двойной клик)">⤢</button>`;
-    this.bar.onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; if (b.dataset.v === "fit") this.fit(); else { this.wire = !this.wire; b.classList.toggle("on", this.wire); } };
+    this.lastF = -1;
+    return { tris, verts, skinned };
+  }
+  loadMesh(m) {
+    this.bounds = m.bounds; this.fit(); this.makeGrid();
+    const r = this.addMesh(m, false);
+    this.info = `${m.shapes.length} фигур · ${num(r.verts)} вершин · ${num(r.tris)} треугольников`;
     if (m.notes && m.notes.length) this.msg.textContent = m.notes.join("; ");
+    this.showBones = false;
+    this.renderBar();
+    if (r.skinned) this.findSkeleton(this.slot.path, true);
   }
   async texture(path) {
     const key = path.toLowerCase();
@@ -1007,42 +1031,98 @@ class Viewer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img); gl.generateMipmap(gl.TEXTURE_2D);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); return t;
   }
+  async findSkeleton(path, quiet) {
+    if (!quiet) this.msg.textContent = "ищу скелет…";
+    const r = await query({ type: "skeleton-for", path }).catch(() => ({}));
+    if (!r.asset) { if (!quiet) this.msg.textContent = "Скелет не найден (нужен …/character assets/skeleton.hkx в сборке или в игре)."; return false; }
+    this.setSkeleton(r.asset.preview.motion, r.asset.path, r.asset.from);
+    if (!quiet) this.msg.textContent = "";
+    this.renderBar();
+    return true;
+  }
+  setSkeleton(skel, path, from) {
+    const pose = new Float32Array(b64f(skel.pose)), nb = skel.names.length;
+    this.skel = { parents: skel.parents, names: skel.names, t: [], q: [], path, from };
+    this.byName = new Map(skel.names.map((n, i) => [n.toLowerCase(), i]));
+    for (let i = 0; i < nb; i++) { this.skel.t.push([pose[i * 10], pose[i * 10 + 1], pose[i * 10 + 2]]); this.skel.q.push([pose[i * 10 + 3], pose[i * 10 + 4], pose[i * 10 + 5], pose[i * 10 + 6]]); }
+    for (const s of this.shapes) if (s.skin) this.bindShape(s);
+    this.lastF = -1;
+  }
+  bindShape(s) { s.skin.idx = s.skin.bones.map(b => this.byName.has(b.toLowerCase()) ? this.byName.get(b.toLowerCase()) : -1); }
+  setAnim(m, path) {
+    this.anim = m; this.animPath = path; this.samples = new Float32Array(b64f(m.samples)); this.tracks = m.names.length;
+    // tracks → bones: the binding, else by name, else in order
+    this.map = m.names.map((n, i) => m.track_bones && m.track_bones.length ? m.track_bones[i] : this.byName.has((n || "").toLowerCase()) ? this.byName.get(n.toLowerCase()) : i);
+    this.fps = m.frames > 1 && m.duration > 0 ? (m.frames - 1) / m.duration : 30;
+    this.time = 0; this.t0 = performance.now(); this.playing = true; this.lastF = -1;
+    this.renderBar();
+  }
   async loadMotion(m) {
     let skel = m.kind === "skeleton" ? m : null;
-    if (!skel) {
-      this.msg.textContent = "ищу скелет…";
-      const r = await query({ type: "skeleton-for", path: this.slot.path }).catch(() => ({}));
-      if (r.asset) { skel = r.asset.preview.motion; this.skelFrom = `${r.asset.path} (${r.asset.from})`; }
-      if (!skel) { this.msg.textContent = "Скелет для этой анимации не найден (нужен …/character assets/skeleton.hkx в сборке или в игре)."; return; }
-      this.msg.textContent = "";
-    }
-    const pose = new Float32Array(b64f(skel.pose)), nb = skel.names.length;
-    this.skel = { parents: skel.parents, names: skel.names, t: [], q: [] };
-    for (let i = 0; i < nb; i++) { this.skel.t.push([pose[i * 10], pose[i * 10 + 1], pose[i * 10 + 2]]); this.skel.q.push([pose[i * 10 + 3], pose[i * 10 + 4], pose[i * 10 + 5], pose[i * 10 + 6]]); }
-    if (m.kind === "animation") {
-      this.anim = m; this.samples = new Float32Array(b64f(m.samples)); this.tracks = m.names.length;
-      // tracks → bones: the binding, else by name, else in order
-      const byName = new Map(skel.names.map((n, i) => [n.toLowerCase(), i]));
-      this.map = m.names.map((n, i) => m.track_bones && m.track_bones.length ? m.track_bones[i] : byName.has((n || "").toLowerCase()) ? byName.get(n.toLowerCase()) : i);
-    }
-    const w = this.pose(0); const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-    for (const p of w) for (let a = 0; a < 3; a++) { b[a] = Math.min(b[a], p[a]); b[a + 3] = Math.max(b[a + 3], p[a]); }
+    if (skel) this.setSkeleton(skel, this.slot.path, "");
+    else if (!(await this.findSkeleton(this.slot.path, false))) return;
+    if (m.kind === "animation") this.setAnim(m, this.slot.path);
+    const { wt } = this.pose(0), b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const p of wt) for (let a = 0; a < 3; a++) { b[a] = Math.min(b[a], p[a]); b[a + 3] = Math.max(b[a + 3], p[a]); }
     this.bounds = b; this.fit(); this.makeGrid();
-    const gl = this.gl; this.lines = gl.createBuffer(); this.points = gl.createBuffer();
-    if (this.anim) {
-      const a = this.anim, fps = a.frames > 1 && a.duration > 0 ? (a.frames - 1) / a.duration : 30;
-      this.fps = fps;
-      const ev = (a.events || []).map(([t, e]) => `<i style="left:${(t / Math.max(a.duration, 1e-3) * 100).toFixed(2)}%" title="${esc(t.toFixed(2) + " с — " + e)}"></i>`).join("");
-      this.bar.innerHTML = `<button data-v="play" title="Пауза / пуск (пробел)">⏸</button><span class="tl"><input type="range" min="0" max="${Math.max(a.frames - 1, 0)}" step="1" value="0">${ev}</span><span class="fr">0 / ${a.frames - 1}</span>` +
-        `<select data-v="speed" title="Скорость"><option value="0.25">×¼</option><option value="0.5">×½</option><option value="1" selected>×1</option><option value="2">×2</option></select><button data-v="fit" title="Показать целиком">⤢</button>`;
-      const range = this.bar.querySelector("input");
-      range.oninput = () => { this.playing = false; this.time = +range.value / fps; this.bar.querySelector("[data-v=play]").textContent = "▶"; };
-      this.bar.onclick = e => { const v = e.target.closest("[data-v]")?.dataset.v; if (v === "play") { this.playing = !this.playing; e.target.textContent = this.playing ? "⏸" : "▶"; this.t0 = performance.now() - this.time * 1000 / this.speed; } if (v === "fit") this.fit(); };
-      this.bar.querySelector("select").onchange = e => { this.speed = +e.target.value; };
-      if (this.skelFrom) this.msg.textContent = "скелет: " + this.skelFrom;
-    } else this.bar.innerHTML = `<span>${nb} костей · исходная поза</span><button data-v="fit">⤢</button>`, this.bar.onclick = () => this.fit();
+    this.info = m.kind === "skeleton" ? `${m.names.length} костей · исходная поза` : "";
+    this.renderBar();
   }
-  // world positions of the bones at frame f (the reference pose without an animation)
+  async addBody() {
+    this.msg.textContent = "ищу тело…";
+    const r = await query({ type: "body-for", path: this.slot.path }).catch(() => ({ assets: [] }));
+    let n = 0; for (const a of r.assets || []) { if (a.preview.mesh) { n += this.addMesh(a.preview.mesh, true).skinned; } }
+    this.bodyFrom = (r.assets || []).map(a => `${a.path.split("/").pop()} (${a.from})`).join(", ");
+    this.msg.textContent = n ? "тело: " + this.bodyFrom : "Тело не найдено (…/character assets/malebody_1.nif и др. — в сборке или в игре).";
+    if (n) this.showBones = false;
+    this.body = n > 0; this.renderBar();
+  }
+  renderBar() {
+    const a = this.anim, sk = this.shapes.some(s => s.skin), parts = [];
+    if (a) {
+      const ev = (a.events || []).map(([t, e]) => `<i style="left:${(t / Math.max(a.duration, 1e-3) * 100).toFixed(2)}%" title="${esc(t.toFixed(2) + " с — " + e)}"></i>`).join("");
+      parts.push(`<button data-v="play" title="Пауза / пуск">${this.playing ? "⏸" : "▶"}</button><span class="tl"><input type="range" min="0" max="${Math.max(a.frames - 1, 0)}" step="1" value="0">${ev}</span><span class="fr">0 / ${a.frames - 1}</span>`,
+        `<select data-v="speed" title="Скорость">${[0.25, 0.5, 1, 2].map(x => `<option value="${x}"${x === this.speed ? " selected" : ""}>×${x === 0.25 ? "¼" : x === 0.5 ? "½" : x}</option>`).join("")}</select>`);
+    } else if (this.info) parts.push(`<span>${esc(this.info)}</span>`);
+    if (sk && this.skel) parts.push(`<input class="anpick" data-v="anim" list="anl-${this.el.dataset.v3d}" placeholder="анимация: начни вводить (idle, walk, …)" value="${esc(this.animPath && this.animPath !== this.slot.path ? this.animPath : "")}" title="Проиграть на этом меше анимацию из сборки"><datalist id="anl-${this.el.dataset.v3d}"></datalist>`);
+    if (this.skel && !this.slot.p.mesh && this.slot.p.motion.kind === "animation" && !this.body) parts.push(`<button data-v="body" title="Надеть на скелет тело: тело, руки, ноги, голову (замены из сборки, иначе игровые)">🧍 тело</button>`);
+    if (this.skel) parts.push(`<button data-v="bones" class="${this.showBones ? "on" : ""}" title="Кости">🦴</button>`);
+    if (this.shapes.length) parts.push(`<button data-v="wire" class="${this.wire ? "on" : ""}" title="Каркас">▦</button>`);
+    parts.push(`<button data-v="fit" title="Показать целиком (или двойной клик)">⤢</button>`);
+    this.bar.innerHTML = parts.join("");
+    if (sk && this.skel) this.suggest("");
+  }
+  async suggest(text) {
+    const actor = (this.skel.path || "").toLowerCase().split("/character assets")[0] || "meshes/actors/character";
+    const q = text && text.length >= 2 ? text : actor + "/animations/";
+    const r = await query({ type: "find-paths", text: q, limit: 400 }).catch(() => ({ paths: [] }));
+    const dl = this.bar.querySelector("datalist"); if (!dl) return;
+    dl.innerHTML = (r.paths || []).filter(p => /\.hkx$/i.test(p) && /animations\//i.test(p)).slice(0, 200).map(p => `<option value="${esc(p)}">`).join("");
+  }
+  barClick(e) {
+    const v = e.target.closest("[data-v]")?.dataset.v;
+    if (v === "play") { this.playing = !this.playing; e.target.textContent = this.playing ? "⏸" : "▶"; this.t0 = performance.now() - this.time * 1000 / this.speed; }
+    if (v === "fit") this.fit();
+    if (v === "wire") { this.wire = !this.wire; e.target.classList.toggle("on", this.wire); }
+    if (v === "bones") { this.showBones = !this.showBones; e.target.classList.toggle("on", this.showBones); }
+    if (v === "body") this.addBody();
+  }
+  barInput(e) {
+    if (e.target.type === "range") { this.playing = false; this.time = +e.target.value / this.fps; const b = this.bar.querySelector("[data-v=play]"); if (b) b.textContent = "▶"; }
+    if (e.target.dataset.v === "anim") { clearTimeout(this.sugT); const t = e.target.value; this.sugT = setTimeout(() => this.suggest(t), 250); }
+  }
+  async barChange(e) {
+    if (e.target.dataset.v === "speed") { this.speed = +e.target.value; this.t0 = performance.now() - this.time * 1000 / this.speed; }
+    if (e.target.dataset.v === "anim") {
+      const path = e.target.value.trim(); if (!/\.hkx$/i.test(path)) return;
+      this.msg.textContent = "читаю анимацию…";
+      const r = await query({ type: "asset", path }).catch(() => ({}));
+      const m = r.asset && r.asset.preview.motion;
+      if (!m || m.kind !== "animation") { this.msg.textContent = "Это не анимация или она не читается."; return; }
+      this.msg.textContent = ""; this.setAnim(m, path);
+    }
+  }
+  // world transforms of the bones at frame f (the reference pose without an animation)
   pose(f) {
     const s = this.skel, n = s.names.length, t = s.t.map(x => x.slice()), q = s.q.map(x => x.slice());
     if (this.anim && this.samples.length) {
@@ -1059,7 +1139,33 @@ class Viewer {
       if (p < 0 || p >= i) { wt[i] = t[i]; wq[i] = q[i]; continue; }
       const r = Q.rot(wq[p], t[i]); wt[i] = [wt[p][0] + r[0], wt[p][1] + r[1], wt[p][2] + r[2]]; wq[i] = Q.mul(wq[p], q[i]);
     }
-    return wt;
+    return { wt, wq };
+  }
+  // skinning on the CPU: each bone's matrix = its world transform × its bind (skin space → bone space)
+  skin(s, wt, wq) {
+    const k = s.skin, nb = k.bones.length, M = new Float32Array(nb * 12);
+    for (let b = 0; b < nb; b++) {
+      const i = k.idx[b], o = b * 12;
+      if (i < 0) { M[o] = M[o + 5] = M[o + 10] = 1; continue; }
+      const [x, y, z, w] = wq[i], R = [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w), 2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w), 2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)];
+      const B = k.bind, bo = b * 13, sc = B[bo + 12];
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) M[o + r * 4 + c] = sc * (R[r * 3] * B[bo + c] + R[r * 3 + 1] * B[bo + 3 + c] + R[r * 3 + 2] * B[bo + 6 + c]);
+        M[o + r * 4 + 3] = R[r * 3] * B[bo + 9] + R[r * 3 + 1] * B[bo + 10] + R[r * 3 + 2] * B[bo + 11] + wt[i][r];
+      }
+    }
+    const P = s.base, out = s.cur, J = k.joints, W = k.weights, n = P.length / 3;
+    for (let v = 0; v < n; v++) {
+      const px = P[v * 3], py = P[v * 3 + 1], pz = P[v * 3 + 2]; let x = 0, y = 0, z = 0;
+      for (let j = 0; j < 4; j++) {
+        const w = W[v * 4 + j]; if (!w) continue; const o = J[v * 4 + j] * 12; if (o >= M.length) continue;
+        x += w * (M[o] * px + M[o + 1] * py + M[o + 2] * pz + M[o + 3]); y += w * (M[o + 4] * px + M[o + 5] * py + M[o + 6] * pz + M[o + 7]); z += w * (M[o + 8] * px + M[o + 9] * py + M[o + 10] * pz + M[o + 11]);
+      }
+      out[v * 3] = x; out[v * 3 + 1] = y; out[v * 3 + 2] = z;
+    }
+    const gl = this.gl; Viewer.normals(out, s.ixa, s.curN);
+    gl.bindBuffer(gl.ARRAY_BUFFER, s.pos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, out);
+    gl.bindBuffer(gl.ARRAY_BUFFER, s.nrm); gl.bufferSubData(gl.ARRAY_BUFFER, 0, s.curN);
   }
   frame() {
     const gl = this.gl, cv = this.cv, dpr = window.devicePixelRatio || 1, w = cv.clientWidth * dpr | 0, h = cv.clientHeight * dpr | 0;
@@ -1073,6 +1179,18 @@ class Viewer {
       const loc = gl.getAttribLocation(this.lp, "a_p"); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0); gl.drawArrays(mode, 0, n);
     };
     if (this.grid) line(this.grid.buf, this.grid.n, gl.LINES, [0.3, 0.35, 0.45, 1]);
+    // the pose of this frame: bones, then skinned shapes follow them
+    let posed = null;
+    if (this.skel) {
+      let f = 0;
+      if (this.anim) {
+        if (this.playing) this.time = ((performance.now() - this.t0) / 1000 * this.speed) % Math.max(this.anim.duration, 1e-3);
+        f = Math.round(this.time * this.fps);
+        const r = this.bar.querySelector("input[type=range]"); if (r && this.playing) r.value = f; const fr = this.bar.querySelector(".fr"); if (fr) fr.textContent = `${f} / ${this.anim.frames - 1}`;
+      }
+      posed = this.pose(f);
+      if (f !== this.lastF) { for (const s of this.shapes) if (s.skin && s.skin.idx) this.skin(s, posed.wt, posed.wq); this.lastF = f; }
+    }
     if (this.shapes.length) {
       const p = this.mp; gl.useProgram(p); gl.uniformMatrix4fv(gl.getUniformLocation(p, "u_m"), false, mvp); gl.uniform3fv(gl.getUniformLocation(p, "u_l"), [eye[0] - this.target[0], eye[1] - this.target[1], eye[2] - this.target[2] + this.dist * 0.5]);
       for (const s of this.shapes) {
@@ -1083,14 +1201,8 @@ class Viewer {
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, s.ix); gl.drawElements(this.wire ? gl.LINES : gl.TRIANGLES, s.n, gl.UNSIGNED_INT, 0);
       }
     }
-    if (this.skel) {
-      let f = 0;
-      if (this.anim) {
-        if (this.playing) { this.time = ((performance.now() - this.t0) / 1000 * this.speed) % Math.max(this.anim.duration, 1e-3); }
-        f = Math.round(this.time * this.fps);
-        const r = this.bar.querySelector("input"); if (r && this.playing) r.value = f; const fr = this.bar.querySelector(".fr"); if (fr) fr.textContent = `${f} / ${this.anim.frames - 1}`;
-      }
-      const wt = this.pose(f), seg = [], pts = [];
+    if (posed && this.showBones) {
+      const wt = posed.wt, seg = [], pts = [];
       for (let i = 0; i < wt.length; i++) { pts.push(...wt[i]); const p = this.skel.parents[i]; if (p >= 0 && p < wt.length) seg.push(...wt[p], ...wt[i]); }
       gl.disable(gl.DEPTH_TEST);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.lines); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(seg), gl.DYNAMIC_DRAW); line(this.lines, seg.length / 3, gl.LINES, [0.98, 0.75, 0.25, 1]);

@@ -402,55 +402,71 @@ impl App {
         })
     }
 
-    // @sat:app.preview.skeleton
-    /// The skeleton an animation plays on: `…/character assets*/skeleton.hkx` of the actor folder the animation
-    /// lies in (the part before `animations/` or `behaviors/`) — the build's first, else the game's.
-    pub(crate) fn skeleton_for(&mut self, path: &str) -> Option<Asset> {
+    /// The actor folder a file belongs to: the part of its data path before `animations/` or `behaviors/`, or
+    /// `character assets*/`; anything else (armour, clothes) — the human character.
+    fn actor_of(path: &str) -> String {
         let mut lower = path.trim_matches('/').replace('\\', "/").to_lowercase();
         // a file of a place (`Data/…`, `Data/x.bsa/…`): the data path starts at `meshes/`
         if let Some(i) = lower.find("meshes/").filter(|&i| i > 0) {
             lower = lower[i..].to_string();
         }
-        let cut = [
+        [
             "/animations/",
             "/behaviors/",
             "/behaviours/",
             "/character animations/",
+            "/character assets",
         ]
         .iter()
         .filter_map(|m| lower.find(m))
-        .min()?;
-        let actor = &lower[..cut];
-        let mut candidates: Vec<String> = Vec::new();
+        .min()
+        .map_or_else(
+            || "meshes/actors/character".to_string(),
+            |cut| lower[..cut].to_string(),
+        )
+    }
+
+    /// Files of the build in the actor's `character assets*` folders that `keep` accepts, shortest first.
+    fn character_assets(&mut self, actor: &str, keep: impl Fn(&str) -> bool) -> Vec<String> {
         let table = self.session.table().clone();
         let it = table.interner();
-        if let Some(d) = it.find_dir(actor) {
-            if !self
-                .vfs
-                .as_ref()
-                .is_some_and(|v| v.table == Arc::as_ptr(&table) as usize)
-            {
-                self.vfs = Some(Arc::new(VfsIndex::build(&table)));
-            }
-            let ix = self.vfs.clone()?;
-            for &c in &ix.dirs[d.0 as usize] {
-                let cd = sat_core::ids::DirId(c);
-                let name = it.segment(it.dir_segment(cd)).to_lowercase();
-                if !name.starts_with("character assets") {
-                    continue;
-                }
-                let mut files: Vec<String> = ix.files[c as usize]
-                    .iter()
-                    .map(|&p| table.path_string(p))
-                    .filter(|p| {
-                        let f = p.rsplit('/').next().unwrap_or("").to_lowercase();
-                        f.starts_with("skeleton") && f.ends_with(".hkx")
-                    })
-                    .collect();
-                files.sort_by_key(|f| (f.len(), f.clone()));
-                candidates.extend(files);
-            }
+        let Some(d) = it.find_dir(actor) else {
+            return Vec::new();
+        };
+        if !self
+            .vfs
+            .as_ref()
+            .is_some_and(|v| v.table == Arc::as_ptr(&table) as usize)
+        {
+            self.vfs = Some(Arc::new(VfsIndex::build(&table)));
         }
+        let Some(ix) = self.vfs.clone() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for &c in &ix.dirs[d.0 as usize] {
+            let name = it.segment(it.dir_segment(sat_core::ids::DirId(c))).to_lowercase();
+            if !name.starts_with("character assets") {
+                continue;
+            }
+            let mut files: Vec<String> = ix.files[c as usize]
+                .iter()
+                .map(|&p| table.path_string(p))
+                .filter(|p| keep(&p.rsplit('/').next().unwrap_or("").to_lowercase()))
+                .collect();
+            files.sort_by_key(|f| (f.len(), f.clone()));
+            out.extend(files);
+        }
+        out
+    }
+
+    // @sat:app.preview.skeleton
+    /// The skeleton a file plays on: `…/character assets*/skeleton.hkx` of its actor (`actor_of`: an animation's
+    /// folder, a mesh of a creature, else the human character) — the build's first, else the game's.
+    pub(crate) fn skeleton_for(&mut self, path: &str) -> Option<Asset> {
+        let actor = Self::actor_of(path);
+        let mut candidates =
+            self.character_assets(&actor, |f| f.starts_with("skeleton") && f.ends_with(".hkx"));
         candidates.sort_by_key(|f| {
             (
                 !f.to_lowercase().ends_with("/character assets/skeleton.hkx"),
@@ -462,6 +478,38 @@ impl App {
             self.asset(&c)
                 .filter(|a| a.preview.motion.as_ref().is_some_and(|m| m.kind == "skeleton"))
         })
+    }
+
+    // @sat:app.preview.body
+    /// A body to put on an animation's skeleton: the human character's body, hands, feet and head (the build's
+    /// replacers first, else the game's), or a creature's skinned meshes of its `character assets` folder.
+    pub(crate) fn body_for(&mut self, path: &str) -> Vec<Asset> {
+        let actor = Self::actor_of(path);
+        let human = [
+            "malebody_1.nif",
+            "malehands_1.nif",
+            "malefeet_1.nif",
+            "malehead.nif",
+        ];
+        let mut candidates: Vec<String> = if actor == "meshes/actors/character" {
+            human
+                .iter()
+                .map(|f| format!("{actor}/character assets/{f}"))
+                .collect()
+        } else {
+            self.character_assets(&actor, |f| f.ends_with(".nif") && !f.starts_with("skeleton"))
+        };
+        candidates.truncate(6);
+        candidates
+            .into_iter()
+            .filter_map(|c| self.asset(&c))
+            .filter(|a| {
+                a.preview
+                    .mesh
+                    .as_ref()
+                    .is_some_and(|m| m.shapes.iter().any(|s| s.skin.is_some()))
+            })
+            .collect()
     }
 
     // @sat:app.preview.thumb

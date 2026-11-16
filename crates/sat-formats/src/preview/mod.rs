@@ -24,7 +24,7 @@ mod text;
 use serde::{Deserialize, Serialize};
 
 pub use image::thumbnail;
-pub use mesh::{Mesh, Shape};
+pub use mesh::{Mesh, Shape, Skin};
 pub use motion::Motion;
 
 /// Text shown at most (bytes of the decoded text).
