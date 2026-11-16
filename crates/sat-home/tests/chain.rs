@@ -256,7 +256,12 @@ fn reimport_takes_the_canon_and_keeps_the_rest() {
     file(&base.join("mods/A/a.esp"), "x");
     file(&base.join("mods/B/b.esp"), "y");
     file(&base.join("profiles/Default/modlist.txt"), "+B\n+A\n");
-    let inst = Instance::from_dirs(base.join("mods"), base.join("profiles"), base.join("overwrite"), None);
+    let inst = Instance::from_dirs(
+        base.join("mods"),
+        base.join("profiles"),
+        base.join("overwrite"),
+        None,
+    );
     let path = project::default_path(&inst);
     let mut p = sat_core::project::Project::import(project::manager_list(&inst).unwrap());
     p.pinned_files.push("a.esp".into());
