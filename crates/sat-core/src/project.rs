@@ -101,6 +101,9 @@ pub struct Project {
     /// Conditional stickers (`@sat:sticker-rules`): a sticker on every mod an expression holds for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sticker_rules: Vec<crate::sticker_rules::StickerRule>,
+    /// The workspace: windows on the canvas, workflows, the camera (`@sat:space`); none — the classic screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<crate::space::Space>,
     /// What the user wants done to the build, fulfilled by a commit (`@sat:intent`): planned mods.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub intents: Vec<crate::intent::Intent>,
@@ -160,6 +163,7 @@ impl Project {
             tags: Default::default(),
             intents: Vec::new(),
             sticker_rules: Vec::new(),
+            space: None,
             new_mods: Vec::new(),
             counters: Vec::new(),
             indicators: Vec::new(),

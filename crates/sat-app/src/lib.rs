@@ -143,6 +143,11 @@ pub enum Command {
         name: String,
         checked: bool,
     },
+    /// Keep the workspace as the window left it (`@sat:app.space`); one with problems is refused. `None` — back
+    /// to the classic screen.
+    SetSpace {
+        space: Option<sat_core::space::Space>,
+    },
     /// Replace the build indicators (`@sat:app.indicators`); a definition that does not compile is refused.
     SetIndicators {
         defs: Vec<sat_core::counters::IndicatorDef>,
@@ -621,6 +626,8 @@ pub enum Query {
         #[serde(default = "thumb_side")]
         side: u32,
     },
+    /// The workspace (the built-in one when the project has none).
+    Space,
     /// The build indicators measured over the whole build (`@sat:app.indicators`).
     Indicators,
     /// The buffer's areas.
@@ -985,6 +992,11 @@ pub enum Reply {
     Separators {
         tiles: Vec<SeparatorTile>,
     },
+    Space {
+        space: sat_core::space::Space,
+        /// The project has its own (otherwise `space` is the built-in one).
+        own: bool,
+    },
     Indicators {
         indicators: Vec<sat_core::counters::IndicatorValue>,
         /// What they are made of (the built-in ones when the project has none).
@@ -1201,6 +1213,8 @@ pub struct App {
     /// Build indicators (`@sat:counters.build`) and the project's definitions of them (empty: the built-in ones).
     indicators: sat_core::counters::Indicators,
     indicator_defs: Vec<sat_core::counters::IndicatorDef>,
+    /// The workspace (`@sat:app.space`); `None` — the classic screen.
+    space: Option<sat_core::space::Space>,
     /// Where mods come from, by folded name (`@sat:source`).
     sources: std::collections::HashMap<String, sat_core::source::ModSource>,
     /// The project's own stickers by folded mod name (`planned`, `new`).
@@ -1259,6 +1273,7 @@ impl App {
             counters: Default::default(),
             indicators: sat_core::counters::Indicators::compile(&sat_core::counters::default_indicators()).0,
             indicator_defs: Vec::new(),
+            space: None,
             sources: Default::default(),
             domain_cache: Default::default(),
             domain_inputs: Default::default(),
@@ -1313,6 +1328,15 @@ impl App {
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             // @sat:app.marks
+            // @sat:app.space
+            C::SetSpace { space } => {
+                if let Some(e) = space.as_ref().and_then(|s| s.problems().into_iter().next()) {
+                    return Err(AppError::Expr(e));
+                }
+                self.space = space;
+                self.revision += 1;
+                return Ok(Event::Decided);
+            }
             C::SetIndicators { defs } => {
                 let (_, errors) = sat_core::counters::Indicators::compile(&defs);
                 if let Some(e) = errors.into_iter().next() {
@@ -2416,6 +2440,10 @@ impl App {
                     .map(Box::new),
             },
             // @sat:app.decoration
+            Query::Space => Reply::Space {
+                own: self.space.is_some(),
+                space: self.space.clone().unwrap_or_else(sat_core::space::Space::classic),
+            },
             Query::Indicators => Reply::Indicators {
                 indicators: self.indicator_values(),
                 defs: if self.indicator_defs.is_empty() {

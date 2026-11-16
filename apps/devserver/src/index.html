@@ -237,6 +237,30 @@ section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
 #indBox .ir { display: grid; grid-template-columns: 120px minmax(0, 1fr) 140px 70px 34px 26px; gap: 6px; align-items: center; }
 #indBox .ir input, #indBox .ir select { padding: 3px 7px; font: 11px var(--mono); min-width: 0; }
 #indBox .ia { display: flex; gap: 6px; align-items: center; } #indBox .ia #indErr { flex: 1; color: var(--l-txt); font-size: 11px; }
+/* the workspace (ADR 0009, ADR 0020 §10): one canvas, the screen's panels as windows, workflows as framed groups */
+#modeSw { margin-left: 6px; } #marks { display: none; gap: 4px; align-items: center; }
+body.space #marks { display: flex; }
+#marks button { font-size: 11px; padding: 3px 9px; border-radius: 7px; white-space: nowrap; } #marks button.on { background: var(--accent-weak); color: var(--fg); box-shadow: inset 0 0 0 1px var(--accent-border); }
+#marks button kbd { font: 9px var(--mono); color: var(--subtle); margin-right: 4px; }
+#canvas { display: none; }
+body.space main { display: block; position: relative; overflow: hidden; cursor: grab;
+  background-color: var(--bg); background-image: radial-gradient(color-mix(in srgb, var(--line) 70%, transparent) 1px, transparent 1px); }
+body.space main.panning { cursor: grabbing; }
+body.space #canvas { display: block; position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+body.space #canvas > section { position: absolute; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 10px 30px rgba(0,0,0,.3);
+  overflow: hidden; display: flex; flex-direction: column; cursor: default; }
+body.space #canvas > section.front { z-index: 5; }
+body.space #canvas > section > h2 { cursor: move; user-select: none; background: var(--bg2); border-bottom: 1px solid var(--line-soft); padding: 8px 10px; }
+body.space #canvas > section > .wr { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; z-index: 6;
+  background: linear-gradient(135deg, transparent 55%, var(--subtle) 55%); opacity: .6; }
+body.space #canvas > section .wf { margin-left: 6px; font: 10px var(--ui); letter-spacing: 0; text-transform: none; padding: 1px 7px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); color: var(--muted); }
+body.space #canvas > .wfr { position: absolute; border: 1px solid var(--line); border-radius: 18px; background: color-mix(in srgb, var(--panel) 30%, transparent); pointer-events: none; }
+body.space #canvas > .wfr.on { border-color: var(--accent-border); }
+body.space #canvas > .wfr > span { position: absolute; top: -10px; left: 16px; padding: 0 8px; background: var(--bg); font-size: 12px; font-weight: 600; color: var(--muted); }
+body.space #canvas > .wfr.on > span { color: var(--accent); }
+section > .wr { display: none; } body.space section > .wr { display: block; }
+section > h2.wonly { display: none; } body.space section > h2.wonly { display: flex; position: sticky; top: 0; z-index: 2; margin: -4px -10px 0; }
 /* the cloud: the mod's card at the mini level on hover */
 #cloud { position: fixed; z-index: 55; width: 300px; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
   background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; display: grid; gap: 8px; }
@@ -903,13 +927,16 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
   <div class="pipeline" aria-label="Конвейер"><button id="passBtn" class="st" title="Пробег: прочитать папку mods заново — поверхность (подписи и сверка) или полный">Пробег<span id="passDot"></span></button><i>→</i><span class="st">Конфликты</span><i>→</i><button id="syncBtn" class="st" title="Синхронизация: расхождения папки mods с проектом, ответы и план фиксации">Sync<span id="syncDot"></span></button></div>
   <button id="recBtn" title="Конфликты: файлы и записи плагинов">Конфликты</button>
   <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр"><svg class="si"><use href="#ic-folder"/></svg>Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
+  <span class="tooth" id="modeSw" role="radiogroup" aria-label="Режим окна"><button data-m="classic">Классика</button><button data-m="space">Пространство</button></span>
+  <nav id="marks" aria-label="Воркфлоу"></nav>
   <div id="stats"></div>
   <span class="sandbox" id="projState" title="Песочница: изменения живут в памяти и никуда не пишутся">песочница</span><button id="saveBtn" class="pri" hidden title="Сохранить проект (Ctrl+S)"><svg class="si"><use href="#ic-save"/></svg><span>Сохранить</span></button>
   <button id="theme" title="Светлая / тёмная"><svg class="si"><use href="#ic-sun"/></svg></button>
 </header>
 <main>
+  <div id="canvas"></div>
   <section id="tilesec"><h2>Разделители <small id="sepcount"></small></h2><div id="tiles"></div></section>
-  <section>
+  <section id="modsec">
     <h2>Моды <small id="modcount"></small><button class="inf" data-guide="bricks" type="button" title="Гайд">i</button></h2>
     <div class="tools"><input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени">
       <select id="badgeModel" aria-label="Модель бейджей"><option value="classic">Коллекция цепочек</option><option value="summary">OW N</option></select>
@@ -919,6 +946,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
     <div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
   </section>
   <section id="summary" aria-label="Сводка">
+    <h2 class="wonly">Метаинфа</h2>
     <div class="block empty" id="bSel"><h3>Выделение</h3></div>
     <div class="block empty" id="bBuf"><h3>Буфер</h3></div>
     <div class="block empty" id="bMod"><h3>Мод</h3></div>
@@ -1424,6 +1452,157 @@ list.addEventListener("drop", async ev => {
   await run({ type: "buffer", edit: { op: "place", area: +area, before: r && !r.att ? r.key : null } });
   metaBlocks();
 });
+
+// ---------------------------------------------------------------- the workspace (ADR 0009, ADR 0020 §10)
+/** «Пространство»: the screen's panels become windows on one canvas — move them by the title, size them by the corner,
+ *  they stick edge to edge (magnet, 8 px). A workflow is a named group of windows with a frame; its bookmark on top
+ *  flies the camera to it (Ctrl+1…9). Drag the empty canvas to pan, Ctrl+wheel to zoom. The layout is the project's
+ *  (`@sat:space`): saved as it is left. */
+const SP = { on: false, space: null, own: false, panes: { separators: "tilesec", mods: "modsec", meta: "summary" }, cur: null, saveT: 0 };
+const spMain = () => document.querySelector("main");
+async function spaceMode(on) {
+  SP.on = on; document.body.classList.toggle("space", on);
+  $("modeSw").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.m === "space") === on));
+  try { localStorage.setItem("sat-mode", on ? "space" : "classic"); } catch (_) {}
+  const main = spMain(), cv = $("canvas");
+  if (on) {
+    if (!SP.space) { try { ({ space: SP.space, own: SP.own } = await query({ type: "space" })); } catch (_) { return; } }
+    for (const w of SP.space.windows) {
+      const sec = $(SP.panes[w.kind]); if (!sec) continue;
+      cv.appendChild(sec); sec.dataset.win = w.id;
+      if (!sec.querySelector(":scope > .wr")) { const r = document.createElement("span"); r.className = "wr"; sec.appendChild(r); }
+    }
+  } else {
+    for (const id of ["tilesec", "modsec", "summary"]) main.appendChild($(id));
+    for (const id of ["tilesec", "modsec", "summary"]) { const sec = $(id); sec.style.cssText = ""; }
+  }
+  spDraw(); setTimeout(() => sync(false), 0);
+}
+function spDraw() {
+  if (!SP.on || !SP.space) return;
+  const s = SP.space, c = s.camera, z = c.zoom / 100, cv = $("canvas");
+  cv.style.transform = `translate(${-c.x * z}px, ${-c.y * z}px) scale(${z})`;
+  for (const w of s.windows) {
+    const sec = $(SP.panes[w.kind]); if (!sec) continue;
+    Object.assign(sec.style, { left: w.x + "px", top: w.y + "px", width: w.w + "px", height: w.h + "px" });
+    const h2 = sec.querySelector(":scope > h2");
+    let tag = h2.querySelector(".wf");
+    if (!tag) { tag = document.createElement("span"); tag.className = "wf"; tag.title = "Воркфлоу окна — клик: следующий"; h2.appendChild(tag); }
+    const wf = s.workflows.find(f => f.id === w.workflow);
+    tag.textContent = wf ? wf.name : "—";
+  }
+  // workflow frames: the bounding box of their windows with a margin
+  cv.querySelectorAll(".wfr").forEach(x => x.remove());
+  for (const f of s.workflows) {
+    const ws = s.windows.filter(w => w.workflow === f.id); if (!ws.length) continue;
+    const x0 = Math.min(...ws.map(w => w.x)) - 18, y0 = Math.min(...ws.map(w => w.y)) - 24, x1 = Math.max(...ws.map(w => w.x + w.w)) + 18, y1 = Math.max(...ws.map(w => w.y + w.h)) + 18;
+    const fr = document.createElement("div"); fr.className = "wfr" + (SP.cur === f.id ? " on" : "");
+    Object.assign(fr.style, { left: x0 + "px", top: y0 + "px", width: x1 - x0 + "px", height: y1 - y0 + "px" });
+    fr.innerHTML = `<span>${esc(f.name)}</span>`;
+    cv.prepend(fr);
+  }
+  $("marks").innerHTML = s.workflows.map((f, i) => `<button data-wf="${esc(f.id)}" class="${SP.cur === f.id ? "on" : ""}" title="Перелёт к воркфлоу${i < 9 ? " · Ctrl+" + (i + 1) : ""}"><kbd>^${i + 1}</kbd>${esc(f.name)}</button>`).join("") +
+    `<button data-wfnew title="Новый воркфлоу">+</button>`;
+}
+function spSave() {
+  clearTimeout(SP.saveT);
+  SP.saveT = setTimeout(() => command({ type: "set-space", space: SP.space }).then(() => { SP.own = true; }).catch(e => { $("err").textContent = e.message; }), 400);
+}
+/** Flies the camera to a workflow: its frame fits the viewport with a margin. */
+function spFly(id) {
+  const s = SP.space, ws = s.windows.filter(w => w.workflow === id); if (!ws.length) return;
+  SP.cur = id;
+  const m = spMain(), vw = m.clientWidth, vh = m.clientHeight;
+  const x0 = Math.min(...ws.map(w => w.x)) - 40, y0 = Math.min(...ws.map(w => w.y)) - 50, x1 = Math.max(...ws.map(w => w.x + w.w)) + 40, y1 = Math.max(...ws.map(w => w.y + w.h)) + 40;
+  const z = Math.max(35, Math.min(225, Math.floor(Math.min(vw / (x1 - x0), vh / (y1 - y0)) * 100)));
+  const to = { x: Math.round(x0 - (vw / (z / 100) - (x1 - x0)) / 2), y: Math.round(y0 - (vh / (z / 100) - (y1 - y0)) / 2), zoom: z };
+  const from = { ...s.camera }, t0 = performance.now();
+  const step = t => {
+    const k = Math.min(1, (t - t0) / 320), e = 1 - Math.pow(1 - k, 3);
+    s.camera = { x: Math.round(from.x + (to.x - from.x) * e), y: Math.round(from.y + (to.y - from.y) * e), zoom: Math.round(from.zoom + (to.zoom - from.zoom) * e) };
+    spDraw(); if (k < 1) requestAnimationFrame(step); else { spSave(); sync(false); }
+  };
+  requestAnimationFrame(step);
+}
+$("modeSw").onclick = ev => { const b = ev.target.closest("button"); if (b) spaceMode(b.dataset.m === "space"); };
+$("marks").onclick = ev => {
+  const b = ev.target.closest("button"); if (!b || !SP.space) return;
+  if (b.dataset.wfnew !== undefined) {
+    const n = SP.space.workflows.length + 1, id = "wf" + Date.now().toString(36);
+    SP.space.workflows.push({ id, name: "Воркфлоу " + n });
+    const w = SP.space.windows.find(x => x.id === SP.lastWin); if (w) w.workflow = id;
+    spDraw(); spSave(); return;
+  }
+  spFly(b.dataset.wf);
+};
+document.addEventListener("keydown", ev => {
+  if (!SP.on || !(ev.ctrlKey || ev.metaKey) || !/^[1-9]$/.test(ev.key)) return;
+  const f = SP.space && SP.space.workflows[+ev.key - 1]; if (!f) return;
+  ev.preventDefault(); spFly(f.id);
+});
+// moving and sizing windows, panning the canvas
+let spDrag = null;
+spMain().addEventListener("mousedown", ev => {
+  if (!SP.on || ev.button !== 0) return;
+  const sec = ev.target.closest("#canvas > section"), s = SP.space, z = s.camera.zoom / 100;
+  if (sec) {
+    const w = s.windows.find(x => x.id === sec.dataset.win); if (!w) return;
+    SP.lastWin = w.id;
+    document.querySelectorAll("#canvas > section").forEach(x => x.classList.toggle("front", x === sec));
+    const tag = ev.target.closest(".wf");
+    if (tag) { // the window's workflow: the next one (or none)
+      const ids = [null, ...s.workflows.map(f => f.id)], i = ids.indexOf(w.workflow ?? null);
+      w.workflow = ids[(i + 1) % ids.length] ?? undefined; if (!w.workflow) delete w.workflow;
+      spDraw(); spSave(); ev.preventDefault(); return;
+    }
+    const h2 = ev.target.closest("h2");
+    const mode = ev.target.closest(".wr") ? "size" : h2 && h2.parentElement === sec ? "move" : null;
+    if (!mode) return;
+    ev.preventDefault();
+    spDrag = { mode, w, x: ev.clientX, y: ev.clientY, o: { ...w }, z };
+    return;
+  }
+  if (ev.target === spMain() || ev.target === $("canvas") || ev.target.classList.contains("wfr")) {
+    ev.preventDefault(); spMain().classList.add("panning");
+    spDrag = { mode: "pan", x: ev.clientX, y: ev.clientY, o: { ...s.camera }, z };
+  }
+});
+addEventListener("mousemove", ev => {
+  if (!spDrag) return;
+  const d = spDrag, s = SP.space, dx = (ev.clientX - d.x) / d.z, dy = (ev.clientY - d.y) / d.z;
+  if (d.mode === "pan") { s.camera = { ...d.o, x: Math.round(d.o.x - dx), y: Math.round(d.o.y - dy) }; return spDraw(); }
+  const w = d.w;
+  if (d.mode === "move") { w.x = Math.round(d.o.x + dx); w.y = Math.round(d.o.y + dy); }
+  else { w.w = Math.max(120, Math.round(d.o.w + dx)); w.h = Math.max(120, Math.round(d.o.h + dy)); }
+  // magnet: an edge within 8 px of another window's edge snaps to it (8 px apart)
+  for (const o of s.windows) {
+    if (o === w) continue;
+    const near = (a, b) => Math.abs(a - b) <= 8;
+    if (d.mode === "move") {
+      if (near(w.x, o.x + o.w + 8)) w.x = o.x + o.w + 8; else if (near(w.x + w.w + 8, o.x)) w.x = o.x - w.w - 8; else if (near(w.x, o.x)) w.x = o.x;
+      if (near(w.y, o.y + o.h + 8)) w.y = o.y + o.h + 8; else if (near(w.y + w.h + 8, o.y)) w.y = o.y - w.h - 8; else if (near(w.y, o.y)) w.y = o.y;
+    } else {
+      if (near(w.x + w.w + 8, o.x)) w.w = o.x - 8 - w.x; if (near(w.y + w.h, o.y + o.h)) w.h = o.y + o.h - w.y;
+    }
+  }
+  spDraw();
+});
+addEventListener("mouseup", () => {
+  if (!spDrag) return;
+  const d = spDrag; spDrag = null; spMain().classList.remove("panning");
+  spSave(); if (d.mode !== "move") sync(false);
+});
+spMain().addEventListener("wheel", ev => {
+  if (!SP.on || !(ev.ctrlKey || ev.metaKey)) return;
+  ev.preventDefault();
+  const s = SP.space, c = s.camera, r = spMain().getBoundingClientRect(), z0 = c.zoom / 100;
+  const z = Math.max(35, Math.min(225, Math.round(c.zoom * (ev.deltaY < 0 ? 1.1 : 1 / 1.1))));
+  // zoom around the pointer
+  const px = ev.clientX - r.left, py = ev.clientY - r.top, wx = c.x + px / z0, wy = c.y + py / z0;
+  s.camera = { x: Math.round(wx - px / (z / 100)), y: Math.round(wy - py / (z / 100)), zoom: z };
+  spDraw(); spSave();
+}, { passive: false });
+try { if (localStorage.getItem("sat-mode") === "space") setTimeout(() => spaceMode(true), 200); else spaceMode(false); } catch (_) { spaceMode(false); }
 
 /** A stable hue of a name (stickers without a colour of their own). */
 function hue(s) { let h = 0; for (const c of String(s).toLowerCase()) h = (h * 31 + c.codePointAt(0)) % 360; return h; }

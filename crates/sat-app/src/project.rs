@@ -74,6 +74,7 @@ impl App {
         self.set_sources(p.sources_by_name());
         problems.extend(self.set_counters(&p.counters));
         problems.extend(self.set_indicators(&p.indicators));
+        self.space = p.space.clone().filter(|s| s.problems().is_empty());
         problems
     }
 
@@ -157,6 +158,7 @@ impl App {
         p.chain_lineage = self.chain_lineage().clone();
         p.pinned_files = self.pinned_files().to_vec();
         p.indicators = self.indicator_defs.clone();
+        p.space = self.space.clone();
         let ids = &p.entities;
         p.patches = self
             .patches()

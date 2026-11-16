@@ -59,6 +59,7 @@ pub mod routes;
 pub mod run;
 pub mod session;
 pub mod source;
+pub mod space;
 pub mod sticker_rules;
 pub mod sync;
 pub mod table;
