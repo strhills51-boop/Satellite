@@ -189,6 +189,8 @@ enum Op {
     Marks(Vec<(Key, Option<u32>)>),
     /// Elements attached after an entry (the whole list of each entry).
     Attached(Vec<(Key, Vec<Attachment>)>),
+    /// The whole buffer (areas of keys).
+    Buffer(Vec<(String, Vec<Key>)>),
     Muted(Vec<(Key, bool)>),
     /// Separator levels.
     Level(Vec<(Key, u8)>),
@@ -311,6 +313,8 @@ pub struct OrderBook {
     /// Elements without an indicator after each anchor (`@sat:order.book.attached`); an anchor's block is laid out
     /// entry by entry, like a styled one.
     pub(super) attached: FxHashMap<Key, Vec<Attachment>>,
+    /// The buffer: named areas of entries set aside to be placed later (`@sat:order.book.buffer`).
+    buffer: Vec<(String, Vec<Key>)>,
     revision: u64,
     undo: Vec<(Op, Op)>,
     redo: Vec<(Op, Op)>,
@@ -358,6 +362,7 @@ impl OrderBook {
             marks: Vec::new(),
             mark_ids: FxHashMap::default(),
             attached: FxHashMap::default(),
+            buffer: Vec::new(),
             revision: 0,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -798,6 +803,30 @@ impl OrderBook {
     pub fn set_attached(&mut self, k: Key, items: Vec<Attachment>) -> Result<Option<Change>, OrderError> {
         self.check_key(k)?;
         self.apply_recorded(Op::Attached(vec![(k, items)]))
+    }
+
+    // @sat:order.book.buffer
+    /// Replaces the buffer (ADR 0020 §7) in one undoable step. Entries not in the list and empty areas are dropped;
+    /// an entry stands in one area at most (the first one keeps it).
+    pub fn set_buffer(&mut self, areas: Vec<(String, Vec<Key>)>) -> Result<Option<Change>, OrderError> {
+        let mut seen = FxHashSet::default();
+        let areas: Vec<(String, Vec<Key>)> = areas
+            .into_iter()
+            .map(|(n, ks)| {
+                let ks: Vec<Key> = ks
+                    .into_iter()
+                    .filter(|&k| (k as usize) < self.items.len() && self.seq.contains(k) && seen.insert(k))
+                    .collect();
+                (n, ks)
+            })
+            .filter(|(_, ks)| !ks.is_empty())
+            .collect();
+        self.apply_recorded(Op::Buffer(areas))
+    }
+
+    /// The buffer's areas: (name, entries in the order they were put).
+    pub fn buffer(&self) -> &[(String, Vec<Key>)] {
+        &self.buffer
     }
 
     /// Elements attached after an entry, in their order.
@@ -1273,6 +1302,15 @@ impl OrderBook {
                 self.after_content_change(touched, p);
                 (!inv.is_empty()).then_some(Op::Attached(inv))
             }
+            Op::Buffer(areas) => {
+                if self.buffer == *areas {
+                    None
+                } else {
+                    let old = std::mem::replace(&mut self.buffer, areas.clone());
+                    p.truth(Truth::Decoration, std::iter::empty());
+                    Some(Op::Buffer(old))
+                }
+            }
             Op::Muted(each) => {
                 let mut inv = Vec::new();
                 let mut touched = HashSet::new();
@@ -1593,6 +1631,14 @@ impl OrderBook {
                 collapsed: self.group_collapsed(g as GroupId, MAIN),
             });
         }
+        d.buffer = self
+            .buffer
+            .iter()
+            .map(|(n, ks)| super::decor::BufferArea {
+                name: n.clone(),
+                members: ks.iter().map(|&k| self.items[k as usize].name.clone()).collect(),
+            })
+            .collect();
         d
     }
 
@@ -1610,6 +1656,7 @@ impl OrderBook {
         }
         self.styled.clear();
         self.attached.clear();
+        self.buffer.clear();
         let mut collapsed: FxHashSet<Key> = FxHashSet::default();
         let mut open_groups: FxHashSet<GroupId> = FxHashSet::default();
         self.groups.clear();
@@ -1642,6 +1689,18 @@ impl OrderBook {
                     }
                 }
                 None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+            }
+        }
+        for area in &d.buffer {
+            let mut keys = Vec::new();
+            for name in &area.members {
+                match self.key_of(name) {
+                    Some(k) => keys.push(k),
+                    None => issues.push(DecorIssue::UnknownEntry { name: name.clone() }),
+                }
+            }
+            if !keys.is_empty() {
+                self.buffer.push((area.name.clone(), keys));
             }
         }
         for (name, items) in &d.attached {

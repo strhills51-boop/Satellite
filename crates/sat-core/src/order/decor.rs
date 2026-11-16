@@ -41,6 +41,19 @@ pub struct Decor {
     /// Elements without an indicator, by the name of the entry they stand after (`@sat:order.decor.attached`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub attached: BTreeMap<String, Vec<Attachment>>,
+    /// The buffer: areas of mods set aside to be placed later (`@sat:order.decor.buffer`), by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub buffer: Vec<BufferArea>,
+}
+
+// @sat:order.decor.buffer
+/// One area of the buffer (ADR 0020 §7): mods picked to be placed somewhere else of a long list. They stay where they
+/// are until placed — the buffer holds references, not the mods; placing moves them as one block.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct BufferArea {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    pub members: Vec<String>,
 }
 
 // @sat:order.decor.attached

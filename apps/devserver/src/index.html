@@ -210,6 +210,22 @@ section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
 /* a brick with its own fill: no backdrop can match it, the layers just stand over the name */
 #list.bricks .row.dec { --bb: transparent; }
 #list.bricks .row.dec > .lead, #list.bricks .row.dec > .cnt { box-shadow: none; }
+/* «Выделение» and «Буфер» blocks */
+.block h3 .bsub { margin-left: auto; font: 10px var(--mono); color: var(--subtle); letter-spacing: 0; text-transform: none; }
+#bSel .selnames { display: flex; flex-wrap: wrap; gap: 3px 8px; font-size: 12px; max-height: 96px; overflow: auto; }
+#bSel .selnames span { cursor: pointer; } #bSel .selnames span:hover { color: var(--accent); } #bSel .selnames i { color: var(--subtle); font-style: normal; }
+#bSel .selsum { display: flex; gap: 8px; font: 11px var(--mono); color: var(--muted); margin-top: 6px; }
+#bSel .selsum .w { color: var(--w-txt); } #bSel .selsum .l { color: var(--l-txt); } #bSel .selsum .m { color: var(--m-txt); }
+#bSel .selchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+#bSel .selchips span { font-size: 11px; padding: 1px 7px; border-radius: 7px; border: 1px solid hsl(var(--h) 55% 60% / .4); background: hsl(var(--h) 50% 45% / .1); }
+#bSel .selact { margin-top: 6px; display: flex; justify-content: flex-end; }
+#bBuf .bufs { display: flex; flex-wrap: wrap; gap: 6px; }
+#bBuf .bufa { border: 1px solid var(--line); border-radius: 9px; padding: 5px 7px; min-width: 90px; display: flex; flex-wrap: wrap; gap: 3px; align-content: flex-start; cursor: grab; font-size: 11px; }
+#bBuf .bufa.over { border-color: var(--accent); background: var(--accent-weak); }
+#bBuf .bufa.plus { border-style: dashed; justify-content: center; align-items: center; color: var(--subtle); min-height: 34px; font-size: 16px; cursor: copy; }
+#bBuf .bufh { width: 100%; display: flex; gap: 6px; align-items: center; font-size: 11px; } #bBuf .bufh span { color: var(--subtle); font: 10px var(--mono); }
+#bBuf .bufh button { padding: 0 5px; font-size: 12px; } #bBuf .bufh button:first-of-type { margin-left: auto; }
+#bBuf .bufm { padding: 0 6px; border-radius: 6px; background: var(--surface2); cursor: default; } #bBuf .bufm.off { opacity: .6; }
 /* the cloud: the mod's card at the mini level on hover */
 #cloud { position: fixed; z-index: 55; width: 300px; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
   background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; display: grid; gap: 8px; }
@@ -877,6 +893,8 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
     <div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
   </section>
   <section id="summary" aria-label="Сводка">
+    <div class="block empty" id="bSel"><h3>Выделение</h3></div>
+    <div class="block empty" id="bBuf"><h3>Буфер</h3></div>
     <div class="block empty" id="bMod"><h3>Мод</h3><div class="muted">Наведи фокус на мод — стрелками или кликом.</div></div>
     <div class="block empty" id="bDecor"><h3>Декорация мода</h3><div class="muted">Выдели один или несколько модов.</div></div>
     <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
@@ -1027,6 +1045,7 @@ function paint(el, r) {
     return;
   }
   cls.push(r.kind, `d${Math.min(r.depth, 1)}`, r.enabled ? "on" : "off");
+  el.draggable = r.kind === "mod";
   if (el._tall) cls.push("tall");
   // a member of an open logical group: the family outline (ADR 0016 «обводка»)
   if (r.group) { cls.push("ingrp"); if (r.group.first) cls.push("gfirst"); if (r.group.last) cls.push("glast"); el.style.setProperty("--gh", hue(r.group.name)); }
@@ -1276,6 +1295,81 @@ list.addEventListener("mousemove", ev => {
 list.addEventListener("mouseleave", ev => { if (!cloud.contains(ev.relatedTarget)) cloudHide(); });
 cloud.addEventListener("mouseleave", cloudHide);
 list.addEventListener("scroll", cloudHide, { passive: true });
+
+// ---------------------------------------------------------------- meta blocks: «Выделение» and «Буфер» (ADR 0020 §7)
+/** «Выделение» — always on top: the selected mods, what tags and stickers they carry, what their counters add up to.
+ *  «Буфер» — areas of mods set aside: drop on «+» — a new area, on an area — into it; an area goes into the list
+ *  before the mod it is dropped on (or before the aimed one by its button). */
+async function metaBlocks() {
+  let sel, areas;
+  try { [{ selection: sel }, { areas }] = await Promise.all([query({ type: "selection", view: VIEW }), query({ type: "buffer" })]); } catch (_) { return; }
+  const b = $("bSel");
+  if (!sel.count) { b.className = "block empty"; b.innerHTML = `<h3>Выделение</h3>`; }
+  else {
+    const c = sel.sums, more = sel.count - sel.names.length;
+    b.className = "block ok";
+    b.innerHTML = `<h3>Выделение<span class="bsub">${sel.count} · вкл ${sel.enabled}</span></h3>` +
+      `<div class="selnames">${sel.names.map(([k, n]) => `<span data-selkey="${k}">${esc(n)}</span>`).join("")}${more > 0 ? `<i>+${more}</i>` : ""}</div>` +
+      `<div class="selsum"><span class="w">W${num(c.win)}</span><span class="l">L${num(c.lose)}</span><span class="m">M${num(c.mid)}</span><span>+${num(c.unique)}</span><span>${c.plugins} esp</span></div>` +
+      (sel.tags.length ? `<div class="selchips">${sel.tags.map(([t, n]) => `<span style="--h:${hue(t)}">#${esc(t)} <b>${n}</b></span>`).join("")}</div>` : "") +
+      (sel.stickers.length ? `<div class="selchips">${sel.stickers.map(([t, n]) => `<span style="--h:${hue(t)}">${esc(t)} <b>${n}</b></span>`).join("")}</div>` : "") +
+      `<div class="selact"><button data-tobuf="new" title="Выделенные — в новую область буфера">В буфер</button></div>`;
+  }
+  const f = $("bBuf");
+  f.className = areas.length ? "block ok" : "block empty";
+  f.innerHTML = `<h3>Буфер${areas.length ? `<span class="bsub">${areas.reduce((a, x) => a + x.members.length, 0)}</span>` : ""}</h3><div class="bufs">` +
+    areas.map((a, i) => `<div class="bufa" data-area="${i}" draggable="true" title="Тяни в список — встанет перед модом, на который бросишь">` +
+      `<div class="bufh"><b>${esc(a.name || "Область " + (i + 1))}</b><span>${a.members.length}</span>` +
+      `<button data-place="${i}" title="Вставить перед прицелом">↧</button><button data-clear="${i}" title="Забыть область">×</button></div>` +
+      a.members.map(m => `<span class="bufm${m.enabled ? "" : " off"}" data-bkey="${m.key}" title="Двойной клик — убрать из буфера">${esc(m.name)}</span>`).join("") + `</div>`).join("") +
+    `<div class="bufa plus" data-area="new" title="Брось мод сюда — новая область">+</div></div>`;
+}
+$("bSel").addEventListener("click", ev => {
+  const n = ev.target.closest("[data-selkey]");
+  if (n) return run({ type: "focus", view: VIEW, key: +n.dataset.selkey });
+  if (ev.target.closest("[data-tobuf]")) query({ type: "decoration", view: VIEW }).then(r => r.keys.length && run({ type: "buffer", edit: { op: "put", keys: r.keys, area: null } }).then(metaBlocks));
+});
+$("bBuf").addEventListener("click", async ev => {
+  const p = ev.target.closest("[data-place]"), c = ev.target.closest("[data-clear]");
+  if (c) { await run({ type: "buffer", edit: { op: "clear", area: +c.dataset.clear } }); return metaBlocks(); }
+  if (p) {
+    // before the aimed mod (the keyboard cursor), or the end of the list
+    const aimed = [...cards.values()].map(el => el._row).find(r => r && r.focused && !r.att);
+    await run({ type: "buffer", edit: { op: "place", area: +p.dataset.place, before: aimed ? aimed.key : null } }); return metaBlocks();
+  }
+});
+$("bBuf").addEventListener("dblclick", async ev => {
+  const m = ev.target.closest("[data-bkey]"); if (!m) return;
+  await run({ type: "buffer", edit: { op: "remove", key: +m.dataset.bkey } }); metaBlocks();
+});
+// drag: mods from the list into the buffer, areas from the buffer into the list
+list.addEventListener("dragstart", ev => {
+  const el = ev.target.closest(".row"); if (!el || !el._row || el._att || el._row.kind !== "mod") return;
+  ev.dataTransfer.setData("text/sat-key", String(el._row.key)); ev.dataTransfer.effectAllowed = "copyMove";
+});
+$("bBuf").addEventListener("dragstart", ev => {
+  const a = ev.target.closest(".bufa[data-area]"); if (!a || a.classList.contains("plus")) return;
+  ev.dataTransfer.setData("text/sat-area", a.dataset.area); ev.dataTransfer.effectAllowed = "move";
+});
+$("bBuf").addEventListener("dragover", ev => { if (ev.target.closest(".bufa") && ev.dataTransfer.types.includes("text/sat-key")) { ev.preventDefault(); ev.target.closest(".bufa").classList.add("over"); } });
+$("bBuf").addEventListener("dragleave", ev => { const a = ev.target.closest(".bufa"); if (a) a.classList.remove("over"); });
+$("bBuf").addEventListener("drop", async ev => {
+  const a = ev.target.closest(".bufa"), k = ev.dataTransfer.getData("text/sat-key"); if (!a || !k) return;
+  ev.preventDefault();
+  // the dragged mod — or the whole selection when the dragged mod is selected
+  const key = +k, r = [...cards.values()].map(el => el._row).find(x => x && x.key === key && !x.att);
+  const keys = r && r.selected ? (await query({ type: "decoration", view: VIEW })).keys : [key];
+  await run({ type: "buffer", edit: { op: "put", keys, area: a.dataset.area === "new" ? null : +a.dataset.area } });
+  metaBlocks();
+});
+list.addEventListener("dragover", ev => { if (ev.dataTransfer.types.includes("text/sat-area")) ev.preventDefault(); });
+list.addEventListener("drop", async ev => {
+  const area = ev.dataTransfer.getData("text/sat-area"); if (area === "") return;
+  ev.preventDefault();
+  const el = ev.target.closest(".row"), r = el && el._row;
+  await run({ type: "buffer", edit: { op: "place", area: +area, before: r && !r.att ? r.key : null } });
+  metaBlocks();
+});
 
 /** A stable hue of a name (stickers without a colour of their own). */
 function hue(s) { let h = 0; for (const c of String(s).toLowerCase()) h = (h * 31 + c.codePointAt(0)) % 360; return h; }
@@ -2890,7 +2984,7 @@ async function run(c) {
     if (ev.type === "decided") { cards.forEach(el => { el._sig = null; }); await sync(false); if (shownKey !== null) detail(shownKey); return; }
     if (ev.type === "changed") {
       await sync(true);
-      decor();
+      decor(); metaBlocks();
       if (ev.canon) { totals(); tiles(); if (shownKey !== null) detail(shownKey); }
       else { clearTimeout(TREE.t); TREE.t = setTimeout(treeDraw, 120); } // the selection may have moved
     }
@@ -3058,6 +3152,7 @@ const repaint = () => { cards.forEach(el => { el._sig = null; }); sync(false); }
 const colsShow = () => $("cols").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === cols));
 $("cols").onclick = ev => { const b = ev.target.closest("button"); if (!b) return; cols = +b.dataset.v; colsShow(); try { localStorage.setItem("sat-cols2", cols); } catch (_) {} list.classList.toggle("bricks", cols < 0); cards.forEach(el => { el._sig = null; }); sync(true); };
 colsShow();
+setTimeout(metaBlocks, 300);
 loadTagColors().then(() => { if (cols < 0) { cards.forEach(el => { el._sig = null; }); sync(false); } });
 list.classList.toggle("bricks", cols < 0);
 // fonts arrive late: measure again with the real ones

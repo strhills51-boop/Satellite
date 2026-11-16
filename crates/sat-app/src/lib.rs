@@ -143,6 +143,11 @@ pub enum Command {
         name: String,
         checked: bool,
     },
+    /// Change the buffer (`@sat:app.buffer`): areas of mods set aside to be placed later. One undo step each (placing
+    /// is two: the move, then the area gone).
+    Buffer {
+        edit: BufferEdit,
+    },
     /// Join contiguous mods into a logical group (`@sat:app.groups`): it starts collapsed — one row, one result.
     CreateGroup {
         name: String,
@@ -261,6 +266,62 @@ pub struct TagView {
     pub name: String,
     pub entries: usize,
     pub color: u32,
+}
+
+/// One change of the buffer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "kebab-case")]
+pub enum BufferEdit {
+    /// Put entries into an area (`None` — a new area at the end); an entry already in another area moves here.
+    Put {
+        keys: Vec<Key>,
+        area: Option<usize>,
+    },
+    /// Take an entry out of the buffer (it stays in the list where it is).
+    Remove {
+        key: Key,
+    },
+    /// Forget an area.
+    Clear {
+        area: usize,
+    },
+    Rename {
+        area: usize,
+        name: String,
+    },
+    /// Place an area's mods before `before` (`None` — the end of the list) in the area's order; the area goes.
+    Place {
+        area: usize,
+        before: Option<Key>,
+    },
+}
+
+/// The buffer as the window shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BufferAreaView {
+    pub name: String,
+    pub members: Vec<BufferMember>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BufferMember {
+    pub key: Key,
+    pub name: String,
+    pub enabled: bool,
+}
+
+/// The permanent «Выделение» block (ADR 0020 §7): what is selected and what it adds up to.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectionView {
+    pub count: u32,
+    pub enabled: u32,
+    /// The first names, in canon order (the rest is `count - names.len()`).
+    pub names: Vec<(Key, String)>,
+    /// Tags and stickers on the selection, with how many selected mods carry each.
+    pub tags: Vec<(String, u32)>,
+    pub stickers: Vec<(String, u32)>,
+    /// Sums of the counters.
+    pub sums: Counters,
 }
 
 /// One change of the elements after an entry (`@sat:order.decor.attached`).
@@ -556,6 +617,12 @@ pub enum Query {
         #[serde(default = "thumb_side")]
         side: u32,
     },
+    /// The buffer's areas.
+    Buffer,
+    /// The selection summary of a view.
+    Selection {
+        view: ViewId,
+    },
     /// What the decoration editor edits: the mods of the view's selection (the focused one when none) and
     /// their distinct styles with counts, so the editor can mark fields that differ ("mixed").
     Decoration {
@@ -843,7 +910,7 @@ pub struct ChainBadge {
 }
 
 /// The counter group at the bottom right of a mod card.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Counters {
     pub win: u32,
     pub lose: u32,
@@ -911,6 +978,12 @@ pub enum Reply {
     },
     Separators {
         tiles: Vec<SeparatorTile>,
+    },
+    Buffer {
+        areas: Vec<BufferAreaView>,
+    },
+    Selection {
+        selection: SelectionView,
     },
     Decoration {
         keys: Vec<Key>,
@@ -1224,6 +1297,52 @@ impl App {
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             // @sat:app.marks
+            // @sat:app.buffer
+            C::Buffer { edit } => {
+                let mut areas = self.session.book().buffer().to_vec();
+                match edit {
+                    BufferEdit::Put { keys, area } => {
+                        for a in &mut areas {
+                            a.1.retain(|k| !keys.contains(k));
+                        }
+                        match area.filter(|&i| i < areas.len()) {
+                            Some(i) => areas[i].1.extend(keys),
+                            None => areas.push((String::new(), keys)),
+                        }
+                        self.session.command(|b| b.set_buffer(areas))?
+                    }
+                    BufferEdit::Remove { key } => {
+                        for a in &mut areas {
+                            a.1.retain(|&k| k != key);
+                        }
+                        self.session.command(|b| b.set_buffer(areas))?
+                    }
+                    BufferEdit::Clear { area } => {
+                        if area < areas.len() {
+                            areas.remove(area);
+                        }
+                        self.session.command(|b| b.set_buffer(areas))?
+                    }
+                    BufferEdit::Rename { area, name } => {
+                        if let Some(a) = areas.get_mut(area) {
+                            a.0 = name;
+                        }
+                        self.session.command(|b| b.set_buffer(areas))?
+                    }
+                    BufferEdit::Place { area, before } => {
+                        let Some((_, keys)) = areas.get(area).cloned() else {
+                            return Ok(Event::Nothing);
+                        };
+                        // the anchor itself in the area: place before the next entry not in it
+                        let moved = self
+                            .session
+                            .command(|b| b.move_keys(&keys, before.filter(|k| !keys.contains(k))))?;
+                        areas.remove(area);
+                        self.session.command(|b| b.set_buffer(areas))?;
+                        moved
+                    }
+                }
+            }
             // @sat:app.groups
             C::CreateGroup { name, keys } => self
                 .session
@@ -1705,6 +1824,71 @@ impl App {
         rows
     }
 
+    // @sat:app.selection
+    /// The selection summary (ADR 0020 §7 «Выделение»): mods, names, tags and stickers with counts, counter sums.
+    fn selection_view(&mut self, view: ViewId) -> SelectionView {
+        let keys: Vec<Key> = {
+            let book = self.session.book();
+            let mut ks: Vec<Key> = book
+                .selection(view)
+                .into_iter()
+                .filter(|&k| book.kind(k) == sat_core::canon::EntryKind::Mod)
+                .collect();
+            ks.sort_by_key(|&k| book.pos(k));
+            ks
+        };
+        let ow = self.session.overwrite();
+        let names = self.session.table().clone();
+        let index: std::collections::HashMap<String, ModId> = names
+            .mod_names()
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.to_lowercase(), ModId::from_idx(i)))
+            .collect();
+        let plugins = self.session.plugins();
+        let mut per_mod = vec![0u32; names.mod_count()];
+        for p in &plugins.plugins {
+            if let Some(w) = p.winner {
+                per_mod[p.versions[w].owner.idx()] += 1;
+            }
+        }
+        let book = self.session.book();
+        let mut v = SelectionView {
+            count: keys.len() as u32,
+            ..Default::default()
+        };
+        let mut tags: std::collections::BTreeMap<String, (String, u32)> = Default::default();
+        let mut stickers: std::collections::BTreeMap<String, u32> = Default::default();
+        for &k in &keys {
+            let name = book.name(k);
+            v.enabled += u32::from(book.enabled(k));
+            if v.names.len() < 40 {
+                v.names.push((k, name.to_string()));
+            }
+            if let Some(m) = book.marks(k) {
+                for t in &m.tags {
+                    tags.entry(t.to_lowercase()).or_insert_with(|| (t.clone(), 0)).1 += 1;
+                }
+                for st in &m.stickers {
+                    *stickers.entry(st.clone()).or_default() += 1;
+                }
+            }
+            if let Some(&m) = index.get(&name.to_lowercase()) {
+                let s = ow.stat(m);
+                let c = &mut v.sums;
+                c.win += s.win;
+                c.lose += s.lose;
+                c.mid += s.mid;
+                c.unique += s.unique;
+                c.plugins += per_mod[m.idx()];
+                c.x |= s.fully_overridden;
+            }
+        }
+        v.tags = tags.into_values().collect();
+        v.stickers = stickers.into_iter().collect();
+        v
+    }
+
     // @sat:app.bricks
     /// What each mod container holds besides its name, in pixels, for the bricks layout (ADR 0020 §6): its badges
     /// and counters as the window draws them (one line, 10 px digits). So a container is as wide as its content and
@@ -2180,6 +2364,28 @@ impl App {
                     .map(Box::new),
             },
             // @sat:app.decoration
+            Query::Buffer => {
+                let book = self.session.book();
+                let areas = book
+                    .buffer()
+                    .iter()
+                    .map(|(n, ks)| BufferAreaView {
+                        name: n.clone(),
+                        members: ks
+                            .iter()
+                            .map(|&k| BufferMember {
+                                key: k,
+                                name: book.name(k).to_string(),
+                                enabled: book.enabled(k),
+                            })
+                            .collect(),
+                    })
+                    .collect();
+                Reply::Buffer { areas }
+            }
+            Query::Selection { view } => Reply::Selection {
+                selection: self.selection_view(view),
+            },
             Query::Decoration { view } => {
                 let book = self.session.book();
                 let keys: Vec<Key> = book
@@ -2954,6 +3160,82 @@ pub(crate) mod tests {
             panic!()
         };
         assert_eq!(focus_row, Some(2), "B is below A after the move");
+    }
+
+    #[test]
+    fn the_buffer_holds_areas_and_places_them() {
+        let mut a = app();
+        let (ka, kb) = {
+            let b = a.session().book();
+            (b.key_of("A").unwrap(), b.key_of("B").unwrap())
+        };
+        let buffer = |a: &mut App| match a.query(Query::Buffer).unwrap() {
+            Reply::Buffer { areas } => areas,
+            _ => unreachable!(),
+        };
+        a.command(Command::Buffer {
+            edit: BufferEdit::Put {
+                keys: vec![ka],
+                area: None,
+            },
+        })
+        .unwrap();
+        a.command(Command::Buffer {
+            edit: BufferEdit::Put {
+                keys: vec![kb],
+                area: Some(0),
+            },
+        })
+        .unwrap();
+        let areas = buffer(&mut a);
+        assert_eq!(areas.len(), 1);
+        assert_eq!(
+            areas[0]
+                .members
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B"]
+        );
+        assert_eq!(
+            a.session().book().decor().buffer[0].members,
+            ["A", "B"],
+            "kept in the project by name"
+        );
+        // the list did not change: the buffer holds references
+        let order = |a: &mut App| {
+            let b = a.session().book();
+            (b.pos(ka), b.pos(kb))
+        };
+        let (pa, pb) = order(&mut a);
+        assert!(pa < pb);
+        // place the area at the end of the list
+        a.command(Command::Buffer {
+            edit: BufferEdit::Place {
+                area: 0,
+                before: None,
+            },
+        })
+        .unwrap();
+        assert!(buffer(&mut a).is_empty(), "a placed area goes");
+        let (pa2, pb2) = order(&mut a);
+        assert_eq!(
+            (pa2, pb2),
+            (pb - 1, pb),
+            "at the end of the list, in the area's order"
+        );
+        // selection summary
+        a.command(Command::Navigate {
+            view: order::MAIN,
+            nav: order::Nav::Row(1),
+            select: order::Select::Replace,
+        })
+        .unwrap();
+        let Reply::Selection { selection } = a.query(Query::Selection { view: order::MAIN }).unwrap() else {
+            panic!()
+        };
+        assert_eq!(selection.count, 1);
+        assert_eq!(selection.names.len(), 1);
     }
 
     #[test]

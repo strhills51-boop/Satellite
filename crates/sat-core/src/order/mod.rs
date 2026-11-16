@@ -25,8 +25,9 @@ pub use book::{
 };
 pub use cursor::{Nav, Select, Shift};
 pub use decor::{
-    Accent, AttachKind, Attachment, CardStyle, Decor, DecorIssue, Effect, Fill, FillKind, GroupDef,
-    LineStyle, MarkerIssue, Marks, NOTE_LIMIT, Outline, TextCase, TextStyle, Watermark, WatermarkPosition,
+    Accent, AttachKind, Attachment, BufferArea, CardStyle, Decor, DecorIssue, Effect, Fill, FillKind,
+    GroupDef, LineStyle, MarkerIssue, Marks, NOTE_LIMIT, Outline, TextCase, TextStyle, Watermark,
+    WatermarkPosition,
 };
 pub use seq::Key;
 
