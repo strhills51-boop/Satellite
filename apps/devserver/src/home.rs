@@ -6,8 +6,10 @@
 //! (`@sat:app.pass`) on a thread of its own as a job of kind `run` (`@sat:jobs`: a newer run supersedes, cancel
 //! between batches, a late result is never published), its progress, and publishing a finished run into the app:
 //! new facts as one change, the sync records with the decisions the user made meanwhile, sources, plugin lists.
-//! Not here: the run (`@sat:home.run`), the app's truth (`@sat:app.project`), saving (the sandbox writes nothing;
-//! ADR 0019 step 4 adds `--write`).
+//! With `--write` it also saves the project when the app asks (`@sat:home.project.save`: a file another program
+//! wrote meanwhile is not overwritten unless forced) and a full run writes its facts and the project like
+//! `sat-cli analyze`; without it nothing is written.
+//! Not here: the run (`@sat:home.run`), the app's truth (`@sat:app.project`), the file (`@sat:stll.file`).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,6 +24,7 @@ use sat_core::project::Project;
 use sat_core::session::Session;
 use sat_core::sync::records::{Reconcile, Status, SyncRecord};
 use sat_core::table::ProviderTable;
+use sat_home::project::{SaveError, Stamp};
 use sat_home::run::{RunOptions, Stage, Totals};
 use sat_mo2::Instance;
 use sat_scan::ScanProgress;
@@ -34,6 +37,10 @@ const RUN: sat_core::jobs::JobKind = "run";
 pub struct Home {
     inst: Instance,
     path: PathBuf,
+    /// `--write`: saves and full runs write the project file.
+    write: bool,
+    /// The project file as this window last read or wrote it.
+    stamp: Option<Stamp>,
     jobs: Jobs,
     running: Option<Running>,
 }
@@ -57,6 +64,8 @@ struct Ran {
     project: Project,
     sync: Reconcile,
     facts: Option<Facts>,
+    /// The project file was written by the run: the project as written.
+    saved: Option<Project>,
     /// How long the run itself took (the result waits for the next request to be published).
     took: std::time::Duration,
 }
@@ -73,12 +82,32 @@ struct Facts {
 }
 
 impl Home {
-    pub fn new(inst: Instance, path: PathBuf) -> Self {
+    pub fn new(inst: Instance, path: PathBuf, write: bool, stamp: Option<Stamp>) -> Self {
         Self {
             inst,
             path,
+            write,
+            stamp,
             jobs: Jobs::default(),
             running: None,
+        }
+    }
+
+    // @sat:devserver.save
+    fn save(&mut self, app: &mut App, force: bool) {
+        let Some(p) = app.project() else {
+            return;
+        };
+        match sat_home::project::save_checked(&self.path, &p, self.stamp, force) {
+            Ok(st) => {
+                self.stamp = Some(st);
+                eprintln!("project saved → {}", self.path.display());
+                app.save_done(p);
+            }
+            Err(e) => {
+                eprintln!("project not saved: {e}");
+                app.save_failed(e.to_string(), e == SaveError::ChangedOutside);
+            }
         }
     }
 
@@ -87,6 +116,9 @@ impl Home {
     pub fn tick(&mut self, app: &mut App) {
         if app.take_pass_cancel() && self.jobs.cancel(RUN) {
             eprintln!("run: cancel asked");
+        }
+        if let Some(force) = app.take_save_request() {
+            self.save(app, force);
         }
         if let Some(mode) = app.take_pass_request() {
             self.start(app, mode);
@@ -131,6 +163,15 @@ impl Home {
         let plugins_at_start = project.plugins.clone();
         let inst = self.inst.clone();
         let path = self.path.clone();
+        // a full run writes facts and the project only over the file this window knows
+        let save = self.write && mode == PassMode::Full && sat_home::project::stamp_of(&path) == self.stamp;
+        if self.write && mode == PassMode::Full && !save {
+            app.save_failed(
+                "the run did not write the project: the file changed outside the window since it was read"
+                    .into(),
+                true,
+            );
+        }
         let progress = Arc::new(ScanProgress {
             cancel: ticket.token(),
             ..Default::default()
@@ -150,10 +191,11 @@ impl Home {
                         project,
                         sync,
                         facts: None,
+                        saved: None,
                         took: Default::default(),
                     })
                 }
-                PassMode::Full => full(&inst, path, project, &p, st),
+                PassMode::Full => full(&inst, path, project, &p, st, save),
             };
             let _ = tx.send(out.map(|mut r| {
                 r.took = t.elapsed();
@@ -232,6 +274,11 @@ impl Home {
             // the window's plugin edit made during the run wins; the manager's lists the run saw are remembered
             eprintln!("run: the plugin lists were edited in the window during the run — the edit stands");
         }
+        if let Some(saved) = ran.saved {
+            self.stamp = sat_home::project::stamp_of(&self.path);
+            eprintln!("run: project and facts saved → {}", self.path.display());
+            app.project_saved(saved);
+        }
         if let Some(f) = ran.facts {
             app.set_facts(f.table, f.versions);
             crate::start_readers(&self.inst, app);
@@ -270,12 +317,18 @@ fn full(
     mut project: Project,
     progress: &ScanProgress,
     stage: Stage,
+    save: bool,
 ) -> Result<Ran, String> {
-    let mut stll = Stll::new(path);
+    // the stored facts of unchanged mods are copied from the file as it is
+    let mut stll = if save && path.exists() {
+        Stll::open(&path).map_err(|e| e.to_string())?.0
+    } else {
+        Stll::new(path)
+    };
     let inv = sat_home::run::inventory(inst, &project.canon);
     let jobs = sat_home::run::jobs(inst, &project.canon, &inv.unlisted, true);
     let mut o = RunOptions::for_build(inst);
-    o.save_facts = false;
+    o.save_facts = save;
     o.tag_rules = Some(Arc::new(sat_core::tag_rules::Compiled::builtin()));
     o.stage = Some(stage.clone());
     let (scanned, pending) =
@@ -292,6 +345,8 @@ fn full(
     if let Ok(mut g) = stage.lock() {
         *g = "seals";
     }
+    // a run cancelled or superseded meanwhile writes nothing
+    let save = save && !progress.cancel.load(std::sync::atomic::Ordering::Relaxed);
     let published = pending.publish(
         &project,
         Totals {
@@ -299,8 +354,9 @@ fn full(
             contexts: totals.contexts,
             conflict_paths: totals.conflict_paths,
         },
-        false,
+        save,
     )?;
+    let saved = published.saved.is_some().then(|| project.clone());
     Ok(Ran {
         facts: Some(Facts {
             table,
@@ -313,6 +369,7 @@ fn full(
         }),
         project,
         sync: scanned.sync,
+        saved,
         took: Default::default(),
     })
 }

@@ -19,7 +19,7 @@ pub mod find;
 mod participants;
 pub mod pass;
 mod preview;
-mod project;
+pub mod project;
 pub mod records;
 pub mod sheet;
 mod sync;
@@ -200,6 +200,11 @@ pub enum Command {
     },
     /// Stop the running run: nothing of it is published.
     CancelPass,
+    /// Save the project (`@sat:app.project`; only when the shell writes): `force` overwrites a file changed outside.
+    SaveProject {
+        #[serde(default)]
+        force: bool,
+    },
     /// Decide a sync record (by fingerprint): pending, ignore, or confirm with an answer that fits it.
     Decide {
         fingerprint: String,
@@ -277,6 +282,8 @@ pub enum Query {
     Sync,
     /// The run: state, progress, the last result (`@sat:app.pass`).
     Pass,
+    /// Saving the project: writable, unsaved changes, the last error (`@sat:app.project.state`).
+    Project,
     /// Conflict contexts for the table's selector, largest first.
     Contexts,
     /// A page of record chains (`@sat:app.records.page`), largest first; with `plugin` only its chains.
@@ -791,6 +798,9 @@ pub enum Reply {
     Pass {
         pass: pass::PassView,
     },
+    Project {
+        project: project::ProjectState,
+    },
     Domains {
         domains: Vec<DomainItem>,
     },
@@ -970,6 +980,8 @@ pub struct App {
     project_base: Option<sat_core::project::Project>,
     /// The full commit plan of the build, from the shell (`@sat:app.sync.full`).
     plan_source: Option<Arc<dyn sync::PlanSource>>,
+    /// Saving the project (`@sat:app.project.state`).
+    save: project::SaveSlot,
 }
 
 impl App {
@@ -993,6 +1005,7 @@ impl App {
             preview_source: Default::default(),
             pinned_files: Vec::new(),
             project_base: None,
+            save: Default::default(),
             plan_source: None,
             pass: Default::default(),
             vfs: None,
@@ -1304,6 +1317,13 @@ impl App {
             }
             C::StartPass { mode } => {
                 return Ok(if self.request_pass(mode) {
+                    Event::Decided
+                } else {
+                    Event::Nothing
+                });
+            }
+            C::SaveProject { force } => {
+                return Ok(if self.request_save(force) {
                     Event::Decided
                 } else {
                     Event::Nothing
@@ -1627,6 +1647,9 @@ impl App {
             }
             Query::Pass => Reply::Pass {
                 pass: self.pass_view(),
+            },
+            Query::Project => Reply::Project {
+                project: self.project_state(),
             },
             Query::Sync => {
                 let (plan, extras) = self.commit_plan();

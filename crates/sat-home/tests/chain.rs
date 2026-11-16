@@ -193,3 +193,36 @@ fn surface_finds_what_the_full_run_finds() {
     let r2 = run::surface(&inst, &mut q);
     assert_eq!(r2.records, surface);
 }
+
+#[test]
+fn save_refuses_a_file_changed_outside() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    file(&base.join("mods/A/a.esp"), "x");
+    file(&base.join("profiles/Default/modlist.txt"), "+A\n");
+    let inst = Instance::from_dirs(
+        base.join("mods"),
+        base.join("profiles"),
+        base.join("overwrite"),
+        None,
+    );
+    let path = project::default_path(&inst);
+    let p = sat_core::project::Project::import(project::manager_list(&inst).unwrap());
+    // no file yet: saved, the stamp is the new file's
+    let s1 = project::save_checked(&path, &p, None, false).unwrap();
+    assert_eq!(project::stamp_of(&path), Some(s1));
+    let mut q = p.clone();
+    q.pinned_files.push("x".into());
+    let s2 = project::save_checked(&path, &q, Some(s1), false).unwrap();
+    // another program writes it: refused, unless forced
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let (mut stll, mut r) = project::require(&path).unwrap();
+    r.pinned_files.push("y".into());
+    project::save(&mut stll, &r).unwrap();
+    assert_eq!(
+        project::save_checked(&path, &q, Some(s2), false),
+        Err(project::SaveError::ChangedOutside)
+    );
+    project::save_checked(&path, &q, Some(s2), true).unwrap();
+    assert_eq!(project::require(&path).unwrap().1.pinned_files, ["x"]);
+}

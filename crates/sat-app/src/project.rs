@@ -6,8 +6,36 @@
 //! Not here: the project file (`@sat:stll.file`, `@sat:home.project`), the project's meaning (`@sat:project`).
 
 use sat_core::project::Project;
+use serde::{Deserialize, Serialize};
 
 use crate::App;
+
+/// Saving the project, as the window shows it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectState {
+    /// The shell may write the project (`--write`); otherwise the window is a sandbox.
+    pub writable: bool,
+    /// Where the project file is (empty without one).
+    pub path: String,
+    /// The project now differs from what was last saved (or read).
+    pub dirty: bool,
+    /// A save is asked and not done yet.
+    pub saving: bool,
+    /// Why the last save did not happen.
+    pub error: Option<String>,
+    /// The file changed outside the window since it was read: saving overwrites that (`force`).
+    pub changed_outside: bool,
+    /// How many saves this window made.
+    pub saves: u32,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct SaveSlot {
+    pub state: ProjectState,
+    /// The project as last saved or read: `dirty` compares with it.
+    saved: Option<Project>,
+    request: Option<bool>,
+}
 
 impl App {
     /// What the app takes from a project besides the canon (the session is built from its book): settled chains,
@@ -31,6 +59,60 @@ impl App {
         self.set_sources(p.sources_by_name());
         problems.extend(self.set_counters(&p.counters));
         problems
+    }
+
+    /// The shell can save the project at `path` (`--write`).
+    pub fn enable_saving(&mut self, path: String) {
+        self.save.state.writable = true;
+        self.save.state.path = path;
+    }
+
+    /// The project as it is on disk now (read at opening, written by a save or a run): what `dirty` compares with.
+    pub fn project_saved(&mut self, p: Project) {
+        self.save.saved = Some(p);
+        self.save.state.saving = false;
+        self.save.state.error = None;
+        self.save.state.changed_outside = false;
+    }
+
+    pub(crate) fn request_save(&mut self, force: bool) -> bool {
+        if !self.save.state.writable || self.project_base.is_none() {
+            return false;
+        }
+        self.save.request = Some(force);
+        self.save.state.saving = true;
+        true
+    }
+
+    /// The shell takes a save request (`true` — overwrite a file changed outside).
+    pub fn take_save_request(&mut self) -> Option<bool> {
+        self.save.request.take()
+    }
+
+    /// A save the shell made: what was written.
+    pub fn save_done(&mut self, p: Project) {
+        self.project_saved(p);
+        self.save.state.saves += 1;
+    }
+
+    /// A save the shell could not make.
+    pub fn save_failed(&mut self, error: String, changed_outside: bool) {
+        self.save.state.saving = false;
+        self.save.state.error = Some(error);
+        self.save.state.changed_outside = changed_outside;
+    }
+
+    // @sat:app.project.state
+    /// Saving as the window shows it; `dirty` compares the project now with the one last saved or read.
+    pub(crate) fn project_state(&mut self) -> ProjectState {
+        let now = self.project();
+        let mut st = self.save.state.clone();
+        st.dirty = match (&now, &self.save.saved) {
+            (Some(n), Some(s)) => n != s,
+            (Some(_), None) => true,
+            _ => false,
+        };
+        st
     }
 
     // @sat:app.project.now
@@ -58,5 +140,56 @@ impl App {
         p.chain_layout = self.chain_layout().clone();
         p.chain_lineage = self.chain_lineage().clone();
         p.pinned_files = self.pinned_files().to_vec();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::app_of;
+    use crate::{Command, Event, Query, Reply};
+
+    fn state(a: &mut crate::App) -> super::ProjectState {
+        match a.query(Query::Project).unwrap() {
+            Reply::Project { project } => project,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn unsaved_changes_and_saving() {
+        let mut a = app_of(["A", "B"]);
+        let p = sat_core::project::Project::import(a.session().book().to_modlist());
+        a.load_project(&p, Vec::new());
+        let loaded = a.project().unwrap();
+        a.project_saved(loaded);
+        // read back as loaded: nothing to save
+        assert!(!state(&mut a).dirty);
+        a.command(Command::SetConflictIgnore {
+            rules: vec!["meta.ini".into()],
+        })
+        .unwrap();
+        assert!(state(&mut a).dirty);
+        // the sandbox does not save
+        assert_eq!(
+            a.command(Command::SaveProject { force: false }).unwrap(),
+            Event::Nothing
+        );
+        assert_eq!(a.take_save_request(), None);
+        a.enable_saving("p.stll".into());
+        assert_eq!(
+            a.command(Command::SaveProject { force: false }).unwrap(),
+            Event::Decided
+        );
+        assert!(state(&mut a).saving);
+        assert_eq!(a.take_save_request(), Some(false));
+        a.save_failed("changed".into(), true);
+        let st = state(&mut a);
+        assert!(st.dirty && st.changed_outside && !st.saving);
+        a.command(Command::SaveProject { force: true }).unwrap();
+        assert_eq!(a.take_save_request(), Some(true));
+        let now = a.project().unwrap();
+        a.save_done(now);
+        let st = state(&mut a);
+        assert!(!st.dirty && !st.changed_outside && st.saves == 1 && st.error.is_none());
     }
 }

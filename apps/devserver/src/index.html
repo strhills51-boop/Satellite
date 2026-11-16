@@ -71,6 +71,8 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; borde
 #passPanel .warn { color: var(--l-txt); }
 .pipeline i { color: var(--muted); font-style: normal; }
 .sandbox { margin-left: auto; color: var(--muted); font-size: 12px; }
+.sandbox.dirty { color: var(--m-txt); } .sandbox.bad { color: var(--l-txt); }
+#saveBtn.dirty { border-color: var(--m-txt); }
 main { display: grid; grid-template-columns: 220px minmax(0, 1fr) 380px; min-height: 0; }
 section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 section h2 { margin: 0; padding: 10px 12px 6px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
@@ -432,7 +434,7 @@ footer b { color: var(--accent2); font-weight: 500; }
   <button id="recBtn" title="Конфликты: файлы и записи плагинов">Конфликты</button>
   <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр">Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
   <button id="theme" title="Светлая / тёмная">◐</button>
-  <span class="sandbox">песочница: изменения живут в памяти и никуда не пишутся</span>
+  <span class="sandbox" id="projState">песочница: изменения живут в памяти и никуда не пишутся</span><button id="saveBtn" hidden title="Сохранить проект (Ctrl+S)">Сохранить</button>
 </header>
 <main>
   <section id="tilesec"><h2>Разделители <small id="sepcount"></small></h2><div id="tiles"></div></section>
@@ -515,7 +517,7 @@ async function post(path, body) {
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
 }
-const command = c => post("/command", c);
+const command = c => post("/command", c).then(r => { projSoon(); return r; });
 const query = q => post("/query", q);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const num = n => n.toLocaleString("ru-RU");
@@ -2376,7 +2378,7 @@ async function passPoll() {
   // a finished run brought new facts and records: everything the window shows is read again
   if (was && was.state !== v.state && v.state === "done" && v.generation !== passGen) {
     passGen = v.generation;
-    await sync(false); await Promise.all([totals(), tiles(), syLoad()]);
+    await sync(false); await Promise.all([totals(), tiles(), syLoad(), projPoll()]);
   }
   if (live) passTimer = setTimeout(passPoll, 400);
 }
@@ -2400,7 +2402,7 @@ function passDraw() {
       (l.degraded.length ? `<span class=warn title="${esc(l.degraded.join("\n"))}">с неполными фактами: ${l.degraded.length}</span>` : "") +
       (l.seals.length ? `<span class=warn title="${esc(l.seals.join("\n"))}">печати не прошли: ничего не опубликовано (${l.seals.length})</span>` : "") +
       (l.error ? `<span class=warn>${esc(l.error)}</span>` : "") + `</div>` : `<div class="facts"><span>с открытия окна пробегов не было; сборка прочитана при запуске</span></div>`) +
-    `<div class="facts"><span>песочница: пробег ничего не пишет — ни фактов, ни проекта</span></div>`;
+    `<div class="facts"><span>${PROJ && PROJ.writable ? "запись включена: полный пробег записывает факты и проект, как sat-cli analyze; поверхность — только в память" : "песочница: пробег ничего не пишет — ни фактов, ни проекта"}</span></div>`;
 }
 $("passBtn").onclick = async ev => {
   ev.stopPropagation();
@@ -2488,7 +2490,7 @@ async function syLoad() {
     (x ? x.notes.map(n => `<span class="nt">${esc(n)}</span>`).join("") : "") +
     (p.blockers.length ? p.blockers.map(b => `<span class="bl">⛔ ${syBlocker(b, recs)}</span>`).join("") : `<span style="color:var(--ok)">блокеров нет</span>`) + `</div>`;
   $("syBody").innerHTML = `<div><h4>Расхождения</h4>${rows}</div><div><h4>План фиксации${x ? " — тот же, что выполнит sat-cli commit" : ""}</h4>${plan}</div>`;
-  $("syFoot").textContent = p.blockers.length ? "фиксация заблокирована, пока есть блокеры" : "песочница: фиксация из окна — следующий шаг; сейчас план выполняет sat-cli commit … --apply";
+  $("syFoot").textContent = p.blockers.length ? "фиксация заблокирована, пока есть блокеры" : (PROJ && PROJ.writable ? "ответы сохраняются вместе с проектом (Ctrl+S); " : "песочница: ") + "фиксация из окна — следующий шаг; сейчас план выполняет sat-cli commit … --apply";
 }
 $("syncBtn").onclick = () => { $("sy").hidden = !$("sy").hidden; if (!$("sy").hidden) syLoad(); };
 $("syClose").onclick = () => { $("sy").hidden = true; list.focus({ preventScroll: true }); };
@@ -2501,7 +2503,36 @@ $("syBody").onclick = async ev => {
 };
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("sy").hidden) { ev.stopPropagation(); $("syClose").onclick(); } }, true);
 
-(async () => { await sync(false); await Promise.all([totals(), tiles(), decor(), passPoll(), syLoad()]); list.focus({ preventScroll: true }); })();
+// ---------------------------------------------------------------- saving the project (`@sat:app.project.state`)
+let PROJ = null, projTimer = 0;
+function projSoon() { clearTimeout(projTimer); projTimer = setTimeout(projPoll, 250); }
+async function projPoll() {
+  clearTimeout(projTimer);
+  let st;
+  try { ({ project: st } = await query({ type: "project" })); } catch (_) { return; }
+  PROJ = st;
+  const el = $("projState"), b = $("saveBtn");
+  b.hidden = !st.writable;
+  if (!st.writable) { el.textContent = "песочница: изменения живут в памяти и никуда не пишутся"; el.className = "sandbox"; return; }
+  el.className = "sandbox" + (st.error ? " bad" : st.dirty ? " dirty" : "");
+  el.title = st.path;
+  el.textContent = st.saving ? "сохраняется…" : st.error ? (st.changed_outside ? "файл проекта изменён вне окна — сохранение перезапишет его" : "не сохранено: " + st.error)
+    : st.dirty ? "● не сохранено" : "проект сохранён";
+  b.classList.toggle("dirty", st.dirty);
+  b.textContent = st.changed_outside ? "Перезаписать" : "Сохранить";
+  if (st.saving) projTimer = setTimeout(projPoll, 300);
+}
+async function projSave() {
+  if (!PROJ || !PROJ.writable) return;
+  if (PROJ.changed_outside && !confirm("Файл проекта изменён другой программой после того, как окно его прочитало. Перезаписать?")) return;
+  await post("/command", { type: "save-project", force: !!PROJ.changed_outside });
+  await query({ type: "project" }); // the shell saves between requests
+  projPoll();
+}
+$("saveBtn").onclick = projSave;
+document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") { ev.preventDefault(); projSave(); } }, true);
+
+(async () => { await sync(false); await Promise.all([totals(), tiles(), decor(), passPoll(), syLoad(), projPoll()]); list.focus({ preventScroll: true }); })();
 </script>
 </body>
 </html>

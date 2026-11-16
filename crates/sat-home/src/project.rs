@@ -63,6 +63,63 @@ pub fn save(stll: &mut Stll, project: &Project) -> Result<(), String> {
     stll.save(project).map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// What the project file was when a program last read or wrote it: size and modification time. Another program
+/// writing it in between (`sat-cli analyze` while the window is open) changes the stamp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stamp {
+    pub len: u64,
+    pub modified: Option<std::time::SystemTime>,
+}
+
+/// The stamp of the file now; `None` when there is no file.
+pub fn stamp_of(path: &Path) -> Option<Stamp> {
+    let md = std::fs::metadata(path).ok()?;
+    Some(Stamp {
+        len: md.len(),
+        modified: md.modified().ok(),
+    })
+}
+
+/// Why a save did not happen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SaveError {
+    /// The file changed since `expected` (another program wrote it): saving would overwrite that.
+    ChangedOutside,
+    Io(String),
+}
+
+impl std::fmt::Display for SaveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ChangedOutside => f.write_str(
+                "the project file changed since it was read (another program wrote it) — saving would overwrite that",
+            ),
+            Self::Io(e) => f.write_str(e),
+        }
+    }
+}
+
+// @sat:home.project.save
+/// Saves `project` to `path` unless the file changed since `expected` (the stamp when it was read or last saved;
+/// `None` — there was no file) and `force` is not given. Stored facts are kept. Returns the new stamp.
+pub fn save_checked(
+    path: &Path,
+    project: &Project,
+    expected: Option<Stamp>,
+    force: bool,
+) -> Result<Stamp, SaveError> {
+    if !force && stamp_of(path) != expected {
+        return Err(SaveError::ChangedOutside);
+    }
+    let mut stll = if path.exists() {
+        Stll::open(path).map_err(|e| SaveError::Io(e.to_string()))?.0
+    } else {
+        Stll::new(path)
+    };
+    stll.save(project).map_err(|e| SaveError::Io(e.to_string()))?;
+    stamp_of(path).ok_or_else(|| SaveError::Io(format!("{}: not there after saving", path.display())))
+}
+
 /// How the project of a run came to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {

@@ -3,7 +3,9 @@
 //! Owns: the HTTP transport (`POST /command`, `POST /query`, `GET /`) and loading a build into a session for it.
 //! Not here: what commands and queries mean (`@sat:app`), the page (`apps/devserver/src/index.html`).
 //!
-//! Sandbox: nothing is ever written to the build or the project; edits live in memory until the server stops.
+//! Sandbox by default: nothing is ever written to the build or the project; edits live in memory until the server
+//! stops. With `--write` the project is saved when the window asks (ADR 0019 §5), and a full run writes the facts
+//! it saw into it, like `sat-cli analyze`.
 //! The scan uses the same cache as `sat-cli analyze` (`<profile>\satellite\cache`), so a build `sat-cli` has
 //! analyzed opens in seconds.
 
@@ -105,7 +107,7 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
     let path = args
         .first()
         .filter(|a| !a.starts_with("--"))
-        .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--game DIR] [--port N]\n       sat-devserver --project <project.stll or its folder> [--port N]   (no build needed)")?;
+        .ok_or("usage: sat-devserver <MO2 folder> [--profile NAME] [--game DIR] [--port N] [--write]\n       sat-devserver --project <project.stll or its folder> [--port N]   (no build needed)")?;
     let mut inst = Instance::load(path).map_err(|e| e.to_string())?;
     // the game pack (`@sat:game`): what the core knows about this game
     sat_core::game::select(&inst.game_name);
@@ -123,17 +125,22 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
             inst.game_path.display().to_string()
         );
     }
-    // the same run as `sat-cli analyze` (`@sat:home.run`), in the sandbox: nothing is written — no facts, no
-    // project, the early layout read as it is
+    // the same run as `sat-cli analyze` (`@sat:home.run`); opening writes nothing, even with `--write` — no facts,
+    // no project, the early layout read as it is
+    let write = args.iter().any(|a| a == "--write");
+    let path = sat_home::project::default_path(&inst);
+    let stamp = sat_home::project::stamp_of(&path);
     let manager = sat_home::project::manager_list(&inst)?;
     let opened = sat_home::project::open_for_run(
-        &sat_home::project::default_path(&inst),
+        &path,
         manager,
         sat_home::project::OpenOptions {
             reimport: false,
             read_only: true,
         },
     )?;
+    // what is on disk now: unsaved changes are measured against it (none yet — the window must save first)
+    let on_disk = (opened.origin == sat_home::project::Origin::Stored).then(|| opened.project.clone());
     eprintln!("{}", opened.origin_line());
     let sat_home::project::Opened {
         mut stll,
@@ -248,8 +255,17 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
         layout: sat_mo2::commit::Layout::of(&inst),
         inst: inst.clone(),
     }));
-    let path = sat_home::project::default_path(&inst);
-    let home = home::Home::new(inst, path);
+    if let Some(p) = on_disk {
+        app.project_saved(p);
+    }
+    if write {
+        app.enable_saving(path.display().to_string());
+        eprintln!(
+            "write: the project is saved on request (Ctrl+S in the window) → {}",
+            path.display()
+        );
+    }
+    let home = home::Home::new(inst, path, write, stamp);
     Ok((app, Some(home)))
 }
 
@@ -369,7 +385,14 @@ fn main() {
         eprintln!("error: port {port}: {e}");
         std::process::exit(2);
     });
-    eprintln!("open http://127.0.0.1:{port}/  (sandbox: nothing is saved; Ctrl+C to stop)");
+    eprintln!(
+        "open http://127.0.0.1:{port}/  ({}; Ctrl+C to stop)",
+        if args.iter().any(|a| a == "--write") {
+            "--write: the project is saved when asked"
+        } else {
+            "sandbox: nothing is saved"
+        }
+    );
     for mut req in server.incoming_requests() {
         if let Some(h) = home.as_mut() {
             h.tick(&mut app);
