@@ -2824,7 +2824,12 @@ pub(crate) mod tests {
             view: 0,
             chord: "ArrowDown".into(),
         })
-        .unwrap(); // focus A
+        .unwrap(); // aim at A (the cursor does not select, ADR 0020 §4)
+        a.command(Command::Key {
+            view: 0,
+            chord: "Space".into(),
+        })
+        .unwrap(); // A into the selection
         let ev = a
             .command(Command::Key {
                 view: 0,

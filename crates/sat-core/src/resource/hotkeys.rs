@@ -209,8 +209,10 @@ pub fn binding(id: &str, chord: &str, command: &str, context: &str) -> Manifest 
 }
 
 // @sat:resource.hotkeys.builtins
-/// The built-in layout of the list window (ADR 0008): arrows move the focus, Shift extends, Ctrl moves the
-/// focus only, Space toggles, Alt moves the selection, Alt+Shift by blocks, ← → fold, Ctrl+A / Escape.
+/// The built-in layout of the list window (ADR 0008, ADR 0020 §4 «курсор — прицел намерения»): arrows move the
+/// keyboard cursor only — it aims, it does not select; Space puts the aimed mod in or out of the selection, Shift
+/// extends, Ctrl+arrows move and select (the old plain arrows); Alt moves the selection, Alt+Shift by blocks,
+/// ← → fold, Ctrl+A / Escape. A mouse click still focuses and selects.
 pub fn builtin_hotkeys() -> Vec<Manifest> {
     let mut v = Vec::new();
     for (key, to) in [
@@ -221,7 +223,7 @@ pub fn builtin_hotkeys() -> Vec<Manifest> {
         ("Home", "home"),
         ("End", "end"),
     ] {
-        for (mods, suffix) in [("", ""), ("Shift+", ".extend"), ("Ctrl+", ".focus")] {
+        for (mods, suffix) in [("", ".focus"), ("Shift+", ".extend"), ("Ctrl+", "")] {
             let chord = format!("{mods}{key}");
             let id = format!("core.key.{}", chord.to_lowercase().replace('+', "-"));
             v.push(binding(&id, &chord, &format!("core.cursor.{to}{suffix}"), "list"));
