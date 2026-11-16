@@ -66,3 +66,15 @@ pub fn run(
     }
     Ok(Committed { report, notes })
 }
+
+// @sat:home.commit.fresh
+/// The freshness gate before a commit writes (ADR 0019 §4, monolith pre-commit): a surface run over the mods
+/// folder now must find the same mismatches the project's records describe — a folder that appeared, went or was
+/// renamed since the last run makes the plan stale. Returns what differs (record fingerprints), empty when fresh.
+pub fn stale(inst: &sat_mo2::Instance, project: &Project) -> Vec<String> {
+    let mut now = project.clone();
+    let seen = crate::run::surface(inst, &mut now);
+    let had: std::collections::BTreeSet<&str> = project.sync.iter().map(|r| r.fingerprint.as_str()).collect();
+    let has: std::collections::BTreeSet<&str> = seen.records.iter().map(|r| r.fingerprint.as_str()).collect();
+    had.symmetric_difference(&has).map(|s| s.to_string()).collect()
+}
