@@ -182,27 +182,17 @@ pub fn open_for_run(path: &Path, manager: Modlist, o: OpenOptions) -> Result<Ope
     })
 }
 
-/// Re-import keeps what the project learned and what the user decided (signatures, sync decisions, decoration,
-/// settled chains), replaces only the canon. Decoration of names no longer in the canon is reported when the book
-/// applies it.
+// @sat:home.project.reimport
+/// Re-import takes the canon from `modlist.txt` again and keeps everything else the project has — what it learned
+/// and what the user decided (signatures, sync decisions, decoration, settled chains, plugin lists, factories,
+/// file patches, chain identities, pins…). Entities keep their ids by name, so everything keyed by id still finds
+/// them. Decoration of names no longer in the canon is reported when the book applies it.
+/// (Until 2026-11-16 the re-import copied a list of sections and lost the others: factories, patches, chain
+/// identities and layout, pins, the plugin lists last seen.)
 fn reimport(manager: &Modlist, old: Project) -> Project {
-    let mut p = Project::import(manager.clone());
-    // entities keep their ids by name, so everything keyed by id still finds them
-    p.entities = old.entities;
+    let mut p = old;
+    p.canon = manager.clone();
     p.entities.follow(&p.canon);
-    p.signatures = old.signatures;
-    p.sync = old.sync;
-    p.decor = old.decor;
-    p.decisions = old.decisions;
-    p.plugins = old.plugins;
-    p.conflict_ignore = old.conflict_ignore;
-    p.tags = old.tags;
-    p.intents = old.intents;
-    p.sticker_rules = old.sticker_rules;
-    p.counters = old.counters;
-    p.sources = old.sources;
-    p.new_mods = old.new_mods;
-    p.extra = old.extra;
     p
 }
 

@@ -1,33 +1,33 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 18,
+ "revision": 20,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T15:10:17Z",
+ "updatedAt": "2026-11-16T15:18:29Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
-  "activeDistanceId": "D7-file-edits",
+  "activeDistanceId": "D8-reimport",
   "activity": "CHANGE",
   "deepeningStack": [
    {
     "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
-    "childDistanceId": "D7-file-edits",
+    "childDistanceId": "D8-reimport",
     "returnPoint": {
-     "tacticalFocus": "Код и проверки готовы: прогнать clippy/тесты, коммит, CI, печать D7. Потом — обещание о переимпорте (теряет фабрики, патчи и др.) отдельной Distance, затем итог миссии и проверки владельцу.",
+     "tacticalFocus": "Код и тест готовы: коммит, CI, печать; затем итог миссии: отчёт владельцу, проверки на его сборке пачкой (WAIT_OPERATOR или BLOCKING-вопрос).",
      "posture": "ARCHITECT"
     },
-    "openedAt": "2026-11-16T15:10:17Z"
+    "openedAt": "2026-11-16T15:18:29Z"
    }
   ],
   "returnPoint": {
-   "tacticalFocus": "Код и проверки готовы: прогнать clippy/тесты, коммит, CI, печать D7. Потом — обещание о переимпорте (теряет фабрики, патчи и др.) отдельной Distance, затем итог миссии и проверки владельцу.",
+   "tacticalFocus": "Код и тест готовы: коммит, CI, печать; затем итог миссии: отчёт владельцу, проверки на его сборке пачкой (WAIT_OPERATOR или BLOCKING-вопрос).",
    "posture": "ARCHITECT"
   },
-  "tacticalFocus": "Код и проверки готовы: прогнать clippy/тесты, коммит, CI, печать D7. Потом — обещание о переимпорте (теряет фабрики, патчи и др.) отдельной Distance, затем итог миссии и проверки владельцу.",
+  "tacticalFocus": "Код и тест готовы: коммит, CI, печать; затем итог миссии: отчёт владельцу, проверки на его сборке пачкой (WAIT_OPERATOR или BLOCKING-вопрос).",
   "scheduler": {
    "events": [
     {
@@ -165,9 +165,9 @@
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
    "summary": "",
    "createdAt": "2026-11-16T14:17:55Z",
-   "updatedAt": "2026-11-16T15:10:17Z",
+   "updatedAt": "2026-11-16T15:18:29Z",
    "sealedAt": null,
-   "suspendedAt": "2026-11-16T15:10:17Z",
+   "suspendedAt": "2026-11-16T15:18:29Z",
    "readyAt": "2026-11-16T14:17:55Z",
    "resumableAt": null,
    "resumedAt": "2026-11-16T14:22:51Z",
@@ -385,11 +385,50 @@
    "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "objective": "Правки ini модов из окна: «✎ Править» в предпросмотре проводника (значения, удаление, новые ключи, вернуть, убрать правку, принять текущий файл как основу); правки — истина приложения (@sat:app.patches), в проекте по id сущности; полный план и фиксация пишут исправленную копию в Satellite Patches, файл мода не меняется. Попутно: применение патча перенесено из sat-mo2 в sat-core (@sat:patch.apply), операции put/revert — в FilePatch, ключи ini по порядку — в модель ini.",
    "closureContract": "Тест sat-app (правка, основа изменилась, принять основу, вернуть всё → правки нет); в браузере на копии с --write: правка → план «записать Satellite Patches» → фиксация → исправленная копия с CRLF и комментариями, оригинал цел, Satellite Patches последним по приоритету; clippy/fmt/check-map/тесты; CI; галочка.",
+   "status": "sealed",
+   "reason": "",
+   "summary": "D7 «Правки файлов в плане из окна» запечатан.",
+   "createdAt": "2026-11-16T15:10:17Z",
+   "updatedAt": "2026-11-16T15:18:29Z",
+   "sealedAt": "2026-11-16T15:18:29Z",
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": {
+    "items": [
+     {
+      "commit": "685e022"
+     },
+     {
+      "ci": "GitHub Actions run 43893818350 success"
+     },
+     {
+      "test": "sat-app patches::tests::edit_a_mods_ini_as_a_patch"
+     },
+     {
+      "text": "в браузере с --write: правка SkyUI.ini → план «записать Satellite Patches» → фиксация → копия с CRLF/комментарием/новым ключом, оригинал цел, Satellite Patches выигрывает"
+     }
+    ],
+    "at": "2026-11-16T15:18:29Z"
+   }
+  },
+  "D8-reimport": {
+   "id": "D8-reimport",
+   "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "objective": "sat-cli analyze --reimport берёт из modlist.txt только канон и сохраняет всё остальное проекта (фабрики, патчи, идентичности и раскладку цепочек, закрепления, списки плагинов последнего пробега).",
+   "closureContract": "Тест sat-home reimport_takes_the_canon_and_keeps_the_rest; CI.",
    "status": "active",
    "reason": "",
    "summary": "",
-   "createdAt": "2026-11-16T15:10:17Z",
-   "updatedAt": "2026-11-16T15:10:17Z",
+   "createdAt": "2026-11-16T15:18:29Z",
+   "updatedAt": "2026-11-16T15:18:29Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
@@ -724,6 +763,28 @@
    "artifacts": [],
    "distanceId": "D7-file-edits",
    "summary": "Шаг 6 ADR 0019: правки файлов в плане из окна."
+  },
+  {
+   "id": "worklog:1a1e4f03538:d1ceb550",
+   "revision": 19,
+   "at": "2026-11-16T15:18:29Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "D7 «Правки файлов в плане из окна» запечатан."
+  },
+  {
+   "id": "worklog:1a1e4f0355e:0b26014b",
+   "revision": 20,
+   "at": "2026-11-16T15:18:29Z",
+   "action": "DEEPEN",
+   "activity": "CHANGE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "D8-reimport",
+   "summary": "Обещание D2: переимпорт терял разделы проекта — исправить отдельной Distance."
   }
  ],
  "humanRequests": {
@@ -876,13 +937,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T14:15:20Z"
  },
- "acceptanceSequence": 18,
+ "acceptanceSequence": 20,
  "lastControl": {
-  "at": "2026-11-16T15:10:17Z",
-  "revision": 18,
+  "at": "2026-11-16T15:18:29Z",
+  "revision": 20,
   "semanticChanged": true,
-  "acceptanceSequence": 18,
-  "modelSummary": "Шаг 6 ADR 0019: правки файлов в плане из окна."
+  "acceptanceSequence": 20,
+  "modelSummary": "Обещание D2: переимпорт терял разделы проекта — исправить отдельной Distance."
  },
  "hold": null,
  "completedAt": null

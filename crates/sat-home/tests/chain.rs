@@ -248,3 +248,45 @@ fn a_folder_changed_after_the_run_makes_the_commit_stale() {
     file(&base.join("mods/B/b.esp"), "y");
     assert_eq!(sat_home::commit::stale(&inst, &p), ["fs_created::mod::b"]);
 }
+
+#[test]
+fn reimport_takes_the_canon_and_keeps_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    file(&base.join("mods/A/a.esp"), "x");
+    file(&base.join("mods/B/b.esp"), "y");
+    file(&base.join("profiles/Default/modlist.txt"), "+B\n+A\n");
+    let inst = Instance::from_dirs(base.join("mods"), base.join("profiles"), base.join("overwrite"), None);
+    let path = project::default_path(&inst);
+    let mut p = sat_core::project::Project::import(project::manager_list(&inst).unwrap());
+    p.pinned_files.push("a.esp".into());
+    p.patches.push(sat_core::patch::FilePatch {
+        source: p.entities.id_of("A").unwrap().0.clone(),
+        path: "x.ini".into(),
+        base: None,
+        ops: Vec::new(),
+    });
+    p.plugins_seen = Some(Default::default());
+    let id_a = p.entities.id_of("A").unwrap().clone();
+    project::save_checked(&path, &p, None, false).unwrap();
+    // the manager's order changed and a mod was added there
+    file(&base.join("mods/C/c.esp"), "z");
+    file(&base.join("profiles/Default/modlist.txt"), "+C\n+A\n+B\n");
+    let o = project::open_for_run(
+        &path,
+        project::manager_list(&inst).unwrap(),
+        project::OpenOptions {
+            reimport: true,
+            read_only: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(o.origin, project::Origin::Reimported);
+    let names: Vec<&str> = o.project.canon.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["B", "A", "C"]);
+    assert_eq!(o.project.entities.id_of("A"), Some(&id_a), "ids kept by name");
+    assert!(o.project.entities.id_of("C").is_some());
+    assert_eq!(o.project.pinned_files, ["a.esp"]);
+    assert_eq!(o.project.patches.len(), 1);
+    assert!(o.project.plugins_seen.is_some());
+}
