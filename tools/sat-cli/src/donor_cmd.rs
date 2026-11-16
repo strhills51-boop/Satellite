@@ -21,7 +21,7 @@ use sat_core::sync::names::is_separator_folder;
 use sat_mo2::commit::Layout;
 use sat_mo2::profile;
 
-use crate::{flag_value, flag_values, has, open_instance, project_io, subfolders};
+use crate::{flag_value, flag_values, has, open_instance, subfolders};
 
 #[derive(Serialize)]
 struct DonorReport {
@@ -84,7 +84,7 @@ pub fn donor(args: &[String]) -> Result<(), String> {
         base.file_name()
             .map_or_else(|| "donor".to_string(), |n| n.to_string_lossy().into_owned())
     });
-    let opened = project_io::open(&layout.project_file)?;
+    let opened = sat_home::project::open(&layout.project_file)?;
     let canon = match &opened {
         Some((_, p)) => p.canon.clone(),
         None => read_modlist(&inst.profile_dir().join("modlist.txt"))?,

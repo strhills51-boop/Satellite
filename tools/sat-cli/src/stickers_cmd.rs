@@ -6,14 +6,14 @@
 use sat_core::sticker_rules::{StickerRule, StickerRules};
 use sat_mo2::commit::Layout;
 
-use crate::{flag_values, open_instance, project_io};
+use crate::{flag_values, open_instance};
 
 /// `sat-cli stickers <instance> [--add "STICKER=EXPR"]... [--remove STICKER]...`: a rule that does not compile is
 /// refused.
 pub fn stickers(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
-    let (mut stll, mut project) = project_io::require(&path)?;
+    let (mut stll, mut project) = sat_home::project::require(&path)?;
     let (add, remove) = (flag_values(args, "--add"), flag_values(args, "--remove"));
     if !add.is_empty() || !remove.is_empty() {
         project
@@ -33,7 +33,7 @@ pub fn stickers(args: &[String]) -> Result<(), String> {
             project.sticker_rules.retain(|r| r.sticker != rule.sticker);
             project.sticker_rules.push(rule);
         }
-        project_io::save(&mut stll, &project)?;
+        sat_home::project::save(&mut stll, &project)?;
         eprintln!("saved to {}", path.display());
     }
     if project.sticker_rules.is_empty() {
@@ -53,7 +53,7 @@ pub fn counters(args: &[String]) -> Result<(), String> {
     use sat_core::counters::{Case, CounterDef, Counters};
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
-    let (mut stll, mut project) = project_io::require(&path)?;
+    let (mut stll, mut project) = sat_home::project::require(&path)?;
     let changed = ["--add", "--case", "--show-if", "--remove"]
         .iter()
         .any(|f| !flag_values(args, f).is_empty());
@@ -101,7 +101,7 @@ pub fn counters(args: &[String]) -> Result<(), String> {
         if let Some(e) = Counters::compile(&project.counters).1.first() {
             return Err(e.clone());
         }
-        project_io::save(&mut stll, &project)?;
+        sat_home::project::save(&mut stll, &project)?;
         eprintln!("saved to {}", path.display());
     }
     if project.counters.is_empty() {

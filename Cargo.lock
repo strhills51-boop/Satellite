@@ -532,6 +532,7 @@ dependencies = [
  "rayon",
  "sat-core",
  "sat-formats",
+ "sat-home",
  "sat-mo2",
  "sat-scan",
  "sat-stll",
@@ -560,6 +561,7 @@ dependencies = [
  "sat-app",
  "sat-core",
  "sat-formats",
+ "sat-home",
  "sat-mo2",
  "sat-scan",
  "sat-stll",
@@ -580,6 +582,18 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "sat-home"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+ "sat-core",
+ "sat-mo2",
+ "sat-scan",
+ "sat-stll",
+ "tempfile",
 ]
 
 [[package]]

@@ -7,14 +7,14 @@
 use sat_core::factory::{Factory, FactoryKind, FactoryMode, fingerprint};
 use sat_mo2::commit::Layout;
 
-use crate::{flag_value, flag_values, has, open_instance, project_io};
+use crate::{flag_value, flag_values, has, open_instance};
 
 /// `sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]`: a group is the run of mods from
 /// one to the other (one block, contiguous); the analysis computes it as one mod.
 pub fn group(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
-    let (mut stll, mut project) = project_io::require(&path)?;
+    let (mut stll, mut project) = sat_home::project::require(&path)?;
     let (mut book, _) = project.book();
     let mut changed = false;
     for name in flag_values(args, "--remove") {
@@ -39,7 +39,7 @@ pub fn group(args: &[String]) -> Result<(), String> {
     }
     if changed {
         project.commit_book(&book);
-        project_io::save(&mut stll, &project)?;
+        sat_home::project::save(&mut stll, &project)?;
         eprintln!("saved to {}", path.display());
     }
     let groups = book.decor().groups;
@@ -67,7 +67,7 @@ pub fn group(args: &[String]) -> Result<(), String> {
 pub fn factory(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
-    let (mut stll, mut project) = project_io::require(&path)?;
+    let (mut stll, mut project) = sat_home::project::require(&path)?;
     let groups = project.book().0.decor().groups;
     let mut changed = false;
     for out in flag_values(args, "--remove") {
@@ -121,7 +121,7 @@ pub fn factory(args: &[String]) -> Result<(), String> {
         changed = true;
     }
     if changed {
-        project_io::save(&mut stll, &project)?;
+        sat_home::project::save(&mut stll, &project)?;
         eprintln!(
             "saved to {} — `sat-cli commit` shows what will be built",
             path.display()

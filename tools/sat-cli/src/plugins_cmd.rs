@@ -2,7 +2,7 @@
 //!
 //! Owns: building the plugin list from the project's facts (no scan), and the command line around the plugin edits
 //! (`@sat:plugins.edit`, `@sat:plugins.edit.order`).
-//! Not here: the list (`@sat:plugins.list`), writing the manager's files (`@sat:cli.commit.plugins`).
+//! Not here: the list (`@sat:plugins.list`), writing the manager's files (`@sat:home.plan.plugins`).
 //!
 //! Edits go into the project only; `sat-cli commit --apply` writes `plugins.txt` / `loadorder.txt`, and an analysis
 //! in between keeps them (`@sat:plugins.edit.reconcile`).
@@ -14,7 +14,7 @@ use sat_mo2::commit::Layout;
 
 use sat_core::session::OVERWRITE;
 
-use crate::{flag_value, flag_values, has, open_instance, project_io};
+use crate::{flag_value, flag_values, has, open_instance};
 
 /// The plugin list of the project: plugin versions from its facts, priorities from its canon.
 fn list_of(stll: &mut sat_stll::Stll, project: &Project) -> PluginList {
@@ -66,7 +66,7 @@ fn list_of(stll: &mut sat_stll::Stll, project: &Project) -> PluginList {
 pub fn plugins(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
-    let (mut stll, mut project) = project_io::require(&path)?;
+    let (mut stll, mut project) = sat_home::project::require(&path)?;
     let mut list = list_of(&mut stll, &project);
     let mut changed = false;
 
@@ -104,7 +104,7 @@ pub fn plugins(args: &[String]) -> Result<(), String> {
         project.plugins = c;
     }
     if changed {
-        project_io::save(&mut stll, &project)?;
+        sat_home::project::save(&mut stll, &project)?;
         eprintln!(
             "saved to {} — `sat-cli commit --apply` writes plugins.txt / loadorder.txt",
             path.display()

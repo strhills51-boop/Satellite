@@ -7,10 +7,9 @@
 use std::path::Path;
 
 use sat_core::intent::Source;
-use sat_mo2::Instance;
 use sat_mo2::commit::Layout;
 
-use crate::{flag_value, has, open_instance, project_io};
+use crate::{flag_value, has, open_instance};
 
 /// Facts signature of an archive's listing: changes when the archive does.
 fn listing_signature(file: &str, size: u64) -> u64 {
@@ -61,7 +60,7 @@ pub fn plan_install(args: &[String]) -> Result<(), String> {
     }
     let stem = file.rsplit_once('.').map_or(file.as_str(), |x| x.0).to_string();
     let name = flag_value(args, "--name").map_or(stem, str::to_string);
-    let (mut stll, mut project) = project_io::require(&layout.project_file)?;
+    let (mut stll, mut project) = sat_home::project::require(&layout.project_file)?;
     let id = project.plan_install(
         &name,
         Source::Downloads {
@@ -114,46 +113,4 @@ fn show_fomod(f: &sat_mo2::install::FomodChoice) {
         println!("  note: the config names {m:?}, the archive does not have it (skipped)");
     }
     println!("  choose with --choose \"step/group/option\" (repeat); a group not named keeps its defaults");
-}
-
-// @sat:cli.intent.source
-/// Whether a source is here and is what the intent saw (a different file of the same name is not taken).
-pub fn source_ok(inst: &Instance, s: &Source) -> Result<(), String> {
-    match s {
-        Source::Downloads { file, size } => {
-            let path = inst.downloads_dir.join(file);
-            let md =
-                std::fs::metadata(&path).map_err(|_| format!("{} is not in the downloads folder", file))?;
-            match size {
-                Some(n) if *n != md.len() => Err(format!(
-                    "downloads/{file} is {} bytes, the intent saw {n} — another file of that name",
-                    md.len()
-                )),
-                _ => Ok(()),
-            }
-        }
-        Source::Donor {
-            donor,
-            folder,
-            files,
-            bytes,
-            ..
-        } => {
-            let root = sat_mo2::donors::load(&inst.profile_dir())
-                .remove(donor)
-                .ok_or_else(|| {
-                    format!("donor {donor:?} is not bound on this machine (sat-cli donor … --as {donor:?})")
-                })?;
-            let path = root.join(folder);
-            let (f, b) =
-                sat_mo2::donors::count(&path).map_err(|_| format!("{} is not there", path.display()))?;
-            match (files, bytes) {
-                (Some(nf), Some(nb)) if (*nf, *nb) != (f, b) => Err(format!(
-                    "{} has {f} files / {b} bytes, the intent saw {nf} / {nb} — it changed since",
-                    path.display()
-                )),
-                _ => Ok(()),
-            }
-        }
-    }
 }

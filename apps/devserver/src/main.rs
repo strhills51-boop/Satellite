@@ -11,15 +11,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use sat_app::{App, Command, Query};
-use sat_core::canon::Modlist;
-use sat_core::order::OrderBook;
-use sat_core::plugins::{PluginCanon, PluginVersions};
-use sat_core::project::{PROJECT_SCHEMA, Project};
+use sat_core::plugins::PluginVersions;
+use sat_core::project::Project;
 use sat_core::resource::Registry;
 use sat_core::session::{OVERWRITE, Session};
 use sat_core::table::TableBuilder;
-use sat_mo2::{Instance, profile};
-use sat_scan::{ScanJob, ScanOptions, ScanProgress};
+use sat_mo2::Instance;
+use sat_scan::ScanProgress;
 
 const PAGE: &str = include_str!("index.html");
 
@@ -36,8 +34,9 @@ fn builtin_rules() -> Arc<sat_core::tag_rules::Compiled> {
 }
 
 // @sat:devserver.load
-/// Opens the build: the project's canon and decorations if `sat-cli` saved one, else `modlist.txt`; scans (cached)
-/// every listed mod and Overwrite; reads the plugin lists.
+/// Opens the build: the project's canon and decorations if `sat-cli` saved one, else `modlist.txt`; runs over it
+/// like `sat-cli analyze` (`@sat:home.run`: every folder, Overwrite, sync records, sources, plugin lists) without
+/// writing anything.
 // @sat:devserver.offline
 /// Opens a project file (`project.stll`, or the folder holding it) with no build at all: the order, decoration,
 /// conflicts, plugins and metrics come from the project (ADR 0007 — the project is self-sufficient).
@@ -89,14 +88,23 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
         t.elapsed().as_secs_f64()
     );
     let mut session = Session::new(p.book().0, Arc::new(builder.finish()));
+    session.set_plugin_facts(Arc::new(versions));
+    let mut app = App::new(session, Registry::with_builtins());
+    wire(&mut app, &p);
+    // the manager's plugin lists as the last analysis saw them, and the user's hidden plugins
+    app.session().set_plugin_canon(p.plugins.clone());
+    app.set_sync(p.sync.clone(), Vec::new());
+    Ok(app)
+}
+
+// @sat:devserver.wire
+/// What the window takes from a project besides the canon: settled chains, member keys, conflict ignores, tags,
+/// chain identities and layout, pins, stickers, sources, counters.
+fn wire(app: &mut App, p: &Project) {
+    let session = app.session();
     session.set_member_keys(p.member_keys());
     session.set_decisions(p.decisions.clone());
     session.set_conflict_ignore(p.conflict_ignore.clone());
-    session.set_plugin_facts(Arc::new(versions));
-    // the manager's plugin lists as the last analysis saw them, and the user's hidden plugins
-    session.set_plugin_canon(p.plugins.clone());
-    let mut app = App::new(session, Registry::with_builtins());
-    app.set_sync(p.sync.clone(), Vec::new());
     app.set_tag_catalog(p.tags.clone());
     app.set_chain_identities(p.chain_identities.clone());
     app.set_chain_layout(p.chain_layout.clone());
@@ -110,7 +118,6 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     for e in app.set_counters(&p.counters) {
         eprintln!("{e}");
     }
-    Ok(app)
 }
 
 fn load(args: &[String]) -> Result<App, String> {
@@ -138,120 +145,44 @@ fn load(args: &[String]) -> Result<App, String> {
             inst.game_path.display().to_string()
         );
     }
-    let read = |f: &str| std::fs::read(inst.profile_dir().join(f));
-    let modlist = read("modlist.txt").map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => inst.missing_modlist(),
-        _ => format!("modlist.txt: {e}"),
-    })?;
-    let manager: Modlist = profile::parse_modlist(&modlist).0;
-    let sat_dir = inst.profile_dir().join("satellite");
-    let project_file = sat_dir.join(sat_stll::FILE_NAME);
-    let mut decisions = None;
-    let mut member_keys = Vec::new();
-    let mut records = Vec::new();
-    let mut plugins = (PluginCanon::default(), None);
-    let mut ignore = Default::default();
-    let mut tags = sat_core::tags::TagCatalog::default();
-    let mut sticker_rules = Vec::new();
-    let mut system_stickers = Vec::new();
-    let mut sources = Vec::new();
-    let mut counters = Vec::new();
-    let mut chain_identities = Vec::new();
-    let mut chain_layout = Default::default();
-    let mut chain_lineage = Default::default();
-    let mut pinned_files = Vec::new();
-    // the project file; the early layout is read as it is (the sandbox converts nothing)
-    let opened = if project_file.exists() {
-        sat_stll::Stll::open(&project_file)
-            .map(|(_, p)| p)
-            .map_err(|e| eprintln!("{e}"))
-            .ok()
-    } else {
-        std::fs::read(sat_dir.join("project.v0.json"))
-            .ok()
-            .and_then(|b| Project::from_json(&b).ok())
-    };
-    let book = match opened {
-        Some(p) if p.schema == PROJECT_SCHEMA => {
-            eprintln!(
-                "canon: project {} ({} settled chains)",
-                project_file.display(),
-                p.decisions.len()
-            );
-            decisions = Some(p.decisions.clone());
-            member_keys = p.member_keys().collect();
-            records = p.sync.clone();
-            plugins = (p.plugins.clone(), p.plugins_seen.clone());
-            ignore = p.conflict_ignore.clone();
-            tags = p.tags.clone();
-            sticker_rules = p.sticker_rules.clone();
-            system_stickers = p.system_stickers();
-            sources = p.sources_by_name();
-            counters = p.counters.clone();
-            chain_identities = p.chain_identities.clone();
-            chain_layout = p.chain_layout.clone();
-            chain_lineage = p.chain_lineage.clone();
-            pinned_files = p.pinned_files.clone();
-            p.book().0
-        }
-        _ => {
-            eprintln!("canon: modlist.txt (no Satellite project yet)");
-            OrderBook::from_modlist(&manager)
-        }
-    };
-    let list = book.to_modlist();
-    let mut jobs: Vec<ScanJob> = list
-        .entries
-        .iter()
-        .filter(|e| e.is_mod())
-        .map(|e| ScanJob {
-            name: e.name.clone(),
-            path: inst.mod_dir(&e.name),
-        })
-        .collect();
-    jobs.push(ScanJob {
-        name: OVERWRITE.into(),
-        path: inst.overwrite_dir.clone(),
-    });
-    let opts = ScanOptions {
-        cache_dir: Some(inst.profile_dir().join("satellite").join("cache")),
-        ..Default::default()
-    };
+    // the same run as `sat-cli analyze` (`@sat:home.run`), in the sandbox: nothing is written — no facts, no
+    // project, the early layout read as it is
+    let manager = sat_home::project::manager_list(&inst)?;
+    let opened = sat_home::project::open_for_run(
+        &sat_home::project::default_path(&inst),
+        manager,
+        sat_home::project::OpenOptions {
+            reimport: false,
+            read_only: true,
+        },
+    )?;
+    eprintln!("{}", opened.origin_line());
+    let sat_home::project::Opened {
+        mut stll,
+        mut project,
+        ..
+    } = opened;
+    let inv = sat_home::run::inventory(&inst, &project.canon);
+    let jobs = sat_home::run::jobs(&inst, &project.canon, &inv.unlisted, true);
+    let mut o = sat_home::run::RunOptions::for_build(&inst);
+    o.save_facts = false;
+    o.tag_rules = Some(builtin_rules());
     let t = Instant::now();
     let progress = ScanProgress::default();
-    let mut builder = TableBuilder::new().with_tag_rules(builtin_rules());
-    let mut versions = PluginVersions::default();
-    sat_scan::scan_batched(&jobs, &opts, &progress, 256, |_, o| {
-        let id = builder.add(&o.facts);
-        versions.add(id, &o.facts);
-    });
+    let (scanned, pending) =
+        sat_home::run::scan(&inst, &mut stll, &mut project, &jobs, &o, &progress, &mut |_| {})?;
     let (_, total, cached, files) = progress.snapshot();
     eprintln!(
-        "scan: {total} mods ({cached} from cache), {files} files in {:.1} s",
+        "scan: {total} mods ({cached} from cache, {} not listed), {files} files in {:.1} s",
+        inv.unlisted.len(),
         t.elapsed().as_secs_f64()
     );
-    let table = Arc::new(builder.finish());
-    let mut session = Session::new(book, table);
-    session.set_member_keys(member_keys);
-    if let Some(d) = decisions {
-        session.set_decisions(d);
-    }
-    session.set_conflict_ignore(ignore);
-    session.set_plugin_facts(Arc::new(versions));
-    // the manager's lists, unless the project edited its own since they were last seen
-    let disk = PluginCanon {
-        load_order: profile::parse_loadorder(&read("loadorder.txt").unwrap_or_default()),
-        checked: profile::parse_plugins(&read("plugins.txt").unwrap_or_default())
-            .into_iter()
-            .map(|l| (l.name, l.enabled))
-            .collect(),
-        blacklist: Vec::new(),
-    };
-    let (canon, r) = sat_core::plugin_edit::reconcile(&plugins.0, plugins.1.as_ref(), &disk);
-    if r.pending {
+    let mut session = Session::new(project.book().0, Arc::new(scanned.table));
+    session.set_plugin_facts(Arc::new(scanned.plugin_versions));
+    if scanned.plugins.pending {
         eprintln!("plugins: the project has edits of its own");
     }
-    session.set_plugin_canon(canon);
+    session.set_plugin_canon(project.plugins.clone());
     let t = Instant::now();
     let totals = session.overwrite().totals();
     eprintln!(
@@ -260,23 +191,28 @@ fn load(args: &[String]) -> Result<App, String> {
         totals.chains,
         t.elapsed().as_secs_f64() * 1000.0
     );
+    let published = pending.publish(
+        &project,
+        sat_home::run::Totals {
+            chains: totals.chains,
+            contexts: totals.contexts,
+            conflict_paths: totals.conflict_paths,
+        },
+        false,
+    )?;
+    for v in &published.seals {
+        eprintln!("seal: {v}");
+    }
     let mut app = App::new(session, Registry::with_builtins());
-    // the records of the last `sat-cli analyze` and the folders now: decisions and the plan, never a commit here
-    let disk: Vec<String> = std::fs::read_dir(&inst.mods_dir)
-        .map(|rd| {
-            rd.filter_map(Result::ok)
-                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    eprintln!("sync: {} record(s) from the project", records.len());
-    app.set_sync(records, disk);
-    app.set_tag_catalog(tags);
-    app.set_chain_identities(chain_identities);
-    app.set_chain_layout(chain_layout);
-    app.set_chain_lineage(chain_lineage);
-    app.set_pinned_files(pinned_files);
+    wire(&mut app, &project);
+    // the records of this run against the folders now: decisions and the plan, never a commit here
+    let r = &scanned.sync;
+    eprintln!(
+        "sync: {} record(s), {} pending",
+        r.records.len(),
+        r.count(sat_core::sync::records::Status::Pending)
+    );
+    app.set_sync(r.records.clone(), sat_home::subfolders(&inst.mods_dir));
     // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps; what is missing is read
     // off the request loop (a first run reads a lot) — until then copies are "not compared"
     {
@@ -305,14 +241,6 @@ fn load(args: &[String]) -> Result<App, String> {
             let _ = tx.send(hashes);
         });
         HASHES.with(|h| *h.borrow_mut() = Some(rx));
-    }
-    for e in app.set_sticker_rules(&sticker_rules) {
-        eprintln!("{e}");
-    }
-    app.set_system_stickers(system_stickers);
-    app.set_sources(sources);
-    for e in app.set_counters(&counters) {
-        eprintln!("{e}");
     }
     // conflict domains described by data (`@sat:conflict.spec`): the game pack's and the user's own, reading the
     // files they rank by from the mod folders

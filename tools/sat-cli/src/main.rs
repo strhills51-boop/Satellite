@@ -17,16 +17,14 @@ use sat_core::canon::{EntryKind, Modlist};
 use sat_core::facts::{LooseDir, LooseFile, ModFacts};
 use sat_core::ids::ModId;
 use sat_core::overwrite::{ConflictIndex, OverwriteProjection, Priorities};
-use sat_core::plugins::{PluginCanon, PluginList, PluginVersions};
-use sat_core::project::{ManagerDiff, Project};
-use sat_core::table::{ProviderTable, TableBuilder};
-use sat_mo2::{Instance, profile};
-use sat_scan::{ScanJob, ScanOptions, ScanProgress};
+use sat_core::plugins::PluginList;
+use sat_core::project::ManagerDiff;
+use sat_core::table::ProviderTable;
+use sat_mo2::Instance;
+use sat_scan::{ScanOptions, ScanProgress};
 use serde::Serialize;
 
 use sat_core::session::OVERWRITE;
-/// Provisional project file until the container format is decided (ADR 0007).
-const PROJECT_FILE: &str = sat_stll::FILE_NAME;
 /// Mods scanned per batch before their facts are folded into the table and dropped.
 const SCAN_BATCH: usize = 256;
 
@@ -35,9 +33,6 @@ struct Seen {
     name: String,
     missing: bool,
     from_cache: bool,
-    route: StagedRoute,
-    error: Option<String>,
-    signature: u64,
     files: u32,
     archive_files: u32,
     elapsed: std::time::Duration,
@@ -57,7 +52,6 @@ mod ignore_cmd;
 mod intent_cmd;
 mod patch_cmd;
 mod plugins_cmd;
-mod project_io;
 mod stickers_cmd;
 mod verify_cmd;
 
@@ -266,21 +260,9 @@ struct Report {
     degraded: Vec<String>,
 }
 
-use sat_core::run::{RunState, RunStatus, RunSummary, StagedMod, StagedRoute, seal};
-use sat_core::sync::names::is_separator_folder;
+use sat_core::run::RunState;
 
-fn subfolders(dir: &std::path::Path) -> Vec<String> {
-    let mut v: Vec<String> = std::fs::read_dir(dir)
-        .map(|rd| {
-            rd.filter_map(Result::ok)
-                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    v.sort();
-    v
-}
+use sat_home::subfolders;
 
 fn analyze(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
@@ -316,59 +298,26 @@ fn analyze(args: &[String]) -> Result<(), String> {
     } else {
         None
     };
-    if !inst.profile_dir().join("modlist.txt").is_file() {
-        return Err(inst.missing_modlist());
-    }
-    let manager = read_modlist(&inst.profile_dir().join("modlist.txt"))?;
+    let manager = sat_home::project::manager_list(&inst)?;
     // The project is the canon (ADR 0006); modlist.txt is a side. First run imports it.
     let project_path = flag_value(args, "--project")
         .map(PathBuf::from)
-        .unwrap_or_else(|| inst.profile_dir().join("satellite").join(PROJECT_FILE));
-    let (mut stll, stored) = match project_io::open(&project_path)? {
-        Some((f, p)) => (f, Some(p)),
-        None => (sat_stll::Stll::new(&project_path), None),
-    };
-    let mut project = match stored {
-        Some(p) if !has(args, "--reimport") => {
-            eprintln!("project: {}", project_path.display());
-            p
-        }
-        Some(old) => {
-            // Re-import keeps what the project learned and what the user decided (signatures, sync decisions,
-            // decoration, settled chains), replaces only the canon. Decoration of names no longer in the canon is
-            // reported when the book applies it.
-            let mut p = Project::import(manager.clone());
-            // entities keep their ids by name, so everything keyed by id still finds them
-            p.entities = old.entities;
-            p.entities.follow(&p.canon);
-            p.signatures = old.signatures;
-            p.sync = old.sync;
-            p.decor = old.decor;
-            p.decisions = old.decisions;
-            p.plugins = old.plugins;
-            p.conflict_ignore = old.conflict_ignore;
-            p.tags = old.tags;
-            p.intents = old.intents;
-            p.sticker_rules = old.sticker_rules;
-            p.counters = old.counters;
-            p.sources = old.sources;
-            p.new_mods = old.new_mods;
-            p.extra = old.extra;
-            eprintln!(
-                "project: re-imported canon from modlist.txt into {}",
-                project_path.display()
-            );
-            p
-        }
-        None => {
-            eprintln!(
-                "project: imported from modlist.txt (first run) → {}",
-                project_path.display()
-            );
-            Project::import(manager.clone())
-        }
-    };
-    let manager_diff = project.manager_diff(&manager);
+        .unwrap_or_else(|| sat_home::project::default_path(&inst));
+    let opened = sat_home::project::open_for_run(
+        &project_path,
+        manager,
+        sat_home::project::OpenOptions {
+            reimport: has(args, "--reimport"),
+            read_only: false,
+        },
+    )?;
+    eprintln!("{}", opened.origin_line());
+    let sat_home::project::Opened {
+        mut stll,
+        mut project,
+        manager_diff,
+        ..
+    } = opened;
     if !manager_diff.is_empty() {
         eprintln!(
             "project vs modlist.txt: only in modlist={} only in project={} enabled differs={} order differs={} — the project stays canon; --reimport to take modlist.txt",
@@ -381,26 +330,18 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let list = project.canon.clone();
 
     // Inventory: what the profile says vs. what is on disk.
-    let listed: std::collections::HashSet<String> =
-        list.entries.iter().map(|e| e.name.to_lowercase()).collect();
-    let mut roots = Vec::new();
-    let mut unlisted: Vec<(String, PathBuf)> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for root in [inst.mods_dir.as_path()] {
-        let names = subfolders(root);
-        roots.push(RootInfo {
-            path: root.display().to_string(),
-            exists: root.is_dir(),
-            folders: names.len(),
-            separator_folders: names.iter().filter(|n| is_separator_folder(n)).count(),
-        });
-        for n in names {
-            let key = n.to_lowercase();
-            if !is_separator_folder(&n) && !listed.contains(&key) && seen.insert(key) {
-                unlisted.push((n.clone(), root.join(&n)));
-            }
-        }
-    }
+    let inv = sat_home::run::inventory(&inst, &list);
+    let roots: Vec<RootInfo> = inv
+        .roots
+        .iter()
+        .map(|r| RootInfo {
+            path: r.path.display().to_string(),
+            exists: r.exists,
+            folders: r.folders,
+            separator_folders: r.separator_folders,
+        })
+        .collect();
+    let unlisted = inv.unlisted;
     let mods_in_list = list.entries.iter().filter(|e| e.is_mod()).count();
     let enabled = list.entries.iter().filter(|e| e.is_mod() && e.enabled).count();
     let info = InstanceInfo {
@@ -452,16 +393,6 @@ fn analyze(args: &[String]) -> Result<(), String> {
     // facts of the project (ADR 0007 step 2): written after a scan, read instead of one with --offline
     let offline = has(args, "--offline");
     let save_facts = !has(args, "--no-save") && !offline;
-    let fact_ids: std::collections::HashMap<String, sat_core::entity::EntityId> = project
-        .entities
-        .iter()
-        .map(|e| (e.name.to_lowercase(), e.id.clone()))
-        .chain(std::iter::once((
-            OVERWRITE.to_lowercase(),
-            sat_core::entity::EntityId("overwrite".into()),
-        )))
-        .collect();
-    let fact_id = |name: &str| fact_ids.get(&name.to_lowercase()).cloned();
     if offline {
         eprintln!(
             "offline: facts of {} mods from {} instead of a scan",
@@ -469,62 +400,37 @@ fn analyze(args: &[String]) -> Result<(), String> {
             project_path.display()
         );
     }
-    let planned: std::collections::HashSet<String> = project
-        .planned()
-        .into_iter()
-        .map(|p| p.name.to_lowercase())
-        .collect();
-    // the project file being written while the scan runs: facts go in as they come, unchanged ones are copied
-    let mut writer = if save_facts {
-        Some(stll.begin().map_err(|e| e.to_string())?)
-    } else {
-        None
+    let jobs = sat_home::run::jobs(&inst, &list, &unlisted, all_folders);
+    let o = sat_home::run::RunOptions {
+        all_folders,
+        offline,
+        save_facts,
+        scan: ScanOptions {
+            cache_dir: Some(
+                flag_value(args, "--cache")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| inst.profile_dir().join("satellite").join("cache")),
+            ),
+            force: has(args, "--force"),
+            record_scan: has(args, "--records"),
+            io_threads: flag_value(args, "--io-threads")
+                .map(|v| v.parse().map_err(|_| format!("--io-threads: not a number: {v}")))
+                .transpose()?
+                .unwrap_or(0),
+            ..Default::default()
+        },
+        batch: SCAN_BATCH,
+        tag_rules: None,
     };
-    // offline, the facts are read from the same file through a handle of its own
-    let mut source = if offline && project_path.exists() {
-        Some(sat_stll::Stll::open(&project_path).map_err(|e| e.to_string())?.0)
-    } else {
-        None
-    };
-    let mut run = RunState::default();
-    let mut jobs: Vec<ScanJob> = list
-        .entries
-        .iter()
-        .filter(|e| e.is_mod())
-        .map(|e| ScanJob {
-            name: e.name.clone(),
-            path: inst.mod_dir(&e.name),
-        })
-        .collect();
-    if all_folders {
-        jobs.extend(unlisted.into_iter().map(|(name, path)| ScanJob { name, path }));
-    }
-    jobs.push(ScanJob {
-        name: OVERWRITE.into(),
-        path: inst.overwrite_dir.clone(),
-    });
-
-    let opts = ScanOptions {
-        cache_dir: Some(
-            flag_value(args, "--cache")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| inst.profile_dir().join("satellite").join("cache")),
-        ),
-        force: has(args, "--force"),
-        record_scan: has(args, "--records"),
-        io_threads: flag_value(args, "--io-threads")
-            .map(|v| v.parse().map_err(|_| format!("--io-threads: not a number: {v}")))
-            .transpose()?
-            .unwrap_or(0),
-        ..Default::default()
-    };
+    let opts = &o.scan;
     let mut timings = BTreeMap::new();
     let progress = ScanProgress::default();
     let t = Instant::now();
     let done = std::sync::atomic::AtomicBool::new(false);
-    run.go(RunStatus::Running, "scan").map_err(|e| e.to_string())?;
-    let (mut issues, mut issue_count) = (Vec::<String>::new(), 0usize);
-    let outcomes = std::thread::scope(|s| {
+    // what the report keeps of each mod beyond the run: metrics for --find, tags for --tags
+    let mut extra: std::collections::HashMap<String, (Option<sat_core::facts::ModMetrics>, Vec<String>)> =
+        Default::default();
+    let ran = std::thread::scope(|s| {
         s.spawn(|| {
             let mut last = Instant::now();
             while !done.load(std::sync::atomic::Ordering::Relaxed) {
@@ -539,80 +445,49 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 }
             }
         });
-        // Facts are folded into the table batch by batch and dropped: peak memory = table + one batch.
-        let mut builder = TableBuilder::new();
-        let mut plugin_versions = PluginVersions::default();
-        let mut seen = Vec::with_capacity(jobs.len());
-        let mut sink = |mut o: sat_scan::ScanOutcome| {
-            // a planned mod has no folder yet: its facts come from its archive (`sat-cli plan-install`)
-            if o.facts.missing
-                && planned.contains(&o.facts.name.to_lowercase())
-                && let Some(eid) = fact_id(&o.facts.name)
-                && let Some((sig, f)) = writer.as_mut().and_then(|w| w.stored_facts(&eid.0))
-            {
-                o.facts = f;
-                o.signature = sig;
+        let r = sat_home::run::scan(&inst, &mut stll, &mut project, &jobs, &o, &progress, &mut |out| {
+            if keep_metrics || rules.is_some() {
+                extra.insert(
+                    out.facts.name.clone(),
+                    (
+                        (keep_metrics && !out.facts.missing).then(|| out.facts.metrics.clone()),
+                        rules.as_ref().map_or_else(Vec::new, |r| {
+                            r.tags(&out.facts).into_iter().map(|(t, _)| t).collect()
+                        }),
+                    ),
+                );
             }
-            // @sat:cli.facts
-            // the project keeps what the scan saw, by entity id, so it works without the build
-            if !o.facts.missing
-                && let Some(eid) = fact_id(&o.facts.name)
-                && let Some(w) = writer.as_mut()
-                && let Err(e) = w.put_facts(&eid.0, o.signature, &o.facts)
-                && issues.len() < 200
-            {
-                issues.push(format!("{}: project facts not saved: {e}", o.facts.name));
-            }
-            let id = builder.add(&o.facts);
-            plugin_versions.add(id, &o.facts);
-            issue_count += o.issues.len();
-            for i in &o.issues {
-                if issues.len() < 200 {
-                    issues.push(format!("{}: {i}", o.facts.name));
-                }
-            }
-            seen.push(Seen {
-                name: o.facts.name.clone(),
-                missing: o.facts.missing,
-                from_cache: o.from_cache,
-                route: match o.route {
-                    sat_scan::Route::Scan => StagedRoute::Scan,
-                    sat_scan::Route::Indexed { .. } => StagedRoute::Indexed,
-                    sat_scan::Route::Reuse => StagedRoute::Reuse,
-                },
-                error: o.facts.error.clone(),
-                signature: o.signature,
-                files: o.facts.metrics.files,
-                archive_files: o.facts.metrics.archive_files,
-                elapsed: o.elapsed,
-                metrics: (keep_metrics && !o.facts.missing).then(|| o.facts.metrics.clone()),
-                tags: rules.as_ref().map_or_else(Vec::new, |r| {
-                    r.tags(&o.facts).into_iter().map(|(t, _)| t).collect()
-                }),
-            });
-        };
-        if offline {
-            // the build is not here: the project's facts stand in for the scan
-            for job in &jobs {
-                let stored = fact_id(&job.name).and_then(|eid| source.as_mut()?.facts(&eid.0));
-                let (signature, facts) = stored.unwrap_or_else(|| (0, ModFacts::missing(job.name.clone())));
-                progress.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                sink(sat_scan::ScanOutcome {
-                    facts,
-                    from_cache: true,
-                    route: sat_scan::Route::Reuse,
-                    issues: Vec::new(),
-                    signature,
-                    elapsed: std::time::Duration::ZERO,
-                });
-            }
-        } else {
-            sat_scan::scan_batched(&jobs, &opts, &progress, SCAN_BATCH, |_, o| sink(o));
-        }
+        });
         done.store(true, std::sync::atomic::Ordering::Relaxed);
-        (seen, builder, plugin_versions)
+        r
     });
-    let (outcomes, builder, plugin_versions) = outcomes;
+    let (scanned, pending) = ran?;
+    let sat_home::run::Scanned {
+        table: built_table,
+        plugin_versions,
+        mods: ran_mods,
+        issues,
+        issue_count,
+        sync: reconciled,
+        sources: sources_read,
+        plugins: plugin_note,
+    } = scanned;
+    let outcomes: Vec<Seen> = ran_mods
+        .into_iter()
+        .map(|m| {
+            let (metrics, tags) = extra.remove(&m.name).unwrap_or_default();
+            Seen {
+                name: m.name,
+                missing: m.missing,
+                from_cache: m.from_cache,
+                files: m.files,
+                archive_files: m.archive_files,
+                elapsed: m.elapsed,
+                metrics,
+                tags,
+            }
+        })
+        .collect();
     timings.insert("scan", t.elapsed().as_millis());
     eprintln!("after scan: rss={:?}MiB", rss_mib());
 
@@ -642,7 +517,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         plugin_ms: ms(&progress.plugin_ns),
         slowest,
         indexed: progress.indexed.load(std::sync::atomic::Ordering::Relaxed),
-        analyzers: sat_scan::Registry::builtin(&opts)
+        analyzers: sat_scan::Registry::builtin(opts)
             .stamps()
             .iter()
             .map(|s| format!("{}@{}", s.id, s.version))
@@ -671,28 +546,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
     );
 
     let sync = {
-        use sat_core::sync::records::{DiskFolder, EntityKind, Mismatch};
-        let sig: std::collections::HashMap<String, u64> = outcomes
-            .iter()
-            .filter(|o| !o.missing && o.name != OVERWRITE)
-            .map(|o| (o.name.to_lowercase(), o.signature))
-            .collect();
-        let disk: Vec<DiskFolder> = subfolders(&inst.mods_dir)
-            .into_iter()
-            .map(|name| DiskFolder {
-                signature: sig.get(&name.to_lowercase()).copied(),
-                name,
-            })
-            .collect();
-        // offline there is no mods folder to compare with: the records of the last real run stand
-        let r = if offline {
-            sat_core::sync::records::Reconcile {
-                records: project.sync.clone(),
-                matched: Vec::new(),
-            }
-        } else {
-            project.observe(&disk)
-        };
+        use sat_core::sync::records::{EntityKind, Mismatch};
+        let r = &reconciled;
         let count = |pred: &dyn Fn(&Mismatch, EntityKind) -> bool| {
             r.records.iter().filter(|x| pred(&x.mismatch, x.entity)).count()
         };
@@ -731,7 +586,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let archive_entries: u64 = outcomes.iter().map(|o| u64::from(o.archive_files)).sum();
 
     let t = Instant::now();
-    let table = builder.finish();
+    let table = built_table;
     timings.insert("table_build", t.elapsed().as_millis());
     eprintln!("live table heap={}MiB", table.heap_bytes() >> 20);
 
@@ -772,40 +627,13 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let _again = OverwriteProjection::compute(&table, prio.clone());
     timings.insert("overwrite_recompute", t.elapsed().as_millis());
 
-    // @sat:cli.sources
-    // where each mod comes from, as MO2 recorded it (`meta.ini`): read anew each run, offline kept from the project
-    if !offline {
-        use rayon::prelude::*;
-        let t = Instant::now();
-        let read: Vec<(String, sat_core::source::ModSource)> = project
-            .canon
-            .entries
-            .par_iter()
-            .filter(|e| e.is_mod())
-            .filter_map(|e| {
-                let m = sat_mo2::ModMeta::read(&inst.mod_dir(&e.name));
-                let src = sat_core::source::ModSource {
-                    site: "nexus".into(),
-                    game: m.game_name,
-                    mod_id: m.mod_id,
-                    version: m.version,
-                    newest_version: m.newest_version,
-                    file: m.installation_file,
-                    url: m.url,
-                };
-                (!src.is_empty()).then(|| (e.name.clone(), src))
-            })
-            .collect();
-        project.sources = read
-            .into_iter()
-            .filter_map(|(n, s)| Some((project.entities.id_of(&n)?.0.clone(), s)))
-            .collect();
+    if let Some(took) = sources_read {
         let updates = project.sources.values().filter(|s| s.update_available()).count();
         eprintln!(
             "sources: {} mods with a source (Nexus id {}), {updates} with a known update, {} ms",
             project.sources.len(),
             project.sources.values().filter(|s| s.mod_id.is_some()).count(),
-            t.elapsed().as_millis()
+            took.as_millis()
         );
     }
     let sources: std::collections::HashMap<String, sat_core::source::ModSource> = project
@@ -1051,34 +879,15 @@ fn analyze(args: &[String]) -> Result<(), String> {
 
     // plugins: the manager's lists + versions across mods + mod priorities
     let t = Instant::now();
-    let read = |f: &str| std::fs::read(inst.profile_dir().join(f)).unwrap_or_default();
-    // @sat:cli.plugins-reconcile
-    // the manager's lists are taken unless the user edited the project's since they were last seen
-    let plugin_canon = if offline {
-        project.plugins.clone()
-    } else {
-        let disk = PluginCanon {
-            load_order: sat_mo2::profile::parse_loadorder(&read("loadorder.txt")),
-            checked: sat_mo2::profile::parse_plugins(&read("plugins.txt"))
-                .into_iter()
-                .map(|l| (l.name, l.enabled))
-                .collect(),
-            blacklist: Vec::new(),
-        };
-        let (canon, r) =
-            sat_core::plugin_edit::reconcile(&project.plugins, project.plugins_seen.as_ref(), &disk);
-        if r.conflict {
-            eprintln!(
-                "plugins: changed both in the manager and in the project since the last run — the project's edit stands (the commit writes it)"
-            );
-        } else if r.pending {
-            eprintln!("plugins: the project has edits of its own (the commit writes them)");
-        }
-        project.plugins_seen = Some(disk);
-        canon
-    };
-    // the project keeps the plugin canon, so the plugin list works without the build
-    project.plugins = plugin_canon.clone();
+    // the manager's lists unless the project edited its own (`@sat:home.run.plugins`)
+    if plugin_note.conflict {
+        eprintln!(
+            "plugins: changed both in the manager and in the project since the last run — the project's edit stands (the commit writes it)"
+        );
+    } else if plugin_note.pending {
+        eprintln!("plugins: the project has edits of its own (the commit writes them)");
+    }
+    let plugin_canon = project.plugins.clone();
     let plugin_list = PluginList::compute(&plugin_versions, &plugin_canon, proj.priorities());
     timings.insert("plugins", t.elapsed().as_millis());
     let ps = plugin_list.stats;
@@ -1361,46 +1170,22 @@ fn analyze(args: &[String]) -> Result<(), String> {
         })
         .collect();
     // Seal before anything is published (project file); a failed seal publishes nothing.
-    run.go(RunStatus::Staging, "projection built")
-        .map_err(|e| e.to_string())?;
-    let summary = RunSummary {
-        expected: jobs.iter().map(|j| j.name.clone()).collect(),
-        staged: outcomes
-            .iter()
-            .map(|o| StagedMod {
-                name: o.name.clone(),
-                route: o.route,
-                missing: o.missing,
-                error: o.error.clone(),
-            })
-            .collect(),
-        chains: totals.chains,
-        contexts: totals.contexts,
-        conflict_paths: totals.conflict_paths,
-    };
-    let seals = seal(&summary);
-    let degraded: Vec<String> = outcomes
-        .iter()
-        .filter_map(|o| o.error.as_ref().map(|e| format!("{}: {e}", o.name)))
-        .collect();
-    let publish = seals.is_empty() && !has(args, "--no-save") && !offline;
-    if seals.is_empty() {
-        for (to, why) in [
-            (RunStatus::Committing, "seals passed"),
-            (RunStatus::Verifying, "project written"),
-            (RunStatus::Promoting, "verified"),
-            (RunStatus::Completed, "published"),
-        ] {
-            run.go(to, why).map_err(|e| e.to_string())?;
-        }
-    } else {
-        run.go(RunStatus::Failed, "seals failed")
-            .map_err(|e| e.to_string())?;
+    let published = pending.publish(
+        &project,
+        sat_home::run::Totals {
+            chains: totals.chains,
+            contexts: totals.contexts,
+            conflict_paths: totals.conflict_paths,
+        },
+        !has(args, "--no-save") && !offline,
+    )?;
+    if !published.seals.is_empty() {
         eprintln!("SEALS FAILED — nothing published:");
-        for v in &seals {
+        for v in &published.seals {
             eprintln!("  {v}");
         }
     }
+    let degraded = published.degraded;
     if !degraded.is_empty() {
         eprintln!("degraded mods: {} (first: {})", degraded.len(), degraded[0]);
     }
@@ -1426,8 +1211,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
         scan: breakdown,
         peak_rss_mib: peak_rss_mib(),
         rss_after_mib: rss_mib(),
-        run,
-        seals,
+        run: published.run,
+        seals: published.seals,
         degraded,
     };
     eprintln!(
@@ -1456,21 +1241,14 @@ fn analyze(args: &[String]) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
-    match writer {
-        Some(w) if publish => {
-            let saved = w
-                .finish(&project, sat_stll::file::keep_entities(&project))
-                .map_err(|e| e.to_string())?;
-            eprintln!(
-                "project saved → {}: facts {} written, {} unchanged, {} dropped",
-                project_path.display(),
-                saved.facts_written,
-                saved.facts_copied,
-                saved.facts_dropped
-            );
-        }
-        // not published: the half-written file goes away, the project on disk stays as it was
-        _ => {}
+    if let Some(saved) = published.saved {
+        eprintln!(
+            "project saved → {}: facts {} written, {} unchanged, {} dropped",
+            project_path.display(),
+            saved.facts_written,
+            saved.facts_copied,
+            saved.facts_dropped
+        );
     }
     Ok(())
 }
@@ -1596,11 +1374,6 @@ fn game_line(p: &std::path::Path) -> String {
             p.display().to_string()
         )
     }
-}
-
-fn read_modlist(path: &std::path::Path) -> Result<Modlist, String> {
-    let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(profile::parse_modlist(&data).0)
 }
 
 /// Prints what the format parsers see in real files (archives, plugins, textures). For checking parsers on samples.

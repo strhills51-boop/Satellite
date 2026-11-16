@@ -7,7 +7,7 @@
 use sat_core::patch::{FilePatch, PatchOp, content_signature};
 use sat_mo2::commit::Layout;
 
-use crate::{flag_value, flag_values, has, open_instance, project_io};
+use crate::{flag_value, flag_values, has, open_instance};
 
 fn section_key(s: &str) -> (String, String) {
     match s.rsplit_once('/') {
@@ -21,7 +21,7 @@ fn section_key(s: &str) -> (String, String) {
 pub fn patch(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let layout = Layout::of(&inst);
-    let (mut stll, mut project) = project_io::require(&layout.project_file)?;
+    let (mut stll, mut project) = sat_home::project::require(&layout.project_file)?;
     if let Some(m) = flag_value(args, "--mod") {
         let file = flag_value(args, "--file").ok_or("--mod needs --file PATH (inside the mod)")?;
         let path = file.replace('\\', "/").trim_matches('/').to_string();
@@ -93,7 +93,7 @@ pub fn patch(args: &[String]) -> Result<(), String> {
                 put(PatchOp::Remove { section, key });
             }
         }
-        project_io::save(&mut stll, &project)?;
+        sat_home::project::save(&mut stll, &project)?;
         eprintln!("saved — `sat-cli commit` writes {}", sat_core::patch::PATCH_MOD);
     }
     if project.patches.is_empty() {

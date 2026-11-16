@@ -1,0 +1,20 @@
+[package]
+name = "sat-home"
+description = "Home: what Satellite does with the build on this machine — open, run, plan and commit (ADR 0019)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+sat-core.workspace = true
+sat-mo2.workspace = true
+sat-scan.workspace = true
+sat-stll.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
