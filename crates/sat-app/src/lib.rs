@@ -17,7 +17,9 @@ mod context;
 mod domains;
 pub mod find;
 mod participants;
+pub mod pass;
 mod preview;
+mod project;
 pub mod records;
 pub mod sheet;
 mod sync;
@@ -192,6 +194,12 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         before: Option<String>,
     },
+    /// Run over the build (`@sat:app.pass`): the shell takes the request; a newer one supersedes a running run.
+    StartPass {
+        mode: pass::PassMode,
+    },
+    /// Stop the running run: nothing of it is published.
+    CancelPass,
     /// Decide a sync record (by fingerprint): pending, ignore, or confirm with an answer that fits it.
     Decide {
         fingerprint: String,
@@ -267,6 +275,8 @@ pub enum Query {
     Tags,
     /// Sync records of the last analysis with their answers, and the commit plan they make now.
     Sync,
+    /// The run: state, progress, the last result (`@sat:app.pass`).
+    Pass,
     /// Conflict contexts for the table's selector, largest first.
     Contexts,
     /// A page of record chains (`@sat:app.records.page`), largest first; with `plugin` only its chains.
@@ -775,6 +785,9 @@ pub enum Reply {
         records: Vec<RecordView>,
         plan: Box<sat_core::sync::plan::Plan>,
     },
+    Pass {
+        pass: pass::PassView,
+    },
     Domains {
         domains: Vec<DomainItem>,
     },
@@ -948,6 +961,8 @@ pub struct App {
     /// Conflict domains beyond files and records, and what the shell hands over for them (`@sat:app.domains`).
     domain_cache: domains::DomainCache,
     domain_inputs: domains::DomainInputs,
+    /// The run as the window sees it (`@sat:app.pass`).
+    pass: pass::PassSlot,
 }
 
 impl App {
@@ -970,6 +985,7 @@ impl App {
             chain_lineage_rev: 0,
             preview_source: Default::default(),
             pinned_files: Vec::new(),
+            pass: Default::default(),
             vfs: None,
             records: Arc::default(),
             record_state: records::RecordState::Off,
@@ -1275,6 +1291,20 @@ impl App {
                     revision: self.revision,
                     views: Vec::new(),
                     canon: true,
+                });
+            }
+            C::StartPass { mode } => {
+                return Ok(if self.request_pass(mode) {
+                    Event::Decided
+                } else {
+                    Event::Nothing
+                });
+            }
+            C::CancelPass => {
+                return Ok(if self.request_cancel() {
+                    Event::Decided
+                } else {
+                    Event::Nothing
                 });
             }
             C::Decide {
@@ -1586,6 +1616,9 @@ impl App {
                     lines,
                 }
             }
+            Query::Pass => Reply::Pass {
+                pass: self.pass_view(),
+            },
             Query::Sync => Reply::Sync {
                 records: self.record_views(),
                 plan: Box::new(self.commit_plan()),

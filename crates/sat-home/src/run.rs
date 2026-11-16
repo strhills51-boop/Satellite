@@ -87,6 +87,19 @@ pub struct RunOptions {
     pub batch: usize,
     /// Tag rules the table applies (found tags in the window).
     pub tag_rules: Option<Arc<sat_core::tag_rules::Compiled>>,
+    /// Where the run is, for a window showing it (`scan`, `sync`, `sources`, `plugins`).
+    pub stage: Option<Stage>,
+}
+
+/// The stage of a running run, readable from another thread.
+pub type Stage = Arc<std::sync::Mutex<&'static str>>;
+
+fn enter(stage: &Option<Stage>, name: &'static str) {
+    if let Some(s) = stage
+        && let Ok(mut g) = s.lock()
+    {
+        *g = name;
+    }
 }
 
 impl RunOptions {
@@ -102,6 +115,7 @@ impl RunOptions {
             },
             batch: 256,
             tag_rules: None,
+            stage: None,
         }
     }
 }
@@ -230,6 +244,7 @@ pub fn scan<'a>(
     };
     let mut run = RunState::default();
     run.go(RunStatus::Running, "scan").map_err(|e| e.to_string())?;
+    enter(&o.stage, "scan");
     let mut builder = match &o.tag_rules {
         Some(r) => TableBuilder::new().with_tag_rules(r.clone()),
         None => TableBuilder::new(),
@@ -305,6 +320,7 @@ pub fn scan<'a>(
 
     // @sat:home.run.sync
     // the mods folder against the project; offline there is no mods folder: the records of the last real run stand
+    enter(&o.stage, "sync");
     let sync = if o.offline {
         Reconcile {
             records: project.sync.clone(),
@@ -328,6 +344,7 @@ pub fn scan<'a>(
 
     // @sat:home.run.sources
     // where each mod comes from, as MO2 recorded it (`meta.ini`): read anew each run, offline kept from the project
+    enter(&o.stage, "sources");
     let sources = (!o.offline).then(|| {
         use rayon::prelude::*;
         let t = std::time::Instant::now();
@@ -359,6 +376,7 @@ pub fn scan<'a>(
 
     // @sat:home.run.plugins
     // the manager's lists are taken unless the user edited the project's since they were last seen
+    enter(&o.stage, "plugins");
     let mut plugins = PluginNote::default();
     if !o.offline {
         let read = |f: &str| std::fs::read(inst.profile_dir().join(f)).unwrap_or_default();
@@ -408,6 +426,21 @@ pub fn scan<'a>(
             writer,
         },
     ))
+}
+
+// @sat:home.run.surface
+/// The surface run (monolith «Поверхность»): folder signatures and the reconcile only — no scan, the facts stay.
+/// Seconds on a large build; the same check the commit runs before it writes (ADR 0019 §4).
+pub fn surface(inst: &Instance, project: &mut Project) -> Reconcile {
+    use rayon::prelude::*;
+    let disk: Vec<DiskFolder> = subfolders(&inst.mods_dir)
+        .into_par_iter()
+        .map(|name| DiskFolder {
+            signature: (!is_separator_folder(&name)).then(|| sat_scan::signature(&inst.mods_dir.join(&name))),
+            name,
+        })
+        .collect();
+    project.observe(&disk)
 }
 
 /// Conflict totals the seals check (from the caller's conflicts).

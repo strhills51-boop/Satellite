@@ -33,7 +33,24 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; borde
 .brand { font-weight: 700; }
 .pill { font: 600 11px var(--ui); letter-spacing: .08em; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: #fff; }
 .pipeline { display: flex; align-items: center; gap: 4px; }
-.pipeline span { border: 1px solid var(--ok); border-radius: 10px; padding: 3px 10px; font-size: 13px; }
+.pipeline > span { border: 1px solid var(--ok); border-radius: 10px; padding: 3px 10px; font-size: 13px; }
+#passBtn { border-color: var(--ok); font-size: 13px; padding: 3px 10px; display: inline-flex; gap: 6px; align-items: center; }
+#passDot:not(:empty) { font: 11px var(--mono); color: var(--muted); }
+#passBtn.run #passDot { color: var(--accent); } #passBtn.bad { border-color: var(--l-txt); }
+#passPanel { position: absolute; z-index: 40; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  padding: 12px; width: min(420px, calc(100vw - 32px)); font-size: 13px; display: grid; gap: 10px; }
+#passPanel[hidden] { display: none; }
+#passPanel h3 { margin: 0; font-size: 14px; }
+#passPanel .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#passPanel .modes button { display: grid; text-align: left; gap: 2px; padding: 8px 10px; }
+#passPanel .modes small { color: var(--muted); font-size: 11px; }
+#passPanel .bar { height: 6px; border-radius: 3px; background: var(--bg2); overflow: hidden; }
+#passPanel .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+#passPanel .stages { display: flex; gap: 4px; flex-wrap: wrap; font: 11px var(--mono); color: var(--muted); }
+#passPanel .stages span { padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line); }
+#passPanel .stages .now { color: var(--fg); border-color: var(--accent); } #passPanel .stages .past { color: var(--ok); }
+#passPanel .facts { font: 12px var(--mono); color: var(--muted); display: grid; gap: 2px; } #passPanel .facts b { color: var(--fg); font-weight: 500; }
+#passPanel .warn { color: var(--l-txt); }
 .pipeline i { color: var(--muted); font-style: normal; }
 .sandbox { margin-left: auto; color: var(--muted); font-size: 12px; }
 main { display: grid; grid-template-columns: 220px minmax(0, 1fr) 380px; min-height: 0; }
@@ -393,7 +410,7 @@ footer b { color: var(--accent2); font-weight: 500; }
 <body>
 <header>
   <span class="brand">Satellite</span><span class="pill">NG</span>
-  <div class="pipeline" aria-label="Конвейер"><span>Анализ mods</span><i>→</i><span>Конфликты</span><i>→</i><span>Sync</span></div>
+  <div class="pipeline" aria-label="Конвейер"><button id="passBtn" title="Пробег: прочитать папку mods заново — поверхность (подписи и сверка) или полный">Пробег<span id="passDot"></span></button><i>→</i><span>Конфликты</span><i>→</i><span>Sync</span></div>
   <button id="recBtn" title="Конфликты: файлы и записи плагинов">Конфликты</button>
   <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр">Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
   <button id="theme" title="Светлая / тёмная">◐</button>
@@ -420,6 +437,7 @@ footer b { color: var(--accent2); font-weight: 500; }
   </section>
 </main>
 <footer id="stats">загрузка…</footer>
+<div id="passPanel" hidden role="dialog" aria-label="Пробег"></div>
 <div id="ctx" hidden></div>
 <div id="palette" hidden></div>
 <div id="rec" hidden role="dialog" aria-label="Конфликты записей">
@@ -2313,7 +2331,73 @@ $("recOnly").onchange = () => recLoad();
 $("bPlug").addEventListener("click", ev => { const a = ev.target.closest("[data-recplug]"); if (a) openRecords(a.dataset.recplug); });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("rec").hidden) { ev.stopPropagation(); $("recClose").onclick(); } }, true);
 
-(async () => { await sync(false); await Promise.all([totals(), tiles(), decor()]); list.focus({ preventScroll: true }); })();
+// ---------------------------------------------------------------- the run (пробег, `@sat:app.pass`)
+const PASS_STAGES = [["inventory", "опись"], ["scan", "скан"], ["sync", "сверка"], ["sources", "источники"], ["plugins", "плагины"], ["conflicts", "конфликты"], ["seals", "печати"]];
+const PASS_STATE = { idle: "", requested: "…", running: "идёт", done: "готово", failed: "не опубликован", cancelled: "отменён" };
+let PASS = null, passTimer = 0, passGen = -1;
+async function passPoll() {
+  clearTimeout(passTimer);
+  let v;
+  try { ({ pass: v } = await query({ type: "pass" })); } catch (_) { return; }
+  const was = PASS;
+  PASS = v;
+  const b = $("passBtn"), live = v.state === "running" || v.state === "requested";
+  b.disabled = !v.available;
+  if (!v.available) b.title = "Пробег — только для открытой сборки (окно открыто по файлу проекта)";
+  b.classList.toggle("run", live);
+  b.classList.toggle("bad", v.state === "failed");
+  const pr = v.progress;
+  $("passDot").textContent = live ? (pr && pr.total ? `${Math.floor(100 * pr.done / pr.total)}%` : "…") : PASS_STATE[v.state] || "";
+  if (!$("passPanel").hidden) passDraw();
+  // a finished run brought new facts and records: everything the window shows is read again
+  if (was && was.state !== v.state && v.state === "done" && v.generation !== passGen) {
+    passGen = v.generation;
+    await sync(false); await Promise.all([totals(), tiles()]);
+  }
+  if (live) passTimer = setTimeout(passPoll, 400);
+}
+function passDraw() {
+  const v = PASS, el = $("passPanel");
+  if (!v) return;
+  const live = v.state === "running" || v.state === "requested", pr = v.progress, l = v.last;
+  const at = pr ? PASS_STAGES.findIndex(x => x[0] === pr.stage) : -1;
+  const sec = ms => (ms / 1000).toFixed(1) + " с";
+  el.innerHTML = `<h3>Пробег${v.mode ? ` · ${v.mode === "full" ? "полный" : "поверхность"}` : ""} <small class="muted">${PASS_STATE[v.state] || ""}</small></h3>` +
+    `<div class="modes"><button data-pass="surface" ${live ? "disabled" : ""}><b>Поверхность</b><small>подписи папок и сверка с проектом: новые, пропавшие, переименованные — секунды</small></button>` +
+    `<button data-pass="full" ${live ? "disabled" : ""}><b>Полный</b><small>скан (из кэша, что не менялось), факты, записи SYNC, источники, плагины, конфликты</small></button></div>` +
+    (live ? `<div class="stages">${(v.mode === "surface" ? PASS_STAGES.filter(x => x[0] === "sync") : PASS_STAGES).map(([k, n], i) =>
+        `<span class="${k === (pr && pr.stage) ? "now" : (v.mode !== "surface" && i < at ? "past" : "")}">${n}</span>`).join("")}</div>` +
+      `<div class="bar"><i style="width:${pr && pr.total ? 100 * pr.done / pr.total : 0}%"></i></div>` +
+      `<div class="facts"><span>модов <b>${pr ? num(pr.done) : 0}</b> из <b>${pr ? num(pr.total) : "?"}</b> · из кэша <b>${pr ? num(pr.cached) : 0}</b> · файлов <b>${pr ? num(pr.files) : 0}</b> · ${sec(pr ? pr.elapsed_ms : 0)}</span></div>` +
+      `<button data-pass="cancel">Отменить — ничего не будет опубликовано</button>` : "") +
+    (l ? `<div class="facts"><span>последний: ${l.mode === "full" ? "полный" : "поверхность"}, ${sec(l.elapsed_ms)}${l.cancelled ? " — <span class=warn>отменён</span>" : ""}</span>` +
+      (l.mode === "full" && !l.cancelled ? `<span>модов <b>${num(l.mods)}</b> (из кэша ${num(l.from_cache)}), не в списке <b>${num(l.unlisted)}</b></span>` : "") +
+      (!l.cancelled && !l.error ? `<span>записей SYNC <b>${num(l.records)}</b>, ждут решения <b>${num(l.pending)}</b></span>` : "") +
+      (l.degraded.length ? `<span class=warn title="${esc(l.degraded.join("\n"))}">с неполными фактами: ${l.degraded.length}</span>` : "") +
+      (l.seals.length ? `<span class=warn title="${esc(l.seals.join("\n"))}">печати не прошли: ничего не опубликовано (${l.seals.length})</span>` : "") +
+      (l.error ? `<span class=warn>${esc(l.error)}</span>` : "") + `</div>` : `<div class="facts"><span>с открытия окна пробегов не было; сборка прочитана при запуске</span></div>`) +
+    `<div class="facts"><span>песочница: пробег ничего не пишет — ни фактов, ни проекта</span></div>`;
+}
+$("passBtn").onclick = async ev => {
+  ev.stopPropagation();
+  const el = $("passPanel");
+  if (!el.hidden) { el.hidden = true; return; }
+  const r = $("passBtn").getBoundingClientRect();
+  el.style.left = Math.max(16, Math.min(r.left, innerWidth - 436)) + "px"; el.style.top = r.bottom + 6 + "px";
+  el.hidden = false;
+  await passPoll(); passDraw();
+};
+$("passPanel").onclick = async ev => {
+  ev.stopPropagation();
+  const b = ev.target.closest("[data-pass]"); if (!b) return;
+  if (b.dataset.pass === "cancel") await command({ type: "cancel-pass" });
+  else await command({ type: "start-pass", mode: b.dataset.pass });
+  await passPoll();
+};
+document.addEventListener("click", ev => { if (!$("passPanel").hidden && !ev.target.closest("#passPanel")) $("passPanel").hidden = true; });
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("passPanel").hidden) { ev.stopPropagation(); $("passPanel").hidden = true; } }, true);
+
+(async () => { await sync(false); await Promise.all([totals(), tiles(), decor(), passPoll()]); list.focus({ preventScroll: true }); })();
 </script>
 </body>
 </html>

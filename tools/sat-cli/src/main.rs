@@ -421,6 +421,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
         },
         batch: SCAN_BATCH,
         tag_rules: None,
+        stage: None,
     };
     let opts = &o.scan;
     let mut timings = BTreeMap::new();

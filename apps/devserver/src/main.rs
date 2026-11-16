@@ -12,12 +12,13 @@ use std::time::Instant;
 
 use sat_app::{App, Command, Query};
 use sat_core::plugins::PluginVersions;
-use sat_core::project::Project;
 use sat_core::resource::Registry;
 use sat_core::session::{OVERWRITE, Session};
 use sat_core::table::TableBuilder;
 use sat_mo2::Instance;
 use sat_scan::ScanProgress;
+
+mod home;
 
 const PAGE: &str = include_str!("index.html");
 
@@ -90,39 +91,16 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     let mut session = Session::new(p.book().0, Arc::new(builder.finish()));
     session.set_plugin_facts(Arc::new(versions));
     let mut app = App::new(session, Registry::with_builtins());
-    wire(&mut app, &p);
     // the manager's plugin lists as the last analysis saw them, and the user's hidden plugins
-    app.session().set_plugin_canon(p.plugins.clone());
-    app.set_sync(p.sync.clone(), Vec::new());
+    for e in app.load_project(&p, Vec::new()) {
+        eprintln!("{e}");
+    }
     Ok(app)
 }
 
-// @sat:devserver.wire
-/// What the window takes from a project besides the canon: settled chains, member keys, conflict ignores, tags,
-/// chain identities and layout, pins, stickers, sources, counters.
-fn wire(app: &mut App, p: &Project) {
-    let session = app.session();
-    session.set_member_keys(p.member_keys());
-    session.set_decisions(p.decisions.clone());
-    session.set_conflict_ignore(p.conflict_ignore.clone());
-    app.set_tag_catalog(p.tags.clone());
-    app.set_chain_identities(p.chain_identities.clone());
-    app.set_chain_layout(p.chain_layout.clone());
-    app.set_chain_lineage(p.chain_lineage.clone());
-    app.set_pinned_files(p.pinned_files.clone());
-    for e in app.set_sticker_rules(&p.sticker_rules) {
-        eprintln!("{e}");
-    }
-    app.set_system_stickers(p.system_stickers());
-    app.set_sources(p.sources_by_name());
-    for e in app.set_counters(&p.counters) {
-        eprintln!("{e}");
-    }
-}
-
-fn load(args: &[String]) -> Result<App, String> {
+fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
     if let Some(dir) = flag(args, "--project") {
-        return load_offline(std::path::Path::new(dir));
+        return Ok((load_offline(std::path::Path::new(dir))?, None));
     }
     let path = args
         .first()
@@ -204,44 +182,16 @@ fn load(args: &[String]) -> Result<App, String> {
         eprintln!("seal: {v}");
     }
     let mut app = App::new(session, Registry::with_builtins());
-    wire(&mut app, &project);
     // the records of this run against the folders now: decisions and the plan, never a commit here
+    for e in app.load_project(&project, sat_home::subfolders(&inst.mods_dir)) {
+        eprintln!("{e}");
+    }
     let r = &scanned.sync;
     eprintln!(
         "sync: {} record(s), {} pending",
         r.records.len(),
         r.count(sat_core::sync::records::Status::Pending)
     );
-    app.set_sync(r.records.clone(), sat_home::subfolders(&inst.mods_dir));
-    // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps; what is missing is read
-    // off the request loop (a first run reads a lot) — until then copies are "not compared"
-    {
-        let table = app.session().table().clone();
-        let (mods_dir, overwrite_dir) = (inst.mods_dir.clone(), inst.overwrite_dir.clone());
-        let cache = inst.profile_dir().join("satellite").join("content-hashes.txt");
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let t = std::time::Instant::now();
-            let (hashes, read) = sat_scan::content::hashes_for(
-                &table,
-                |m| {
-                    if m == sat_core::session::OVERWRITE {
-                        overwrite_dir.clone()
-                    } else {
-                        mods_dir.join(m)
-                    }
-                },
-                &cache,
-                0,
-            );
-            eprintln!(
-                "content hashes: {read} file(s) and archive(s) read in {:.1} s",
-                t.elapsed().as_secs_f64()
-            );
-            let _ = tx.send(hashes);
-        });
-        HASHES.with(|h| *h.borrow_mut() = Some(rx));
-    }
     // conflict domains described by data (`@sat:conflict.spec`): the game pack's and the user's own, reading the
     // files they rank by from the mod folders
     {
@@ -292,6 +242,47 @@ fn load(args: &[String]) -> Result<App, String> {
             }
         }
     }
+    start_readers(&inst, &mut app);
+    app.enable_passes();
+    let path = sat_home::project::default_path(&inst);
+    let home = home::Home::new(inst, path, project);
+    Ok((app, Some(home)))
+}
+
+// @sat:devserver.readers
+/// Starts what the window reads off the request loop after facts arrive: content hashes of contested copies
+/// (`@sat:identical`, from the cache `analyze` keeps) and the record layer (`@sat:records`) with its fields. Until
+/// they arrive copies are "not compared" and the record layer is pending.
+pub(crate) fn start_readers(inst: &Instance, app: &mut App) {
+    // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps; what is missing is read
+    // off the request loop (a first run reads a lot) — until then copies are "not compared"
+    {
+        let table = app.session().table().clone();
+        let (mods_dir, overwrite_dir) = (inst.mods_dir.clone(), inst.overwrite_dir.clone());
+        let cache = inst.profile_dir().join("satellite").join("content-hashes.txt");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let t = std::time::Instant::now();
+            let (hashes, read) = sat_scan::content::hashes_for(
+                &table,
+                |m| {
+                    if m == sat_core::session::OVERWRITE {
+                        overwrite_dir.clone()
+                    } else {
+                        mods_dir.join(m)
+                    }
+                },
+                &cache,
+                0,
+            );
+            eprintln!(
+                "content hashes: {read} file(s) and archive(s) read in {:.1} s",
+                t.elapsed().as_secs_f64()
+            );
+            let _ = tx.send(hashes);
+        });
+        HASHES.with(|h| *h.borrow_mut() = Some(rx));
+    }
     // @sat:devserver.records
     // the record layer (`@sat:records`): plugins are read off the request loop, the window shows it when ready
     let loaded = sat_scan::records::loaded_plugins(
@@ -334,7 +325,6 @@ fn load(args: &[String]) -> Result<App, String> {
     });
     RECORDS.with(|r| *r.borrow_mut() = Some(rx));
     FIELDS.with(|r| *r.borrow_mut() = Some(frx));
-    Ok(app)
 }
 
 thread_local! {
@@ -362,7 +352,7 @@ fn json(body: String, status: u16) -> tiny_http::Response<std::io::Cursor<Vec<u8
 // @sat:devserver.http
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut app = match load(&args) {
+    let (mut app, mut home) = match load(&args) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("error: {e}");
@@ -377,6 +367,9 @@ fn main() {
     });
     eprintln!("open http://127.0.0.1:{port}/  (sandbox: nothing is saved; Ctrl+C to stop)");
     for mut req in server.incoming_requests() {
+        if let Some(h) = home.as_mut() {
+            h.tick(&mut app);
+        }
         RECORDS.with(|r| {
             if let Some(report) = r.borrow().as_ref().and_then(|rx| rx.try_recv().ok()) {
                 app.set_records(report);
@@ -422,6 +415,10 @@ fn main() {
             _ => json(r#"{"error":"not found"}"#.into(), 404),
         };
         let _ = req.respond(reply);
+        // a run asked by this request starts now, not at the next one
+        if let Some(h) = home.as_mut() {
+            h.tick(&mut app);
+        }
     }
 }
 

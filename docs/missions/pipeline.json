@@ -1,33 +1,33 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 5,
+ "revision": 8,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T14:22:51Z",
+ "updatedAt": "2026-11-16T14:39:59Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
-  "activeDistanceId": "D2-home",
-  "activity": "PLANNING",
+  "activeDistanceId": "D3-run-window",
+  "activity": "CHANGE",
   "deepeningStack": [
    {
     "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
-    "childDistanceId": "D2-home",
+    "childDistanceId": "D3-run-window",
     "returnPoint": {
-     "tacticalFocus": "Разведка точных границ: что в sat-cli analyze и devserver load общее, что специфично оболочке (печать, флаги).",
+     "tacticalFocus": "Код ядра пробега в окне уже работает по HTTP (не закоммичен): дописать тесты, панель в index.html, MAP; затем коммит.",
      "posture": "ARCHITECT"
     },
-    "openedAt": "2026-11-16T14:22:51Z"
+    "openedAt": "2026-11-16T14:39:59Z"
    }
   ],
   "returnPoint": {
-   "tacticalFocus": "Разведка точных границ: что в sat-cli analyze и devserver load общее, что специфично оболочке (печать, флаги).",
+   "tacticalFocus": "Код ядра пробега в окне уже работает по HTTP (не закоммичен): дописать тесты, панель в index.html, MAP; затем коммит.",
    "posture": "ARCHITECT"
   },
-  "tacticalFocus": "Разведка точных границ: что в sat-cli analyze и devserver load общее, что специфично оболочке (печать, флаги).",
+  "tacticalFocus": "Код ядра пробега в окне уже работает по HTTP (не закоммичен): дописать тесты, панель в index.html, MAP; затем коммит.",
   "scheduler": {
    "events": [
     {
@@ -165,9 +165,9 @@
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
    "summary": "",
    "createdAt": "2026-11-16T14:17:55Z",
-   "updatedAt": "2026-11-16T14:22:51Z",
+   "updatedAt": "2026-11-16T14:39:59Z",
    "sealedAt": null,
-   "suspendedAt": "2026-11-16T14:22:51Z",
+   "suspendedAt": "2026-11-16T14:39:59Z",
    "readyAt": "2026-11-16T14:17:55Z",
    "resumableAt": null,
    "resumedAt": "2026-11-16T14:22:51Z",
@@ -184,11 +184,50 @@
    "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "objective": "Крейт crates/sat-home (@sat:home) владеет открытием сборки (экземпляр + .stll), пробегом (инвентарь, импорт канона, скан с кешем, факты в проект, сверка SYNC, записи плагинов) и полным планом фиксации (sync.plan + фабрики + патчи + файлы плагинов + проект «после») с исполнением; sat-cli analyze/sync/commit и devserver load — тонкие оболочки над ним, код перенесён, не скопирован.",
    "closureContract": "cargo test/clippy зелёные, CI зелёный; sat-cli analyze/sync/commit на тестовом экземпляре дают тот же вывод, что до переноса; devserver грузит ту же сборку; MAP и check-map обновлены; галочка «Дом» в PHILOSOPHY.",
+   "status": "sealed",
+   "reason": "",
+   "summary": "D2 «Дом» запечатан: sat-home владеет проектом, пробегом, полным планом и фиксацией; CLI и окно — оболочки; поведение CLI сохранено байт-в-байт; CI зелёный.",
+   "createdAt": "2026-11-16T14:22:51Z",
+   "updatedAt": "2026-11-16T14:39:49Z",
+   "sealedAt": "2026-11-16T14:39:49Z",
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": {
+    "items": [
+     {
+      "commit": "71e4a06"
+     },
+     {
+      "ci": "GitHub Actions run 43886961429 success"
+     },
+     {
+      "test": "sat-home tests/chain.rs: run_decide_commit_run, read_only_open_writes_nothing"
+     },
+     {
+      "text": "flow.sh на копии s11: вывод sat-cli analyze/sync/commit до и после переноса идентичен, деревья файлов после фиксации равны"
+     }
+    ],
+    "at": "2026-11-16T14:39:49Z"
+   }
+  },
+  "D3-run-window": {
+   "id": "D3-run-window",
+   "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "objective": "Пробег из окна (ADR 0019 шаг 2): команды StartPass/CancelPass и запрос Pass в sat-app; оболочка запускает пробег задачей рода run (@sat:jobs: вытеснение, отмена, поздний результат не публикуется) в режимах «поверхность» (подписи + сверка) и «полный» (скан, факты, записи, источники, плагины, конфликты, печати); публикация новых фактов одним изменением, записи SYNC с решениями, принятыми во время пробега; панель пробега в окне со стадиями, прогрессом, отменой и итогом.",
+   "closureContract": "Тесты sat-app (состояния пробега, set_facts) и sat-home (поверхность == полный по записям) зелёные; по HTTP на копии сборки: поверхность находит новую папку, решение переживает полный пробег, отмена и вытеснение ничего не публикуют, песочница ничего не пишет; скриншот панели пробега; MAP/check-map, clippy, CI; галочка «Пробег в окне».",
    "status": "active",
    "reason": "",
    "summary": "",
-   "createdAt": "2026-11-16T14:22:51Z",
-   "updatedAt": "2026-11-16T14:22:51Z",
+   "createdAt": "2026-11-16T14:39:59Z",
+   "updatedAt": "2026-11-16T14:39:59Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
@@ -214,6 +253,28 @@
    "revision": 2,
    "createdAt": "2026-11-16T14:17:55Z",
    "updatedAt": "2026-11-16T14:17:55Z"
+  },
+  {
+   "id": "note:1a1e4c853b1:3c84fb31",
+   "kind": "promise",
+   "text": "Перенос сохранил поведение: переимпорт (--reimport) не переносит factories, patches, patches_built, chain_identities/layout/lineage, pinned_files, plugins_seen — похоже на давний пропуск; поправить отдельным ходом с тестом (не в шаге переноса).",
+   "status": "open",
+   "distanceId": "D2-home",
+   "meta": null,
+   "revision": 6,
+   "createdAt": "2026-11-16T14:34:56Z",
+   "updatedAt": "2026-11-16T14:34:56Z"
+  },
+  {
+   "id": "note:1a1e4c853b1:e671d292",
+   "kind": "promise",
+   "text": "Хеши содержимого и записи плагинов окно пока считает само в фоновых потоках, CLI — сам: при пробеге в окне (D3) это стадии после публикации фактов.",
+   "status": "open",
+   "distanceId": "D2-home",
+   "meta": null,
+   "revision": 6,
+   "createdAt": "2026-11-16T14:34:56Z",
+   "updatedAt": "2026-11-16T14:34:56Z"
   }
  ],
  "decisions": [
@@ -304,6 +365,46 @@
    "artifacts": [],
    "distanceId": "D2-home",
    "summary": "Шаг 1 ADR 0019: дом. Пробег и достройка плана переносятся из sat-cli и devserver в крейт sat-home."
+  },
+  {
+   "id": "worklog:1a1e4c853b1:faedbda6",
+   "revision": 6,
+   "at": "2026-11-16T14:34:56Z",
+   "action": "CONTINUE",
+   "activity": "VALIDATION",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    {
+     "commit": "71e4a06"
+    },
+    {
+     "file": "crates/sat-home"
+    }
+   ],
+   "distanceId": "D2-home",
+   "summary": "Дом сделан: крейт sat-home (проект, пробег, полный план, фиксация); sat-cli analyze/sync/commit и devserver — оболочки. Вывод CLI на тестовом экземпляре байт-в-байт тот же, деревья файлов после фиксации равны; окно делает тот же пробег (все папки, свежие записи SYNC — увидело новую папку), ничего не пишет; тест цепочки и тест песочницы зелёные; check-map, clippy, fmt чистые. Жду CI."
+  },
+  {
+   "id": "worklog:1a1e4cccb3b:a3cc5c90",
+   "revision": 7,
+   "at": "2026-11-16T14:39:49Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "D2 «Дом» запечатан: sat-home владеет проектом, пробегом, полным планом и фиксацией; CLI и окно — оболочки; поведение CLI сохранено байт-в-байт; CI зелёный."
+  },
+  {
+   "id": "worklog:1a1e4ccf462:34b8aec3",
+   "revision": 8,
+   "at": "2026-11-16T14:39:59Z",
+   "action": "DEEPEN",
+   "activity": "CHANGE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "D3-run-window",
+   "summary": "Шаг 2 ADR 0019: пробег в окне."
   }
  ],
  "humanRequests": {
@@ -456,13 +557,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T14:15:20Z"
  },
- "acceptanceSequence": 5,
+ "acceptanceSequence": 8,
  "lastControl": {
-  "at": "2026-11-16T14:22:51Z",
-  "revision": 5,
+  "at": "2026-11-16T14:39:59Z",
+  "revision": 8,
   "semanticChanged": true,
-  "acceptanceSequence": 5,
-  "modelSummary": "Шаг 1 ADR 0019: дом. Пробег и достройка плана переносятся из sat-cli и devserver в крейт sat-home."
+  "acceptanceSequence": 8,
+  "modelSummary": "Шаг 2 ADR 0019: пробег в окне."
  },
  "hold": null,
  "completedAt": null

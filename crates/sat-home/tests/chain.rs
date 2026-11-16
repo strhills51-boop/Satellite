@@ -135,3 +135,61 @@ fn read_only_open_writes_nothing() {
     assert!(!path.exists());
     assert!(!base.join("profiles/Default/satellite").exists());
 }
+
+#[test]
+fn surface_finds_what_the_full_run_finds() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    file(&base.join("mods/A/textures/a.dds"), "a");
+    file(&base.join("mods/B/textures/b.dds"), "bb");
+    file(&base.join("mods/Extra_separator/meta.ini"), "");
+    file(&base.join("profiles/Default/modlist.txt"), "+B\n+A\n");
+    fs::create_dir_all(base.join("overwrite")).unwrap();
+    let inst = Instance::from_dirs(
+        base.join("mods"),
+        base.join("profiles"),
+        base.join("overwrite"),
+        None,
+    );
+    let (records, _) = run_once(&inst, true);
+    assert!(
+        records.iter().all(|r| r.fingerprint.contains("separator")),
+        "{records:?}"
+    );
+    // B renamed outside Satellite, a new folder, A gone
+    fs::rename(base.join("mods/B"), base.join("mods/B2")).unwrap();
+    file(&base.join("mods/C/c.esp"), "c");
+    fs::remove_dir_all(base.join("mods/A")).unwrap();
+    let (_, mut p) = project::require(&project::default_path(&inst)).unwrap();
+    let mut q = p.clone();
+    let surface = run::surface(&inst, &mut p).records;
+    let manager = project::manager_list(&inst).unwrap();
+    let mut o = project::open_for_run(&project::default_path(&inst), manager, Default::default()).unwrap();
+    let inv = run::inventory(&inst, &o.project.canon);
+    let jobs = run::jobs(&inst, &o.project.canon, &inv.unlisted, true);
+    let mut opts = run::RunOptions::for_build(&inst);
+    opts.save_facts = false;
+    let (full, _) = run::scan(
+        &inst,
+        &mut o.stll,
+        &mut o.project,
+        &jobs,
+        &opts,
+        &ScanProgress::default(),
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(surface, full.sync.records);
+    let kinds: Vec<&str> = surface
+        .iter()
+        .map(|r| r.fingerprint.split("::").next().unwrap())
+        .collect();
+    assert!(kinds.contains(&"fs_renamed"), "{surface:?}");
+    assert!(
+        kinds.contains(&"fs_created") && kinds.contains(&"fs_deleted"),
+        "{surface:?}"
+    );
+    // the surface run does not touch the facts: only records and signatures
+    let r2 = run::surface(&inst, &mut q);
+    assert_eq!(r2.records, surface);
+}
