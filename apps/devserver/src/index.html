@@ -490,6 +490,300 @@ table.fxtab { width: 100%; border-collapse: collapse; font-size: 12px; } .fxtab 
 #ctStatus b { color: var(--fg); font-weight: 500; }
 .ctbtn { font-size: 11px; padding: 1px 8px; border-radius: 999px; margin-left: auto; }
 @media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) 340px; } #tilesec { display: none; } }
+
+/* SATELLITE / HELIO — visual refinement of the owner's v7 language.
+   Pure presentation layer. No JS-facing ids, selectors, virtual layout, or data semantics changed.
+   Hard-coded geometric values here are local UI affordances, NOT order/layout positions. */
+:root {
+  --bg: #0b111b;
+  --bg2: #0d1520;
+  --panel: #121c2a;
+  --surface2: #172232;
+  --pop: #1b2a3c;
+  --hover: #22354a;
+  --line: #2c3a4d;
+  --line-soft: #1f2d3d;
+  --fg: #e9f1f9;
+  --muted: #9daec1;
+  --subtle: #72869e;
+  --accent: #79b2ff;
+  --accent2: #b7d6ff;
+  --accent-border: rgba(121,178,255,.36);
+  --accent-weak: rgba(121,178,255,.085);
+  --ok: #53d6a4;
+  --signal: #67ffbc;
+  --scroll-thumb: #30465e;
+  --scroll-hot: #627d9a;
+  --ui: 'Segoe UI Variable', 'Segoe UI', Inter, system-ui, sans-serif;
+  --shadow: 0 24px 65px rgba(0,0,0,.42);
+}
+:root[data-theme="light"] {
+  --bg: #edf2f8;
+  --bg2: #f8fafe;
+  --panel: #fff;
+  --surface2: #f3f7fc;
+  --pop: #eaf1f9;
+  --hover: #e5edf7;
+  --line: #ccd9e7;
+  --line-soft: #e2e9f1;
+  --fg: #202e42;
+  --muted: #52667d;
+  --subtle: #7d90a6;
+  --accent: #2874ce;
+  --accent2: #1f69c7;
+  --accent-border: rgba(40,116,206,.32);
+  --accent-weak: rgba(40,116,206,.075);
+  --ok: #18926d;
+  --signal: #00a77f;
+  --scroll-thumb: #b0c3d7;
+  --scroll-hot: #7794ad;
+  --shadow: 0 18px 60px rgba(22,56,96,.15);
+}
+html { background:var(--bg); }
+body {
+  background:
+    radial-gradient(ellipse 78% 45% at 58% -18%, rgba(49,107,178,.075), transparent 80%),
+    var(--bg);
+  font-size: 12.5px;
+  line-height: 1.37;
+  letter-spacing: .006em;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  isolation: isolate;
+}
+:root[data-theme="light"] body {
+  background: radial-gradient(ellipse 72% 45% at 60% -8%, rgba(96,145,208,.09), transparent 75%), var(--bg);
+}
+/* Physical star-field: deliberately imperceptible when content is dense. */
+#sat-ui-dust { position:fixed; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+#sat-ui-dust i { position:absolute; display:block; border-radius:50%; width:var(--r); height:var(--r);
+  background: rgba(182,213,247,.8); opacity:var(--o); box-shadow:0 0 3px rgba(136,180,222,.16);
+  animation: sat-dust-drift var(--t) ease-in-out infinite alternate;
+}
+:root[data-theme="light"] #sat-ui-dust i { background:#47769e; opacity:calc(var(--o) * .52); box-shadow:none; }
+@keyframes sat-dust-drift { 0% { transform:translate3d(0,0,0) } 100% { transform:translate3d(var(--dx),var(--dy),0) } }
+@media(prefers-reduced-motion:reduce) { #sat-ui-dust i { animation:none; } }
+body > header, body > main { position:relative; z-index:1; }
+body > header {
+  flex-wrap: nowrap;
+  min-height: 55px;
+  padding: 0 16px;
+  gap: 10px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg2) 95%, var(--pop)), var(--bg2));
+  border-bottom: 1px solid color-mix(in srgb,var(--line) 72%,transparent);
+  box-shadow: 0 3px 16px rgba(3,8,14,.09);
+}
+.brand { gap:9px; margin-right:16px; color:var(--fg); font-size:12px; font-weight:780; letter-spacing:.11em; white-space:nowrap; }
+.brand svg { width:28px; height:28px; filter: drop-shadow(0 0 9px rgba(103,255,188,.085)); }
+.pipeline { padding-right:13px; margin-right:1px; border-right:1px solid var(--line-soft); white-space:nowrap; gap:0; }
+.pipeline .st, .pipeline > span { font-size:11.5px; color:var(--muted); padding:6px 8px; font-weight:580; }
+.pipeline .st::before { width:5px; height:5px; opacity:.88; }
+.pipeline > i { color:var(--subtle); opacity:.56; padding:0 2px; font-size:12px; }
+body > header #recBtn, body > header #fxBtn { font-size:11.5px; padding-inline:9px; }
+body > header #fxPinBtn { width:21px; padding:0; justify-content:center; font-size:10px; }
+body > header .si { width:14px; height:14px; stroke-width:1.65; }
+body > header #stats { gap:3px; }
+#stats > span { font-size:9.5px; letter-spacing:.09em; display:inline-flex; align-items:center; gap:5px; padding:5px 7px; border-radius:6px; }
+#stats > span:hover { background:var(--hover); }
+#stats > span b { font-size:10px; }
+#stats .tip { min-width:225px; border-radius:11px; padding:11px 13px; line-height:1.7; letter-spacing:0; box-shadow:var(--shadow); }
+.sandbox { border-radius:6px; font-size:9px; letter-spacing:.12em; }
+body > header #theme { width:29px; height:29px; padding:5px; margin-left:1px; display:grid; place-items:center; }
+body > header #saveBtn { font-size:11px; }
+button { border-radius:7px; font-weight:560; transition:background .14s,color .14s, box-shadow .14s; }
+button:hover:not(:disabled) { background:color-mix(in srgb,var(--hover) 88%, transparent); box-shadow:none; }
+button.pri { color:var(--accent); }
+button.pri:hover:not(:disabled) { background:var(--accent-weak); box-shadow:inset 0 0 0 1px var(--accent-border); }
+:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+input, select { background:var(--surface2); border-color:var(--line-soft); border-radius:8px; }
+input:hover, select:hover { border-color:var(--line); }
+input[type="checkbox"],input[type="radio"] { accent-color:var(--accent); }
+main { grid-template-columns:188px minmax(0,1fr) 318px; background:transparent; min-height:0; }
+main > section { min-width:0; border-right:1px solid color-mix(in srgb,var(--line) 68%,transparent); }
+main > section:nth-child(2) { background:rgba(9,17,29,.12); }
+:root[data-theme="light"] main > section:nth-child(2) { background:rgba(193,209,231,.09); }
+section h2 { flex:none; padding:15px 14px 11px; color:var(--subtle); font:650 9px/1 var(--mono); letter-spacing:.13em; }
+section h2 small { font-size:9px; font-weight:450; opacity:.77; }
+/* Separators become navigational anchors, not chunky action cards. */
+#tilesec { background: linear-gradient(180deg,color-mix(in srgb,var(--bg2) 92%,transparent),transparent 280px); }
+#tiles { padding:0 7px 12px; gap:3px; }
+.tile { position:relative; min-height:48px; padding:8px 9px 7px 12px; border:1px solid transparent; border-radius:9px;
+  background:transparent; gap:1px 5px; transition:background .15s,border-color .15s; }
+.tile:hover { background:var(--hover); border-color:var(--line-soft); }
+.tile.cur { background:color-mix(in srgb,var(--accent) 10%,var(--panel)); border-color:color-mix(in srgb,var(--accent) 28%,var(--line-soft)); }
+.tile.cur::before { content:""; width:2px; position:absolute; left:0; top:9px; bottom:9px; border-radius:4px; background:var(--accent); }
+.tile .ctr { font-size:9px; line-height:1.2; color:var(--subtle); opacity:.78; }
+.tile .on { font-size:9px; color:var(--ok); opacity:.92; }
+.tile b { font-size:11.75px; font-weight:590; letter-spacing:0; }
+/* The modlist is the primary work surface. */
+.tools { flex:none; margin:0 11px 9px; padding:0; gap:5px; min-height:32px; }
+.tools input { height:31px; font-size:11.5px; padding:5px 10px 5px 12px; }
+.tools select { height:31px; font-size:11px; padding:5px 8px; min-width:0; }
+.tools #badgeModel { max-width:180px; }
+.tools #density { max-width:128px; }
+.tools #err { font-size:10px; }
+.tooth { flex:none; background:color-mix(in srgb, var(--surface2) 75%, transparent); padding:2px; gap:0; border-radius:9px;
+   box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--line) 55%,transparent); }
+.tooth button { min-height:26px; padding:4px 9px; border-radius:7px; font-size:10.5px; font-weight:570; letter-spacing:.006em; }
+.tooth button.on { background:var(--pop); color:var(--fg); box-shadow:0 1px 5px rgba(0,0,0,.13),inset 0 -2px var(--accent); }
+#list { margin:0 11px 11px; border:1px solid var(--line); border-radius:12px;
+  background:
+    radial-gradient(ellipse 72% 54% at 36% 12%, rgba(44,86,139,.048),transparent),
+    color-mix(in srgb,var(--panel) 94%,var(--bg));
+  box-shadow:0 3px 24px rgba(0,0,0,.06), inset 0 1px rgba(255,255,255,.018);
+}
+:root[data-theme="light"] #list {background:var(--panel);}
+#list:focus {border-color:var(--accent-border);outline:none;}
+#layer { margin-inline:6px; }
+/* Absolute positions and dimensions still belong exclusively to the Rust engine. */
+#list.bricks .row:not(.sep) {
+  border-color:color-mix(in srgb,var(--line) 70%, transparent);
+  color:var(--fg);
+  background:transparent;
+  border-radius:0;
+  overflow:visible;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+#list.bricks .row.mod:not(.sep):hover {background:color-mix(in srgb,var(--accent) 8%,transparent); border-color:var(--accent-border);z-index:3;}
+#list.bricks .row.mod.sel:not(.sep) {background:color-mix(in srgb,var(--accent) 17%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));}
+#list.bricks .row.mod.off:not(.sep) {background:color-mix(in srgb,var(--bg) 25%,transparent);}
+#list.bricks .row .name { font-size:11.5px; font-weight:520; letter-spacing:.012em; }
+#list.bricks .row.off .name {opacity:.75;}
+#list.bricks .row > .lead { gap:4px; }
+#list.bricks .row .toggle { width:9px; height:9px; margin:0; background:var(--miss);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06); }
+#list.bricks .row.on .toggle {background:var(--ok);box-shadow:0 0 0 1px rgba(83,214,164,.12),0 0 5px rgba(83,214,164,.17);}
+#list.bricks .row .strip { gap:3px; }
+#list.bricks .row .ctx { height:14px; padding:0 3px; gap:2px; background:hsl(var(--h) 37% 38%/.075); border-color:hsl(var(--h) 48% 57%/.28); }
+#list.bricks .row .ctx>b { width:5px;height:5px;opacity:.84;box-shadow:none; }
+#list.bricks .row .ico { width:12px;height:12px; flex-basis:12px; font-size:8px; filter:saturate(.75); border-color:hsl(var(--h) 55% 65%/.52); background:hsl(var(--h) 58% 46%/.18); }
+#list.bricks .row .ctx:hover .ico {filter:saturate(1);}
+#list.bricks .row .cnt {font:10px/1 var(--mono);gap:5px;opacity:.88; }
+#list.bricks .row .stk i {font-size:8px; line-height:10px; }
+#list.bricks .row.sep { background:transparent; color:var(--fg); border:0; border-bottom:1px solid var(--line); opacity:.96; padding-inline:11px; }
+#list.bricks .row.sep > span:nth-child(2) { font-size:11.5px;letter-spacing:.006em; }
+#list.bricks .row.sep .size {font-size:10px;color:var(--subtle);}
+#list.bricks .row.focus::before,#list.bricks .row.focus::after { border-color:var(--accent2); width:9px; height:9px; z-index:4; filter:drop-shadow(0 0 2px rgba(121,178,255,.12)); }
+/* Selection is not keyboard focus. Selected background is permanent until cleared. */
+.row.sel {background:var(--accent-weak);}
+/* Meta-info is a rack of tools; empty racks collapse visually. */
+#summary { padding:8px 9px 14px; gap:5px; background:color-mix(in srgb, var(--bg2) 87%, transparent); }
+#summary .block { border:1px solid color-mix(in srgb,var(--line) 73%,transparent);border-radius:10px;
+  background:color-mix(in srgb,var(--panel) 90%,transparent);padding:9px 11px;box-shadow:none; }
+#summary .block:hover {border-color:var(--line);}
+#summary .block h3 {margin:0 0 7px;font:650 9px/1.4 var(--mono);letter-spacing:.12em;color:var(--muted);gap:7px;}
+#summary .block h3::before {width:6px;height:6px; flex:none;box-shadow:none;opacity:.95;}
+#summary .block.empty { padding:8px 11px; background:transparent; border-color:transparent; border-bottom-color:color-mix(in srgb,var(--line) 48%,transparent); border-radius:0; }
+#summary .block.empty:hover { background:color-mix(in srgb,var(--panel) 76%, transparent);border-radius:8px;border-color:var(--line-soft); }
+#summary .block.empty h3 {margin:0;color:var(--subtle);}
+#summary .block.empty>.muted {display:none;}
+#summary .block.ok h3::before {background:var(--signal);box-shadow:0 0 5px rgba(103,255,188,.16);}
+#summary .block .muted {font-size:10.5px;line-height:1.48;}
+#summary .block input,#summary .block select { min-height:25px;padding:4px 7px;font-size:11px; }
+#summary .block input[type="checkbox"],#summary .block input[type="radio"] { min-height:0; }
+#summary .block input[type="color"] { width:34px;max-width:34px; height:17px;max-height:17px; border-radius:4px; padding:1px; vertical-align:middle;}
+#summary .dec-grid {gap:7px 8px;}
+#summary .dec-grid label {font-size:10px;}
+#summary .chains {padding:5px;margin-bottom:6px;background:var(--surface2);border-radius:9px;}
+#summary .chn {border-radius:7px;font-size:11px;}
+#summary .chn .nm {font-size:11px;}
+#summary .tree {font-size:10.5px;}
+/* Muted information in rail, clear controls on interaction */
+#summary .block button:not(.pri) {font-weight:560;}
+#summary .block button:not(.pri):hover {background:var(--hover);}
+/* Dialogs and overlays: consistent with the new hierarchy */
+#rec,#fx,#ct,#sy { border:1px solid var(--line);box-shadow:var(--shadow);background:var(--panel); }
+#rec .top,#sy .top,#ct .top,#fx .fxh {background:color-mix(in srgb,var(--bg2) 67%,var(--panel));}
+#ctx,#passPanel,#palette>div {border-color:var(--line);box-shadow:var(--shadow);}
+#palette .sw button {border-radius:7px;}
+#rec .t1 b,#sy .t1 b,#fx .fxh b {font-size:14px;letter-spacing:.012em;}
+#fx .fxb {background:var(--panel);}
+#ct .tab,#fx .seg button {font-size:11px;}
+/* Small tactile touches */
+:where(.te,.fhit,.fxlist .it,.fxcont .it):hover {background:var(--hover);}
+::-webkit-scrollbar {width:6px;height:6px;}
+::-webkit-scrollbar-thumb {background:var(--scroll-thumb);border-radius:12px;}
+::-webkit-scrollbar-thumb:hover {background:var(--scroll-hot);}
+/* Adaptive: three surfaces never overlap. Tiny screens reserve width for the canonical list. */
+@media(max-width:1280px) {
+  main {grid-template-columns:166px minmax(0,1fr) 288px;}
+  .tools {gap:4px;}
+  .tools #badgeModel {max-width:145px;}
+  .tools #density {max-width:109px;}
+}
+@media(max-width:1100px) {
+  main {grid-template-columns:minmax(0,1fr) 295px;}
+  #tilesec {display:none;}
+  body > header {gap:5px; padding-inline:10px;}
+  .brand {margin-right:6px;}
+  .pipeline {margin-right:0;padding-right:5px;}
+}
+@media(max-width:850px) {
+  main {grid-template-columns:minmax(0,1fr) 250px;}
+  .pipeline>span,.pipeline i {display:none;}
+  .tools {flex-wrap:wrap; margin-bottom:7px;}
+  .tools input#filter {min-width:120px;}
+  .brand {letter-spacing:.06em;}
+  body>header #recBtn {display:none;}
+}
+@media(max-width:700px) {
+  main {grid-template-columns:minmax(0,1fr);}
+  #summary {display:none;}
+  body>header {min-height:47px;}
+  .brand svg {width:24px;height:24px;}
+  #stats {margin-left:auto;}
+  .sandbox {display:none;}
+}
+/* Keep the one-column CSS grid from inheriting a large min-content width on narrow viewports. */
+body { grid-template-columns:minmax(0,1fr); min-width:0; }
+body > header, body > main { min-width:0; width:100%; }
+main > section {min-width:0;}
+@media(max-width:850px) {
+  body>header .pipeline {gap:0;}
+  body>header .pipeline #passBtn,body>header .pipeline #syncBtn {padding-inline:6px;}
+  #stats {gap:0;}
+}
+@media(max-width:700px) {
+  body>header #fxBtn {font-size:0; padding:5px; width:28px; height:28px; justify-content:center;}
+  body>header #fxBtn svg {width:16px;height:16px;}
+  body>header #stats>span {font-size:0; padding:4px 4px;}
+  body>header #stats>span b {font-size:10px;}
+  body>header .brand {font-size:11px; margin-right:1px; gap:5px;}
+  body>header .pipeline {padding-right:3px;}
+  #list {min-width:0;}
+}
+@media(max-width:510px) {
+  body>header .brand {font-size:0; margin-right:0;}
+  body>header .brand svg {width:27px;height:27px;}
+  .tools #badgeModel {max-width:none;flex:1;min-width:110px;}
+  .tools #density {flex:1;}
+  .tools .tooth {order:5;flex:1;}
+  .tools .tooth button {flex:1;justify-content:center;}
+  #stats>span {min-width:17px;}
+}
+@media (min-width:851px) and (max-width:1020px) {
+  body>header .pipeline>span, body>header .pipeline>i {display:none;}
+  body>header .pipeline {padding-right:6px;}
+}
+/* Guide access and collapsible meta-rack: this is UI state only, not core state. */
+section h2 > .sat-guide-button {margin-left:auto; width:17px;height:17px;padding:0;border-radius:50%;font:10px/1 var(--mono);color:var(--subtle);opacity:.5;justify-content:center;}
+section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
+#summary .block h3 .sat-block-toggle { flex:none; width:12px;height:12px;padding:0;display:inline-grid;place-items:center;
+  border:0;background:transparent;box-shadow:none !important;border-radius:50%; margin-right:1px; }
+#summary .block h3 .sat-block-toggle::before {content:"";width:6px;height:6px;border-radius:50%;background:var(--ok);border:1px solid transparent;}
+#summary .block.empty h3 .sat-block-toggle::before,#summary .block.sat-collapsed h3 .sat-block-toggle::before {background:transparent;border-color:var(--subtle);}
+#summary .block h3 .sat-block-toggle:hover::before {box-shadow:0 0 0 3px var(--accent-weak);border-color:var(--accent);}
+#summary .block:has(.sat-block-toggle) h3::before {display:none;}
+#summary .block.sat-collapsed {background:transparent;border-color:transparent;border-bottom-color:var(--line-soft);border-radius:0;padding-block:8px;}
+#summary .block.sat-collapsed> :not(h3) {display:none!important;}
+#summary .block.sat-collapsed h3 {margin:0;color:var(--subtle);}
+#sat-design-guide {border:1px solid var(--line);border-radius:14px;padding:0;width:min(450px,calc(100vw - 28px));
+  background:var(--panel);color:var(--fg);box-shadow:var(--shadow); }
+#sat-design-guide::backdrop {background:rgba(4,9,17,.6);backdrop-filter:blur(4px);}
+#sat-design-guide header {display:flex;gap:12px;align-items:center;padding:14px 17px;border-bottom:1px solid var(--line-soft);background:var(--bg2);}
+#sat-design-guide header strong {flex:1;font-size:14px;}
+#sat-design-guide header button {font-size:19px;line-height:1;padding:2px 7px;}
+#sat-design-guide p {margin:0;padding:16px 18px 19px;color:var(--muted);font-size:12.5px;line-height:1.65;}
+
 </style>
 </head>
 <body>
@@ -506,6 +800,7 @@ table.fxtab { width: 100%; border-collapse: collapse; font-size: 12px; } .fxtab 
   <circle cx="13.8" cy="45.8" r="2.4" fill="#c2c7ce"/>
   <circle cx="54" cy="31.2" r="2.1" fill="#c2c7ce" opacity=".8"/>
 </symbol></svg>
+<div id="sat-ui-dust" aria-hidden="true"></div>
 <header>
   <span class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#sat-glyph-orbit"/></svg>SATELLITE</span>
   <div class="pipeline" aria-label="Конвейер"><button id="passBtn" class="st" title="Пробег: прочитать папку mods заново — поверхность (подписи и сверка) или полный">Пробег<span id="passDot"></span></button><i>→</i><span class="st">Конфликты</span><i>→</i><button id="syncBtn" class="st" title="Синхронизация: расхождения папки mods с проектом, ответы и план фиксации">Sync<span id="syncDot"></span></button></div>
@@ -2771,5 +3066,83 @@ document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && e
 
 (async () => { await sync(false); await Promise.all([totals(), tiles(), decor(), passPoll(), syLoad(), projPoll()]); list.focus({ preventScroll: true }); })();
 </script>
+<script id="sat-ui-dust-runtime">
+(() => {
+  const root = document.getElementById('sat-ui-dust');
+  if (!root || root.childElementCount) return;
+  let seed = 20261116;
+  function rnd() { seed = (1664525 * seed + 1013904223) >>> 0; return seed / 4294967296; }
+  const fragment = document.createDocumentFragment();
+  for (let i = 0; i < 102; i++) {
+    const dot = document.createElement('i');
+    dot.style.cssText = `left:${(rnd()*100).toFixed(3)}%;top:${(rnd()*100).toFixed(3)}%;--r:${(.7+rnd()*1.1).toFixed(2)}px;--o:${(.065+rnd()*.17).toFixed(3)};--t:${(22+rnd()*37).toFixed(2)}s;--dx:${((rnd()-.5)*12).toFixed(2)}px;--dy:${((rnd()-.5)*15).toFixed(2)}px;animation-delay:${(-rnd()*36).toFixed(2)}s;`;
+    fragment.appendChild(dot);
+  }
+  root.appendChild(fragment);
+})();
+</script>
+<script id="sat-ui-guides-runtime">
+(() => {
+  const summary = document.querySelector('#summary');
+  const help = {
+    tilesec: ['Разделители', 'Якоря областей модлиста. Переход к разделителю не меняет канонический порядок.'],
+    list: ['Модлист', 'Список читается сверху вниз; если модов несколько в строке — слева направо. Фокус с клавиатуры и выделение — разные состояния.'],
+  };
+  const dlg = document.createElement('dialog');
+  dlg.id = 'sat-design-guide';
+  dlg.innerHTML = '<header><strong></strong><button type="button" aria-label="Закрыть">×</button></header><p></p>';
+  document.body.appendChild(dlg);
+  dlg.querySelector('button').addEventListener('click', () => dlg.close());
+  dlg.addEventListener('click', event => { if (event.target === dlg) dlg.close(); });
+  for (const [key, [title, details]] of Object.entries(help)) {
+    const section = key === 'tilesec' ? document.getElementById('tilesec') : document.querySelector('main > section:nth-child(2)');
+    const h = section?.querySelector('h2');
+    if (!h || h.querySelector('.sat-guide-button')) continue;
+    const btn = document.createElement('button');
+    btn.className = 'sat-guide-button'; btn.type = 'button'; btn.textContent = 'i';
+    btn.title = 'Открыть гайд';btn.setAttribute('aria-label',`Гайд: ${title}`);
+    btn.addEventListener('click', () => {
+      dlg.querySelector('strong').textContent = title;
+      dlg.querySelector('p').textContent = details;
+      if (!dlg.open) dlg.showModal();
+    });
+    h.appendChild(btn);
+  }
+  if (!summary) return;
+  const collapsed = new Set();
+  function syncToggles() {
+    for (const box of summary.querySelectorAll('.block[id]:not(#bMod)')) {
+      const h = box.querySelector('h3');
+      if (!h) continue;
+      box.classList.toggle('sat-collapsed',collapsed.has(box.id));
+      if (h.querySelector('.sat-block-toggle')) continue;
+      const button = document.createElement('button');
+      button.type='button';button.className='sat-block-toggle';
+      button.title='Свернуть или развернуть блок';
+      button.setAttribute('aria-label',`Свернуть или развернуть: ${h.textContent.trim()}`);
+      button.setAttribute('aria-expanded',String(!collapsed.has(box.id)));
+      h.prepend(button);
+    }
+  }
+  syncToggles();
+  // Core rendering may refresh a block's heading; reapply only the tiny local button.
+  let pending=false;
+  new MutationObserver(() => {
+    if(pending) return;
+    pending=true;
+    queueMicrotask(()=>{ pending=false; syncToggles(); });
+  }).observe(summary,{childList:true,subtree:true});
+  summary.addEventListener('click',event=>{
+    const btn=event.target.closest('.sat-block-toggle');
+    if(!btn) return;
+    event.stopPropagation();event.preventDefault();
+    const box=btn.closest('.block[id]'); if(!box)return;
+    if(collapsed.has(box.id))collapsed.delete(box.id);else collapsed.add(box.id);
+    box.classList.toggle('sat-collapsed',collapsed.has(box.id));
+    btn.setAttribute('aria-expanded',String(!collapsed.has(box.id)));
+  });
+})();
+</script>
+
 </body>
 </html>
