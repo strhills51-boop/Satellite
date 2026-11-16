@@ -1,0 +1,254 @@
+{
+ "schema": "vibe-go-semantic-session/v1",
+ "id": "semantic-session:1a1e5429a78:ca941d6b",
+ "revision": 1,
+ "status": "active",
+ "createdAt": "2026-11-16T16:48:29Z",
+ "updatedAt": "2026-11-16T16:48:29Z",
+ "mission": {
+  "direction": "Интерфейс, UI и дизайн Satellite (владелец 2026-11-16 17:47, промежуточная большая задача поверх приостановленной миссии процессоров): сейчас интерфейс переизбыточен, слишком технический и хаотичный, кишит юзлесс-элементами и пояснительным текстом, многое забыто. Направление владельца: 1) убрать текст-примечания отовсюду; объяснения — гайд-модалка через маленькие слабовидимые «i» в углу контекста; 2) альтернативный вид — рабочее пространство с собираемыми воркфлоу из окон (ADR 0009); 3) пользовательская IDE-точка входа: свои контексты, окна, контракты анализов и прочие ресурсы (ADR 0011); 4) переключатели вида — сегментный контрол «зубная кнопка», отличимый от функциональных кнопок контекста; 5) курсор клавиатуры — прицел намерения, не выделяет (клик мышью — по-прежнему выделяет); 6) облачко (ADR 0015); 7) окно модов — рабочая среда с элементами произвольного размера при сохранении канона (ADR 0012/0016): кирпичики сверху-вниз слева-направо, размер ×N и декор, семейства, комментарии, панели управления мода, превью, лог-группы/фактори; фокус-группы — якоря-ярлыки с декором и размерами; 8) декор на месте при удержании клавиши (моды и разделители); 9) окно метаинфы: блоки с кружком-индикатором-переключателем; блоки: плагины и доноры (как в монолите), буфер с областями, постоянный блок выделенных модов (перечень, счётчики тегов/стикеров, суммы счётчиков); 10) состояние сборки — массив индикаторов в правом краю хедера с выпадающим полным списком, через конструктор счётчиков; 11) карточки цепочек перезаписи как в монолите (экран фактов + зубные ряды, постоянная ширина, сворачиваются только решённые, имена модов в своих рядах, цвет конфликтов — от темы карточки); 12) дизайн: менее технический, менее хаотичный, акцент не скучный однотонно-синий. Найти и довести недореализованное добро, заложенное раньше.",
+  "reminder": "Законы ядра ADR 0010 и канон порядка не трогаются: окно только рисует, раскладку считает ядро. Монолит и старый Satellite — по анализам docs/semantic/monolith, old-satellite; не выдумывать. Семантический слой (@sat:, //! Owns:, MAP, check-map). Владелец решает по результату: показывать визуально (макеты, скриншоты), проверки пачкой. Владелец сейчас с телефона. Углубляться при столкновении с непредвиденным поведением объекта семантики. Миссия процессоров на HOLD — вернуться после."
+ },
+ "route": {
+  "activeDistanceId": "U1-audit-direction",
+  "activity": "RECON",
+  "deepeningStack": [
+   {
+    "distanceId": "distance:1a1e5429a78:23dc18f3",
+    "childDistanceId": "U1-audit-direction",
+    "returnPoint": {
+     "tacticalFocus": "Инвентарь index.html и сверка с ADR.",
+     "posture": "EXPLORE"
+    },
+    "openedAt": "2026-11-16T16:48:29Z"
+   }
+  ],
+  "returnPoint": {
+   "tacticalFocus": "Инвентарь index.html и сверка с ADR.",
+   "posture": "EXPLORE"
+  },
+  "tacticalFocus": "Инвентарь index.html и сверка с ADR.",
+  "scheduler": {
+   "events": []
+  }
+ },
+ "distances": {
+  "distance:1a1e5429a78:23dc18f3": {
+   "id": "distance:1a1e5429a78:23dc18f3",
+   "parentId": null,
+   "objective": "Интерфейс Satellite перестроен по направлению владельца: чистый, нетехнический, без текстовой каши, с понятной системой контролов и темой, с рабочими пространствами, окном модов как рабочей средой, метаинфой из блоков и пользовательской точкой входа в архитектуру.",
+   "closureContract": "Направление дизайна принято владельцем по макетам; пункты 1–12 сделаны в окне или явно отложены владельцем; тесты/CI; владелец проверил на своей сборке.",
+   "status": "suspended",
+   "reason": "",
+   "summary": "",
+   "createdAt": "2026-11-16T16:48:29Z",
+   "updatedAt": "2026-11-16T16:48:29Z",
+   "sealedAt": null,
+   "suspendedAt": "2026-11-16T16:48:29Z",
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": null
+  },
+  "U1-audit-direction": {
+   "id": "U1-audit-direction",
+   "parentId": "distance:1a1e5429a78:23dc18f3",
+   "objective": "Аудит интерфейса и недореализованного: инвентарь окна (панели, контролы, тексты), заложенное в ADR/ядре и не доведённое до окна; направление дизайна (тема, акцент, система контролов, «i»-гайд, раскладка, курсор-прицел) — ADR и визуальный макет для владельца.",
+   "closureContract": "Аудит и ADR интерфейса закоммичены; макет опубликован; владелец посмотрел и ответил (Human Inbox).",
+   "status": "active",
+   "reason": "",
+   "summary": "",
+   "createdAt": "2026-11-16T16:48:29Z",
+   "updatedAt": "2026-11-16T16:48:29Z",
+   "sealedAt": null,
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": null
+  }
+ },
+ "notes": [],
+ "decisions": [],
+ "worklog": [
+  {
+   "id": "worklog:1a1e5429a9e:7fe5f2ba",
+   "revision": 1,
+   "at": "2026-11-16T16:48:29Z",
+   "action": "DEEPEN",
+   "activity": "RECON",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "U1-audit-direction",
+   "summary": "Сначала разведка: что из обещанного уже заложено (ADR 0009, 0011, 0012, 0015, 0016, монолит 12-mod-card, Фаза 2), что сделано в ядре, что не дошло до окна; сколько текста и лишних элементов в окне; затем направление дизайна с макетами владельцу (он с телефона)."
+  }
+ ],
+ "humanRequests": {},
+ "activities": [
+  {
+   "name": "RECON",
+   "meaning": "разведка: что есть, где, какие факты",
+   "provenance": "runner"
+  },
+  {
+   "name": "ANALYSIS",
+   "meaning": "разбор: причины, связи, варианты",
+   "provenance": "runner"
+  },
+  {
+   "name": "CHANGE",
+   "meaning": "изменение артефакта (код, документ)",
+   "provenance": "runner"
+  },
+  {
+   "name": "VALIDATION",
+   "meaning": "проверка утверждения доказательством, способным изменить решение",
+   "provenance": "runner"
+  },
+  {
+   "name": "PACKAGING",
+   "meaning": "оформление и поставка",
+   "provenance": "runner"
+  },
+  {
+   "name": "CLOSURE",
+   "meaning": "закрытие: печать, итог, передача",
+   "provenance": "runner"
+  },
+  {
+   "name": "PLANNING",
+   "meaning": "планировка: декомпозиция, порядок, контракты закрытия, развилки",
+   "provenance": "owner 2026-11-16"
+  }
+ ],
+ "strategicFrontier": {
+  "activeTheory": "Большая часть замысла уже лежит в ADR 0009/0011/0012/0015/0016 и частично в ядре (виды, flow, card, уровни, лог-группы); окно отстало и обросло пояснениями. Нужна не новая архитектура, а система дизайна и доводка заложенного.",
+  "posture": "EXPLORE",
+  "strategyReminder": "Tactical focus is advisory. Optimize Mission progress; prefer batch/tooling or abstraction shifts when they have higher leverage.",
+  "fronts": [
+   {
+    "frontId": "UI-direction",
+    "title": "Направление дизайна: тема, акцент, контролы, «i», тексты",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "HIGH",
+    "leverage": "HIGH",
+    "mechanicality": "LOW",
+    "blockingValue": "HIGH",
+    "cost": "MEDIUM",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "UI-list-workspace",
+    "title": "Окно модов как рабочая среда (ADR 0016)",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "MEDIUM",
+    "leverage": "HIGH",
+    "mechanicality": "LOW",
+    "blockingValue": "MEDIUM",
+    "cost": "HIGH",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "UI-meta",
+    "title": "Метаинфа из блоков: выделенные, плагины, доноры, буфер",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "MEDIUM",
+    "leverage": "HIGH",
+    "mechanicality": "MEDIUM",
+    "blockingValue": "LOW",
+    "cost": "MEDIUM",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "UI-header",
+    "title": "Хедер: индикаторы сборки конструктором",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "LOW",
+    "leverage": "MEDIUM",
+    "mechanicality": "MEDIUM",
+    "blockingValue": "LOW",
+    "cost": "LOW",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "UI-cursor-cloud-decor",
+    "title": "Курсор-прицел, облачко, декор на месте",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "LOW",
+    "leverage": "MEDIUM",
+    "mechanicality": "MEDIUM",
+    "blockingValue": "LOW",
+    "cost": "MEDIUM",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "UI-conflict-cards",
+    "title": "Карточки цепочек как в монолите",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "MEDIUM",
+    "leverage": "MEDIUM",
+    "mechanicality": "MEDIUM",
+    "blockingValue": "LOW",
+    "cost": "MEDIUM",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   },
+   {
+    "frontId": "UI-workspaces-ide",
+    "title": "Рабочие пространства и пользовательская точка входа (ADR 0009/0011)",
+    "objective": "",
+    "status": "OPEN",
+    "informationGain": "HIGH",
+    "leverage": "HIGH",
+    "mechanicality": "LOW",
+    "blockingValue": "LOW",
+    "cost": "HIGH",
+    "relatedDistanceIds": [],
+    "rationale": "",
+    "provenance": "AI_ASSESSMENT"
+   }
+  ],
+  "reviewRevision": 1,
+  "reviewAcceptanceSequence": 0,
+  "reviewedAt": "2026-11-16T16:48:29Z"
+ },
+ "acceptanceSequence": 1,
+ "lastControl": {
+  "at": "2026-11-16T16:48:29Z",
+  "revision": 1,
+  "semanticChanged": true,
+  "acceptanceSequence": 1,
+  "modelSummary": "Сначала разведка: что из обещанного уже заложено (ADR 0009, 0011, 0012, 0015, 0016, монолит 12-mod-card, Фаза 2), что сделано в ядре, что не дошло до окна; сколько текста и лишних элементов в окне; затем направление дизайна с макетами владельцу (он с телефона)."
+ },
+ "hold": null,
+ "completedAt": null
+}
