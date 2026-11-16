@@ -1,35 +1,43 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 1,
+ "revision": 2,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T14:15:20Z",
+ "updatedAt": "2026-11-16T14:17:55Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
-  "activeDistanceId": "D1-audit-adr",
+  "activeDistanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
   "activity": "PLANNING",
-  "deepeningStack": [
-   {
-    "distanceId": "distance:1a1e4b60bf0:783a0491",
-    "childDistanceId": "D1-audit-adr",
-    "returnPoint": {
-     "tacticalFocus": "Разведка: MAP.md — якоря sync/scan/commit/mo2/plan/intent; затем код и монолит 08-conflicts.",
-     "posture": "ARCHITECT"
-    },
-    "openedAt": "2026-11-16T14:15:20Z"
-   }
-  ],
-  "returnPoint": {
-   "tacticalFocus": "Разведка: MAP.md — якоря sync/scan/commit/mo2/plan/intent; затем код и монолит 08-conflicts.",
-   "posture": "ARCHITECT"
-  },
-  "tacticalFocus": "Разведка: MAP.md — якоря sync/scan/commit/mo2/plan/intent; затем код и монолит 08-conflicts.",
+  "deepeningStack": [],
+  "returnPoint": null,
+  "tacticalFocus": "Ждать ответа владельца по ADR 0019; затем D2 «Дом».",
   "scheduler": {
-   "events": []
+   "events": [
+    {
+     "type": "WAITING_ON_HUMAN",
+     "at": "2026-11-16T14:17:55Z",
+     "distanceId": "D1-audit-adr",
+     "requestId": "HRQ:1a1e4b8bf0a:9760b215",
+     "reason": "ADR 0019 (docs/adr/0019-home-pipeline.md): принимаешь? Запись из окна — флагом запуска --write (по умолчанию песочница) или окно всегда только смотрит, а пишет только CLI? Порядок шагов: дом → пробег → синхронизация → обработка → фиксация → правки файлов."
+    },
+    {
+     "type": "OPEN_MISSION_CONTINUITY_QUEUED",
+     "at": "2026-11-16T14:17:55Z",
+     "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+     "reason": "post-apply"
+    },
+    {
+     "type": "ACTIVATED",
+     "at": "2026-11-16T14:17:55Z",
+     "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+     "previousDistanceId": null,
+     "reason": "post-apply"
+    }
+   ]
   }
  },
  "distances": {
@@ -61,18 +69,71 @@
    "parentId": "distance:1a1e4b60bf0:783a0491",
    "objective": "Аудит существующих частей цепочки (скан/кэш, записи синхронизации, решения и штампы, @sat:sync.plan, @sat:mo2.commit, sat-cli sync/commit, запись плагинов, доноры, намерения) по MAP, коду и анализу монолита (08-conflicts, pass S01–S23) и ADR конвейера: кто владеет какой истиной, поколение, сохранение проекта, пробег из окна, как любая правка попадает в план фиксации.",
    "closureContract": "Аудит (docs/research или раздел ADR) и ADR в docs/adr закоммичены, check-map проходит; владелец просмотрел ADR (ответ в Human Inbox) или его замечания внесены.",
-   "status": "active",
+   "status": "waiting_on_human",
    "reason": "",
    "summary": "",
    "createdAt": "2026-11-16T14:15:20Z",
-   "updatedAt": "2026-11-16T14:15:20Z",
+   "updatedAt": "2026-11-16T14:17:55Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
    "resumableAt": null,
    "resumedAt": null,
-   "resumePriority": "NORMAL",
+   "resumePriority": "BLOCKING",
    "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": {
+    "humanRequestIds": [
+     "HRQ:1a1e4b8bf0a:9760b215"
+    ],
+    "humanStates": {
+     "HRQ:1a1e4b8bf0a:9760b215": "OPEN"
+    },
+    "reason": "ADR 0019 (docs/adr/0019-home-pipeline.md): принимаешь? Запись из окна — флагом запуска --write (по умолчанию песочница) или окно всегда только смотрит, а пишет только CLI? Порядок шагов: дом → пробег → синхронизация → обработка → фиксация → правки файлов.",
+    "resumeContract": "Ответ владельца записан как HUMAN_DECISION; ADR переведён в «принято» с его правками; D1 запечатан, следующий шаг — дом (sat-home)."
+   },
+   "schedulerReturn": {
+    "capturedAt": "2026-11-16T14:17:55Z",
+    "deepeningStack": [
+     {
+      "distanceId": "distance:1a1e4b60bf0:783a0491",
+      "childDistanceId": "D1-audit-adr",
+      "returnPoint": {
+       "tacticalFocus": "Разведка: MAP.md — якоря sync/scan/commit/mo2/plan/intent; затем код и монолит 08-conflicts.",
+       "posture": "ARCHITECT"
+      },
+      "openedAt": "2026-11-16T14:15:20Z"
+     }
+    ],
+    "returnPoint": {
+     "tacticalFocus": "Разведка: MAP.md — якоря sync/scan/commit/mo2/plan/intent; затем код и монолит 08-conflicts.",
+     "posture": "ARCHITECT"
+    },
+    "tacticalFocus": "Ждать ответа владельца по ADR 0019; затем D2 «Дом».",
+    "resumeContract": "",
+    "objective": "Аудит существующих частей цепочки (скан/кэш, записи синхронизации, решения и штампы, @sat:sync.plan, @sat:mo2.commit, sat-cli sync/commit, запись плагинов, доноры, намерения) по MAP, коду и анализу монолита (08-conflicts, pass S01–S23) и ADR конвейера: кто владеет какой истиной, поколение, сохранение проекта, пробег из окна, как любая правка попадает в план фиксации.",
+    "closureContract": "Аудит (docs/research или раздел ADR) и ADR в docs/adr закоммичены, check-map проходит; владелец просмотрел ADR (ответ в Human Inbox) или его замечания внесены."
+   },
+   "evidence": null
+  },
+  "mission-continuity:1a1e4b8bf0a:1f769663": {
+   "id": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "parentId": null,
+   "objective": "Reconcile the still-open Mission after local Distance completion. Use durable Mission authority, accepted evidence, scheduler blockers and Strategic Frontier to activate, resume or create the next highest-leverage executable Distance. Do not redo sealed work and do not treat advisory focus as work authority.",
+   "closureContract": "Leave this continuity Distance only by establishing successor executable Distance authority, sealing the Mission, or entering an explicit genuine external-prerequisite wait. It may not be sealed into an open Mission with no successor.",
+   "status": "active",
+   "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
+   "summary": "",
+   "createdAt": "2026-11-16T14:17:55Z",
+   "updatedAt": "2026-11-16T14:17:55Z",
+   "sealedAt": null,
+   "suspendedAt": null,
+   "readyAt": "2026-11-16T14:17:55Z",
+   "resumableAt": null,
+   "resumedAt": "2026-11-16T14:17:55Z",
+   "resumePriority": "BLOCKING",
+   "dependencyBlocking": true,
    "strategicFrontId": null,
    "resumeContract": "",
    "waitingOn": null,
@@ -80,8 +141,29 @@
    "evidence": null
   }
  },
- "notes": [],
- "decisions": [],
+ "notes": [
+  {
+   "id": "note:1a1e4b8bf0a:63035c64",
+   "kind": "evidence",
+   "text": "Аудит: пробег дублирован в tools/sat-cli/src/main.rs analyze и apps/devserver/src/main.rs load; фабрики/патчи/plugins.txt дописываются в tools/sat-cli/src/commit_cmd.rs, поэтому Query::Sync в окне показывает неполный план.",
+   "status": "open",
+   "distanceId": "D1-audit-adr",
+   "meta": null,
+   "revision": 2,
+   "createdAt": "2026-11-16T14:17:55Z",
+   "updatedAt": "2026-11-16T14:17:55Z"
+  }
+ ],
+ "decisions": [
+  {
+   "id": "decision:1a1e4b8bf0a:dd5c4c45",
+   "text": "Предлагаю владельца связки — крейт sat-home (@sat:home), код переносится из sat-cli и devserver, не копируется; sat-app от него не зависит (узкий trait, как FileSource).",
+   "reason": "",
+   "distanceId": "D1-audit-adr",
+   "revision": 2,
+   "createdAt": "2026-11-16T14:17:55Z"
+  }
+ ],
  "worklog": [
   {
    "id": "worklog:1a1e4b6635b:d725b201",
@@ -93,9 +175,43 @@
    "artifacts": [],
    "distanceId": "D1-audit-adr",
    "summary": "Миссия составная: до кода нужен аудит того, что уже есть по всей цепочке, и ADR, который владелец просмотрит. Углубляюсь в D1."
+  },
+  {
+   "id": "worklog:1a1e4b8bf0a:9fdd9340",
+   "revision": 2,
+   "at": "2026-11-16T14:17:55Z",
+   "action": "CONTINUE",
+   "activity": "PLANNING",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    {
+     "commit": "ef1cbe6"
+    },
+    {
+     "file": "docs/adr/0019-home-pipeline.md"
+    }
+   ],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "Аудит сделан и записан в ADR 0019 (предложено): кирпичи есть, разрывы — пробег в двух оболочках, достройка плана в CLI, окно не запускает/не сохраняет/не фиксирует, @sat:run и @sat:jobs без потребителя. Решение — крейт sat-home, пробег задачей с поколением, ревизия и сохранение проекта, один план для окна и CLI с воротами свежести. Нужен просмотр владельца до кода."
   }
  ],
- "humanRequests": {},
+ "humanRequests": {
+  "HRQ:1a1e4b8bf0a:9760b215": {
+   "question": "ADR 0019 (docs/adr/0019-home-pipeline.md): принимаешь? Запись из окна — флагом запуска --write (по умолчанию песочница) или окно всегда только смотрит, а пишет только CLI? Порядок шагов: дом → пробег → синхронизация → обработка → фиксация → правки файлов.",
+   "blocking_class": "BLOCKING",
+   "options": [
+    "Принять как есть (--write, порядок как в ADR)",
+    "Принять, но окно только смотрит — пишет CLI",
+    "Есть замечания"
+   ],
+   "recommended_option": "Принять как есть (--write, порядок как в ADR)",
+   "resume_contract": "Ответ владельца записан как HUMAN_DECISION; ADR переведён в «принято» с его правками; D1 запечатан, следующий шаг — дом (sat-home).",
+   "request_id": "HRQ:1a1e4b8bf0a:9760b215",
+   "status": "OPEN",
+   "createdAt": "2026-11-16T14:17:55Z",
+   "distance_id": "D1-audit-adr"
+  }
+ },
  "activities": [
   {
    "name": "RECON",
@@ -227,13 +343,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T14:15:20Z"
  },
- "acceptanceSequence": 1,
+ "acceptanceSequence": 2,
  "lastControl": {
-  "at": "2026-11-16T14:15:20Z",
-  "revision": 1,
+  "at": "2026-11-16T14:17:55Z",
+  "revision": 2,
   "semanticChanged": true,
-  "acceptanceSequence": 1,
-  "modelSummary": "Миссия составная: до кода нужен аудит того, что уже есть по всей цепочке, и ADR, который владелец просмотрит. Углубляюсь в D1."
+  "acceptanceSequence": 2,
+  "modelSummary": "Аудит сделан и записан в ADR 0019 (предложено): кирпичи есть, разрывы — пробег в двух оболочках, достройка плана в CLI, окно не запускает/не сохраняет/не фиксирует, @sat:run и @sat:jobs без потребителя. Решение — крейт sat-home, пробег задачей с поколением, ревизия и сохранение проекта, один план для окна и CLI с воротами свежести. Нужен просмотр владельца до кода."
  },
  "hold": null,
  "completedAt": null
