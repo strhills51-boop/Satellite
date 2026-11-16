@@ -9,7 +9,12 @@ move, this reducer decides. What is ported, by the runner's names:
   revision, acceptanceSequence, hold.
 - SEMANTIC_ACTIONS: CONTINUE, DEEPEN, RETURN, REDIRECT, DISTANCE_SEALED, NOTE_ADDED, WAIT_OPERATOR, HOLD,
   MISSION_SEALED (WAIT_TRANSPORT is DOM/relay transport — not ported).
-- SEMANTIC_ACTIVITIES: RECON, ANALYSIS, CHANGE, VALIDATION, PACKAGING, CLOSURE (descriptive, not a phase gate).
+- SEMANTIC_ACTIVITIES: RECON, ANALYSIS, CHANGE, VALIDATION, PACKAGING, CLOSURE — one dominant kind of work per move
+  ("Activity — доминирующий вид работы, не фазовый workflow"); an unknown label keeps the previous activity.
+- Dispatch planner (planSemanticDispatchV642, ADAPTIVE_ENVELOPE_PROFILES_V643): each iteration gets one intent —
+  BOOTSTRAP, REPAIR, QUESTION, ARCHITECTURE, VALIDATION, CHANGE, INVESTIGATION, CONTINUATION (RECOVERY is the
+  runner's re-anchor after transport loss — not ported) — from the same signals in the same order, and the dispatch
+  carries its COGNITIVE CONTRACT text.
 - Distance statuses (SEMANTIC_DISTANCE_SCHEDULER_STATES_V677): active, ready, waiting_on_promise,
   waiting_on_human, resumable, suspended, sealed (waiting_on_transport — not ported).
 - applySemanticState: the transitions; readyDistances (queueSemanticReadyDistancesV677), resumeDistances
@@ -34,6 +39,11 @@ move, this reducer decides. What is ported, by the runner's names:
 - Dispatch (buildSemanticDispatch, full protocol): the text the model reads before each move.
 
 Not in the runner — added here, marked `[claude]` where enforced:
+- Open activity vocabulary: the runner's six are the seed; a move may register more (`registerActivities`:
+  [{name, meaning}]) with provenance — the owner's rule «никаких закрытых списков» (the runner's Cymatics profile
+  calls fixed enums legacy debt). PLANNING is registered at init by the owner's request (2026-11-16).
+- The planner's investigation signal counts open notes of kind evidence / question (the runner counted unresolved
+  source ranges).
 - CLOSURE_EVIDENCE_REQUIRED: DISTANCE_SEALED / RETURN seal / MISSION_SEALED carry `evidence` (a commit, a test,
   a CI run, an owner answer); a git hash is checked to exist. The runner's closureContract was text nobody checked.
 - MISSION_SEALED_WITH_OPEN_WORK: a Mission does not seal while Distances are active / ready / resumable / waiting.
@@ -49,6 +59,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import random
 import subprocess
 import sys
@@ -88,9 +99,74 @@ def priority(v, fallback="NORMAL") -> str:
     return v if v in PRIORITY else "NORMAL"
 
 
-def activity(v, fallback="RECON") -> str:
+SEED_ACTIVITIES = [
+    {"name": "RECON", "meaning": "разведка: что есть, где, какие факты", "provenance": "runner"},
+    {"name": "ANALYSIS", "meaning": "разбор: причины, связи, варианты", "provenance": "runner"},
+    {"name": "CHANGE", "meaning": "изменение артефакта (код, документ)", "provenance": "runner"},
+    {"name": "VALIDATION", "meaning": "проверка утверждения доказательством, способным изменить решение",
+     "provenance": "runner"},
+    {"name": "PACKAGING", "meaning": "оформление и поставка", "provenance": "runner"},
+    {"name": "CLOSURE", "meaning": "закрытие: печать, итог, передача", "provenance": "runner"},
+    {"name": "PLANNING", "meaning": "планировка: декомпозиция, порядок, контракты закрытия, развилки",
+     "provenance": "owner 2026-11-16"},
+]
+
+
+def activities(s) -> list:
+    return [a["name"] for a in s.get("activities") or SEED_ACTIVITIES]
+
+
+def activity(v, fallback="RECON", known=None) -> str:
     v = str(v or fallback).strip().upper()
-    return v if v in ACTIVITIES else fallback
+    return v if v in (known or ACTIVITIES) else fallback
+
+
+# ---------------------------------------------------------------- dispatch planner (V642 / V643)
+
+GUIDANCE = {
+    "CONTINUATION": "Continue from factual current authority, but treat tactical focus as advisory. Prefer the smallest "
+                    "evidence set only when the current route remains the highest-leverage move; otherwise change "
+                    "abstraction level, branch, batch, or author tooling.",
+    "QUESTION": "Answer the concrete factual question. Request local evidence only for facts that are not already "
+                "established.",
+    "INVESTIGATION": "Investigate the active uncertainty using independent factual evidence; batch independent queries.",
+    "CHANGE": "Make the smallest source-native mutation that resolves the proven defect; preserve authority fences and "
+              "validate the result.",
+    "VALIDATION": "Validate only the stated claim with evidence capable of changing the decision; do not reopen "
+                  "unrelated surfaces.",
+    "ARCHITECTURE": "Reason across ownership and boundary responsibilities; prefer canonical authority and scalable "
+                    "hot-path architecture over historical layering.",
+    "REPAIR": "Repair only the causal protocol/tool failure. Do not advance unrelated engineering work or mutate product "
+              "source unless the repair itself requires it.",
+    "BOOTSTRAP": "Establish full durable authority before normal delta continuation.",
+}
+ARCH_RE = re.compile(r"\b(?:architecture|architectural|redesign|cutover|responsibilit(?:y|ies)|ownership redesign)\b|"
+                     r"архитектур|перестро(?:й|ить)|границ[аы] ответственности", re.I)
+
+
+def plan(s) -> dict:
+    """planSemanticDispatchV642: one intent per iteration, from signals in the runner's order."""
+    focus = s["route"].get("tacticalFocus", "")
+    act = s["route"]["activity"]
+    latest = s["worklog"][-1] if s["worklog"] else None
+    unresolved = sum(1 for n in s["notes"] if n["status"] != "resolved" and n["kind"] in ("evidence", "question"))
+    order = [
+        ("BOOTSTRAP", not s.get("lastControl"), "no accepted control boundary"),
+        ("REPAIR", bool(s.get("repair")), "the last move was refused: repair it"),
+        ("QUESTION", bool(re.search(r"\?\s*$", focus) or re.match(r"(?:question|q:|вопрос\b)", focus, re.I)),
+         "explicit factual question signal"),
+        ("ARCHITECTURE", bool(ARCH_RE.search(focus)) or act == "PLANNING", "architecture/ownership or planning focus"),
+        ("VALIDATION", act == "VALIDATION", "explicit validation activity"),
+        ("CHANGE", act == "CHANGE" or bool(latest and latest.get("artifactEffect") == "ARTIFACT"),
+         "change/mutation-ready engineering state"),
+        ("INVESTIGATION", act in ("ANALYSIS", "RECON") and unresolved > 0,
+         "analysis/recon with unresolved factual evidence"),
+        ("CONTINUATION", True, "no stronger cognitive intent signal"),
+    ]
+    for intent, on, why in order:
+        if on:
+            return {"intent": intent, "reason": why, "guidance": GUIDANCE[intent]}
+    return {}
 
 
 def distance(inp: dict, parent=None) -> dict:
@@ -141,6 +217,7 @@ def session_new(direction, reminder, objective, closure) -> dict:
         "distances": {root["id"]: root},
         "notes": [], "decisions": [], "worklog": [],
         "humanRequests": {},
+        "activities": json.loads(json.dumps(SEED_ACTIVITIES)),
         "strategicFrontier": {
             "activeTheory": "", "posture": "EXPLORE",
             "strategyReminder": "Tactical focus is advisory. Optimize Mission progress; prefer batch/tooling or "
@@ -356,6 +433,7 @@ def meaning(s) -> str:
         "notes": [(n["kind"], n["text"], n["status"]) for n in s["notes"]],
         "decisions": [d["text"] for d in s["decisions"]],
         "humans": {k: v.get("status") for k, v in s["humanRequests"].items()},
+        "activities": activities(s),
         "frontier": {k: s["strategicFrontier"][k] for k in ("activeTheory", "posture", "fronts")},
     }, sort_keys=True, ensure_ascii=False)
 
@@ -438,8 +516,13 @@ def apply(s0: dict, p: dict) -> dict:
             s["mission"]["direction"] = str(p["direction"])
         if p.get("reminder"):
             s["mission"]["reminder"] = str(p["reminder"])
+        for a in p.get("registerActivities") or []:
+            name = str(a.get("name") or "").strip().upper()
+            if name and name not in activities(s):
+                s.setdefault("activities", json.loads(json.dumps(SEED_ACTIVITIES))).append(
+                    {"name": name, "meaning": text(a.get("meaning"), 300), "provenance": f"move r{rev}"})
         if p.get("activity"):
-            s["route"]["activity"] = activity(p["activity"], s["route"]["activity"])
+            s["route"]["activity"] = activity(p["activity"], s["route"]["activity"], activities(s))
         if "tacticalFocus" in p or "nextFocus" in p:
             s["route"]["tacticalFocus"] = text(p.get("tacticalFocus", p.get("nextFocus")), 1200)
         if isinstance(p.get("strategicFrontier"), dict):
@@ -608,6 +691,7 @@ def apply(s0: dict, p: dict) -> dict:
     s["lastControl"] = {"at": t, "revision": s["revision"], "semanticChanged": changed,
                         "acceptanceSequence": s["acceptanceSequence"], "modelSummary": text(p.get("summary"), 1600)}
     s["updatedAt"] = t
+    s.pop("repair", None)
     return s
 
 
@@ -627,6 +711,7 @@ def stack_text(s) -> str:
 
 def dispatch(s) -> str:
     a = active(s)
+    pl = plan(s)
     by = lambda st: sorted([d for d in s["distances"].values() if d["status"] == st], key=rank)  # noqa: E731
     f = s["strategicFrontier"]
     at = anti_tunnel(s)
@@ -643,7 +728,14 @@ def dispatch(s) -> str:
         "",
         "DIRECTION", s["mission"]["direction"], "",
         "REMINDER", s["mission"]["reminder"] or "(none)", "",
-        "CURRENT ACTIVITY · DESCRIPTIVE, NOT A PHASE GATE", s["route"]["activity"], "",
+        "CURRENT ACTIVITY · DESCRIPTIVE, NOT A PHASE GATE", s["route"]["activity"],
+        "Activity names the one dominant kind of work of this move, not a phase sequence. Vocabulary: "
+        + " · ".join(f"{a['name']} ({a['meaning']})" for a in (s.get("activities") or SEED_ACTIVITIES))
+        + ". A new kind may be registered (registerActivities).",
+        "",
+        f"INTENT: {pl['intent']} · {pl['reason']}",
+        f"COGNITIVE CONTRACT: {pl['guidance']}",
+        "",
         "DISTANCE STACK · MEMORY, NOT A WORKFLOW", stack_text(s), "",
         f"DISTANCE SCHEDULER · active {a['id'] if a else 'none'} · ready {len(by('ready'))} · resumable "
         f"{len(by('resumable'))} · waiting human {len(by('waiting_on_human'))} · suspended {len(by('suspended'))} · "
@@ -701,6 +793,8 @@ def dispatch(s) -> str:
             out.append(line)
     if s.get("operatorPrerequisite", {}).get("status") == "waiting":
         out += ["", "OPERATOR PREREQUISITE · WAITING", s["operatorPrerequisite"]["text"]]
+    if s.get("repair"):
+        out += ["", "REPAIR · LAST MOVE REFUSED", s["repair"]["law"]]
     out += [
         "",
         "CONTINUATION NOTE · ADVISORY",
@@ -762,6 +856,9 @@ def main(argv):
         try:
             s2 = apply(s, json.loads(raw))
         except Law as e:
+            # the refusal is remembered (not meaning, no revision): the next dispatch is a REPAIR iteration
+            s["repair"] = {"law": str(e)[:600], "at": now()}
+            save(path, s)
             print(f"REFUSED · {e}", file=sys.stderr)
             return 1
         save(path, s2)
