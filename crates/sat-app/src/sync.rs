@@ -99,11 +99,46 @@ impl App {
         Ok(changed)
     }
 
-    /// The commit plan over the current canon (what `modlist.txt` would receive) and the decided records.
-    pub(crate) fn commit_plan(&mut self) -> Plan {
-        let canon = self.session.book().to_modlist();
-        plan(&canon, &self.sync.records, &self.sync.disk)
+    /// The shell gives the full plan of its build (`@sat:home.plan`).
+    pub fn set_plan_source(&mut self, s: std::sync::Arc<dyn PlanSource>) {
+        self.plan_source = Some(s);
     }
+
+    // @sat:app.sync.full
+    /// The commit plan: with a build, the full plan the commit would run (the shell's, the same as `sat-cli
+    /// commit`); without one, the plan over the current canon and the decided records.
+    pub(crate) fn commit_plan(&mut self) -> (Plan, Option<PlanExtras>) {
+        if let Some(src) = self.plan_source.clone()
+            && let Some(p) = self.project()
+        {
+            let (plan, extras) = src.full_plan(&p, &[]);
+            return (plan, Some(extras));
+        }
+        let canon = self.session.book().to_modlist();
+        (plan(&canon, &self.sync.records, &self.sync.disk), None)
+    }
+}
+
+/// The full commit plan of a build, given by the shell (it knows the disk; the app does not, ADR 0004).
+pub trait PlanSource: Send + Sync + std::fmt::Debug {
+    /// The plan of `project` against the build now; `confirmed` names steps the user confirmed.
+    fn full_plan(&self, project: &sat_core::project::Project, confirmed: &[String]) -> (Plan, PlanExtras);
+}
+
+/// What a commit writes besides the plan's operations.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanExtras {
+    /// `plugins.txt` / `loadorder.txt`: written from the project (its own edits), kept, plus plugins of packed
+    /// outputs enabled at the end.
+    pub plugins_written: bool,
+    pub plugins_packed: Vec<String>,
+    /// Factory outputs built and groups sealed.
+    pub factories: Vec<String>,
+    pub sealed: Vec<String>,
+    /// The patches output: written (`Some(true)`), taken away (`Some(false)`), untouched.
+    pub patches: Option<bool>,
+    /// What the shell said about the plan (a factory whose group is gone, plugin lists changed on both sides).
+    pub notes: Vec<String>,
 }
 
 #[cfg(test)]
@@ -147,7 +182,7 @@ mod tests {
             vec!["A".into(), "New".into()],
         );
         let plan = |a: &mut App| {
-            let Reply::Sync { records, plan } = a.query(Query::Sync).unwrap() else {
+            let Reply::Sync { records, plan, .. } = a.query(Query::Sync).unwrap() else {
                 panic!()
             };
             (records, plan)
@@ -179,5 +214,79 @@ mod tests {
         assert!(!p.blocked());
         assert_eq!(p.canon_after.entries.len(), 2);
         assert_eq!(a.sync_records()[0].status, Status::Confirmed);
+    }
+
+    #[derive(Debug)]
+    struct Fake;
+    impl crate::PlanSource for Fake {
+        fn full_plan(
+            &self,
+            project: &sat_core::project::Project,
+            _: &[String],
+        ) -> (sat_core::sync::plan::Plan, crate::PlanExtras) {
+            // the shell sees the project as the window has it now: its records with their decisions
+            let disk = ["A".to_string(), "New".to_string()];
+            let mut p = sat_core::sync::plan::plan(&project.canon, &project.sync, &disk);
+            p.ignored = project.sync.len();
+            (
+                p,
+                crate::PlanExtras {
+                    notes: vec![format!("{} entries", project.canon.entries.len())],
+                    ..Default::default()
+                },
+            )
+        }
+    }
+
+    #[test]
+    fn with_a_build_the_plan_is_the_shells_full_plan() {
+        let list = Modlist::new(vec![Entry {
+            name: "A".into(),
+            kind: EntryKind::Mod,
+            enabled: true,
+        }]);
+        let mut a = App::new(
+            Session::new(
+                OrderBook::from_modlist(&list),
+                Arc::new(ProviderTable::build(&[])),
+            ),
+            Registry::with_builtins(),
+        );
+        // no project, no source: the canon's plan, no extras
+        let Reply::Sync { extras, .. } = a.query(Query::Sync).unwrap() else {
+            panic!()
+        };
+        assert!(extras.is_none());
+        let mut project = sat_core::project::Project::import(list);
+        project.sync.push(SyncRecord {
+            fingerprint: "fs_created::mod::new".into(),
+            entity: EntityKind::Mod,
+            mismatch: Mismatch::FsCreated {
+                fs_name: "New".into(),
+            },
+            status: Status::Pending,
+            resolution: None,
+        });
+        a.load_project(&project, vec!["A".into(), "New".into()]);
+        a.set_plan_source(Arc::new(Fake));
+        a.command(Command::Decide {
+            fingerprint: "fs_created::mod::new".into(),
+            decision: Decision::Confirm {
+                resolution: Resolution::AdoptToProject,
+            },
+        })
+        .unwrap();
+        let Reply::Sync { plan, extras, .. } = a.query(Query::Sync).unwrap() else {
+            panic!()
+        };
+        assert_eq!(extras.unwrap().notes, ["1 entries"]);
+        assert!(
+            !plan.blocked(),
+            "the decision made in the window reached the shell: {:?}",
+            plan.blockers
+        );
+        assert_eq!(plan.ignored, 1);
+        // the project as it is now carries the window's decision
+        assert_eq!(a.project().unwrap().sync[0].status, Status::Confirmed);
     }
 }

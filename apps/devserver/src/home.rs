@@ -2,7 +2,7 @@
 //!
 //! Each run is `@sat:home.run` on a thread of its own.
 //!
-//! Owns: the build's project as the shell holds it between runs, starting a run the app asked for
+//! Owns: starting a run the app asked for
 //! (`@sat:app.pass`) on a thread of its own as a job of kind `run` (`@sat:jobs`: a newer run supersedes, cancel
 //! between batches, a late result is never published), its progress, and publishing a finished run into the app:
 //! new facts as one change, the sync records with the decisions the user made meanwhile, sources, plugin lists.
@@ -34,7 +34,6 @@ const RUN: sat_core::jobs::JobKind = "run";
 pub struct Home {
     inst: Instance,
     path: PathBuf,
-    project: Project,
     jobs: Jobs,
     running: Option<Running>,
 }
@@ -74,11 +73,10 @@ struct Facts {
 }
 
 impl Home {
-    pub fn new(inst: Instance, path: PathBuf, project: Project) -> Self {
+    pub fn new(inst: Instance, path: PathBuf) -> Self {
         Self {
             inst,
             path,
-            project,
             jobs: Jobs::default(),
             running: None,
         }
@@ -127,8 +125,10 @@ impl Home {
         // a newer run supersedes the running one: its result will not be published
         let ticket = self.jobs.start(RUN);
         // the run reconciles the canon and the decisions the user has now
-        app.store_project(&mut self.project);
-        let mut project = self.project.clone();
+        let Some(mut project) = app.project() else {
+            return;
+        };
+        let plugins_at_start = project.plugins.clone();
         let inst = self.inst.clone();
         let path = self.path.clone();
         let progress = Arc::new(ScanProgress {
@@ -168,7 +168,7 @@ impl Home {
             progress,
             stage,
             started: Instant::now(),
-            plugins_at_start: self.project.plugins.clone(),
+            plugins_at_start,
             rx,
         });
     }
@@ -239,7 +239,6 @@ impl Home {
         for e in app.load_project(&p, sat_home::subfolders(&self.inst.mods_dir)) {
             eprintln!("{e}");
         }
-        self.project = p;
         eprintln!(
             "run: {:?} published, ran {:.1} s — {} record(s), {} pending",
             r.mode,
@@ -316,4 +315,40 @@ fn full(
         sync: scanned.sync,
         took: Default::default(),
     })
+}
+
+// @sat:devserver.plan
+/// The full plan of the build for the window (`@sat:app.sync.full`): the same function `sat-cli commit` runs.
+#[derive(Debug)]
+pub struct HomePlan {
+    pub inst: Instance,
+    pub layout: sat_mo2::commit::Layout,
+}
+
+impl sat_app::PlanSource for HomePlan {
+    fn full_plan(
+        &self,
+        project: &Project,
+        confirmed: &[String],
+    ) -> (sat_core::sync::plan::Plan, sat_app::PlanExtras) {
+        let confirmed: Vec<&str> = confirmed.iter().map(String::as_str).collect();
+        let f = sat_home::plan::full(&self.inst, &self.layout, project, &confirmed);
+        let extras = sat_app::PlanExtras {
+            plugins_written: f.plugins.as_ref().is_some_and(|w| w.edited),
+            plugins_packed: f.plugins.as_ref().map(|w| w.packed.clone()).unwrap_or_default(),
+            factories: f
+                .built
+                .iter()
+                .map(|(i, _)| project.factories[*i].output.clone())
+                .collect(),
+            sealed: f
+                .sealed
+                .iter()
+                .map(|&i| project.factories[i].output.clone())
+                .collect(),
+            patches: f.patched.as_ref().map(Option::is_some),
+            notes: f.notes,
+        };
+        (f.plan, extras)
+    }
 }

@@ -34,6 +34,24 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; borde
 .pill { font: 600 11px var(--ui); letter-spacing: .08em; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: #fff; }
 .pipeline { display: flex; align-items: center; gap: 4px; }
 .pipeline > span { border: 1px solid var(--ok); border-radius: 10px; padding: 3px 10px; font-size: 13px; }
+#syncBtn { border-color: var(--ok); font-size: 13px; padding: 3px 10px; display: inline-flex; gap: 6px; align-items: center; }
+#syncBtn.wait { border-color: var(--m-txt); } #syncDot:not(:empty) { font: 11px var(--mono); color: var(--m-txt); }
+#sy { position: fixed; top: 28px; bottom: 28px; right: 28px; width: min(760px, calc(100vw - 32px)); z-index: 36; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+#sy[hidden] { display: none; }
+#sy .top { padding: 10px 14px 8px; display: grid; gap: 6px; border-bottom: 1px solid var(--line); }
+#sy .t1 { display: flex; gap: 8px; align-items: center; } #sy .t1 b { font-size: 15px; flex: 1; }
+#sy .t2 { font-size: 12px; color: var(--muted); }
+#syBody { overflow-y: auto; padding: 10px 14px; display: grid; gap: 14px; align-content: start; }
+#syBody h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.syr { display: grid; grid-template-columns: 22px 1fr auto; gap: 4px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
+.syr .ic { font-size: 15px; text-align: center; } .syr .what b { font-weight: 600; } .syr .what small { color: var(--muted); }
+.syr .st { font: 11px var(--mono); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.syr .st.pending { color: var(--m-txt); border-color: var(--m-txt); } .syr .st.confirmed { color: var(--ok); border-color: var(--ok); }
+.syr .ans { grid-column: 2 / 4; display: flex; gap: 6px; flex-wrap: wrap; }
+.syr .ans button { font-size: 12px; padding: 2px 10px; } .syr .ans button.on { border-color: var(--ok); color: var(--ok); }
+.syp { font: 12px/1.5 var(--mono); display: grid; gap: 2px; } .syp .bl { color: var(--l-txt); } .syp .nt { color: var(--muted); }
+#sy .foot { border-top: 1px solid var(--line); padding: 8px 14px; display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); }
 #passBtn { border-color: var(--ok); font-size: 13px; padding: 3px 10px; display: inline-flex; gap: 6px; align-items: center; }
 #passDot:not(:empty) { font: 11px var(--mono); color: var(--muted); }
 #passBtn.run #passDot { color: var(--accent); } #passBtn.bad { border-color: var(--l-txt); }
@@ -410,7 +428,7 @@ footer b { color: var(--accent2); font-weight: 500; }
 <body>
 <header>
   <span class="brand">Satellite</span><span class="pill">NG</span>
-  <div class="pipeline" aria-label="Конвейер"><button id="passBtn" title="Пробег: прочитать папку mods заново — поверхность (подписи и сверка) или полный">Пробег<span id="passDot"></span></button><i>→</i><span>Конфликты</span><i>→</i><span>Sync</span></div>
+  <div class="pipeline" aria-label="Конвейер"><button id="passBtn" title="Пробег: прочитать папку mods заново — поверхность (подписи и сверка) или полный">Пробег<span id="passDot"></span></button><i>→</i><span>Конфликты</span><i>→</i><button id="syncBtn" title="Синхронизация: расхождения папки mods с проектом, ответы и план фиксации">Sync<span id="syncDot"></span></button></div>
   <button id="recBtn" title="Конфликты: файлы и записи плагинов">Конфликты</button>
   <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр">Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
   <button id="theme" title="Светлая / тёмная">◐</button>
@@ -438,6 +456,12 @@ footer b { color: var(--accent2); font-weight: 500; }
 </main>
 <footer id="stats">загрузка…</footer>
 <div id="passPanel" hidden role="dialog" aria-label="Пробег"></div>
+<div id="sy" hidden role="dialog" aria-label="Синхронизация">
+  <div class="top"><div class="t1"><b>Синхронизация</b><button id="sySurface" title="Перечитать подписи папок и сверить с проектом (секунды)">Поверхность</button><button id="syClose">Закрыть</button></div>
+    <div class="t2" id="syInfo"></div></div>
+  <div id="syBody"></div>
+  <div class="foot"><button id="syCommit" disabled title="Фиксация из окна — следующий шаг; сейчас: sat-cli commit">Зафиксировать…</button><span id="syFoot"></span></div>
+</div>
 <div id="ctx" hidden></div>
 <div id="palette" hidden></div>
 <div id="rec" hidden role="dialog" aria-label="Конфликты записей">
@@ -2352,7 +2376,7 @@ async function passPoll() {
   // a finished run brought new facts and records: everything the window shows is read again
   if (was && was.state !== v.state && v.state === "done" && v.generation !== passGen) {
     passGen = v.generation;
-    await sync(false); await Promise.all([totals(), tiles()]);
+    await sync(false); await Promise.all([totals(), tiles(), syLoad()]);
   }
   if (live) passTimer = setTimeout(passPoll, 400);
 }
@@ -2397,7 +2421,87 @@ $("passPanel").onclick = async ev => {
 document.addEventListener("click", ev => { if (!$("passPanel").hidden && !ev.target.closest("#passPanel")) $("passPanel").hidden = true; });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("passPanel").hidden) { ev.stopPropagation(); $("passPanel").hidden = true; } }, true);
 
-(async () => { await sync(false); await Promise.all([totals(), tiles(), decor(), passPoll()]); list.focus({ preventScroll: true }); })();
+// ---------------------------------------------------------------- sync (`@sat:app.sync`): records, answers, the plan
+const SY_ANS = { adopt_to_project: "взять в проект", move_to_deleted: "убрать в deleted/", create_disk_folder: "создать пустую папку",
+  remove_from_project: "убрать из проекта", accept_fs_name: "принять имя с диска", rename_disk_to_project: "вернуть имя проекта" };
+const SY_KIND = { fs_created: ["➕", "новая папка"], fs_deleted: ["➖", "папки нет на диске"], fs_renamed: ["✎", "папку переименовали"] };
+function syBlocker(b, recs) {
+  const rec = fp => { const r = recs.find(x => x.fingerprint === fp); return r ? (r.mismatch.fs_name || r.mismatch.project_name) : fp; };
+  switch (b.blocker) {
+    case "pending": return `«${esc(rec(b.fingerprint))}» ждёт ответа`;
+    case "no_resolution": return `«${esc(rec(b.fingerprint))}»: подтверждено без ответа`;
+    case "wrong_resolution": return `«${esc(rec(b.fingerprint))}»: ответ не подходит`;
+    case "stale": return `«${esc(rec(b.fingerprint))}»: диск изменился после пробега — нужна поверхность`;
+    case "missing_folder": return `папки ${esc(b.name)} нет`;
+    case "target_exists": return `папка ${esc(b.name)} уже есть`;
+    case "target_twice": return `две операции дают ${esc(b.name)}`;
+    case "rename_cycle": return `переименования ждут друг друга: ${esc(b.names.join(", "))}`;
+    case "canon_mismatch": return `${esc(b.name)}: список проекта не сходится с изменением`;
+    case "separator_not_empty": return `в блоке разделителя ${esc(b.name)} ещё есть моды`;
+    case "needs_confirmation": return `${esc(b.what)} — нужно подтверждение`;
+    case "patch_base_changed": return `${esc(b.source)}/${esc(b.path)} изменился после патча`;
+    case "source_unavailable": return `запланированный ${esc(b.name)}: ${esc(b.why)}`;
+    default: return esc(JSON.stringify(b));
+  }
+}
+function syOp(o) {
+  switch (o.op) {
+    case "adopt": return `проект: добавить ${esc(o.name)} (в конец, включён)`;
+    case "remove": return `проект: убрать ${esc(o.name)}`;
+    case "to_deleted": return `диск: ${esc(o.name)} → satellite/deleted/<метка>/`;
+    case "rename": return o.from !== undefined && o.to !== undefined && o.op === "rename" ? `переименовать ${esc(o.from)} → ${esc(o.to)}` : esc(JSON.stringify(o));
+    case "create": return `диск: создать пустую папку ${esc(o.name)}`;
+    case "patches": return `диск: записать ${esc(o.name)} (${o.patches.length} исправленных файлов)`;
+    case "bake": return `диск: собрать ${esc(o.name)} из ${o.members.length} модов`;
+    case "install": return `диск: установить ${esc(o.name)}`;
+    default: return esc(JSON.stringify(o));
+  }
+}
+async function syLoad() {
+  const r = await query({ type: "sync" });
+  const recs = r.records, p = r.plan, x = r.extras, pending = recs.filter(t => t.status === "pending").length;
+  $("syncDot").textContent = pending ? String(pending) : "";
+  $("syncBtn").classList.toggle("wait", pending > 0);
+  if ($("sy").hidden) return;
+  const last = PASS && PASS.last && !PASS.last.cancelled && !PASS.last.error ? PASS.last : null;
+  $("syInfo").textContent = (last ? `по последнему пробегу (${last.mode === "full" ? "полный" : "поверхность"})` : "по пробегу при открытии окна") +
+    ` · записей ${recs.length}, ждут ответа ${pending}` + (x ? "" : " · без сборки: план только по канону");
+  const rows = recs.map(t => {
+    const [ic, kind] = SY_KIND[t.mismatch.type] || ["?", t.mismatch.type], m = t.mismatch;
+    const name = m.type === "fs_renamed" ? `<b>${esc(m.project_name)}</b> → <b>${esc(m.fs_name)}</b>` : `<b>${esc(m.fs_name || m.project_name)}</b>`;
+    const st = t.status === "confirmed" ? `решено: ${SY_ANS[t.resolution] || t.resolution}` : t.status === "ignored" ? "игнор" : "ждёт ответа";
+    const ans = t.answers.map(a => `<button data-fp="${esc(t.fingerprint)}" data-ans="${a}" class="${t.status === "confirmed" && t.resolution === a ? "on" : ""}">${SY_ANS[a] || a}</button>`).join("") +
+      `<button data-fp="${esc(t.fingerprint)}" data-ans="ignore" class="${t.status === "ignored" ? "on" : ""}" title="запись остаётся, фиксация её не трогает">игнор</button>` +
+      (t.status !== "pending" ? `<button data-fp="${esc(t.fingerprint)}" data-ans="pending">вернуть в ожидание</button>` : "");
+    return `<div class="syr"><span class="ic">${ic}</span><span class="what">${name} <small>${kind} · ${t.entity === "separator" ? "разделитель" : "мод"}</small></span>` +
+      `<span class="st ${t.status}">${st}</span><div class="ans">${ans}</div></div>`;
+  }).join("") || `<div class="muted">расхождений нет: папка mods и проект сходятся</div>`;
+  const ops = [...p.project_ops.map(o => o.op === "rename" ? `проект: переименовать ${esc(o.from)} → ${esc(o.to)}` : syOp(o)),
+    ...p.disk_ops.map(o => o.op === "rename" ? `диск: переименовать папку ${esc(o.from)} → ${esc(o.to)}` : syOp(o))];
+  if (x) {
+    if (x.plugins_written || x.plugins_packed.length) ops.push(`plugins.txt / loadorder.txt: ${x.plugins_written ? "из проекта (его порядок, отметки, скрытые)" : "как есть"}${x.plugins_packed.length ? `, плюс ${esc(x.plugins_packed.join(", "))} включены в конце` : ""}`);
+    for (const f of x.factories) ops.push(`фабрика: пересобрать ${esc(f)}`);
+    for (const f of x.sealed) ops.push(`запечь и запечатать ${esc(f)}`);
+  }
+  ops.push(`modlist.txt: из канона проекта (${num(p.canon_after.entries.length)} записей); закрывается записей ${p.settles.length}, в игноре ${p.ignored}`);
+  const plan = `<div class="syp">${ops.map(o => `<span>${o}</span>`).join("")}` +
+    (x ? x.notes.map(n => `<span class="nt">${esc(n)}</span>`).join("") : "") +
+    (p.blockers.length ? p.blockers.map(b => `<span class="bl">⛔ ${syBlocker(b, recs)}</span>`).join("") : `<span style="color:var(--ok)">блокеров нет</span>`) + `</div>`;
+  $("syBody").innerHTML = `<div><h4>Расхождения</h4>${rows}</div><div><h4>План фиксации${x ? " — тот же, что выполнит sat-cli commit" : ""}</h4>${plan}</div>`;
+  $("syFoot").textContent = p.blockers.length ? "фиксация заблокирована, пока есть блокеры" : "песочница: фиксация из окна — следующий шаг; сейчас план выполняет sat-cli commit … --apply";
+}
+$("syncBtn").onclick = () => { $("sy").hidden = !$("sy").hidden; if (!$("sy").hidden) syLoad(); };
+$("syClose").onclick = () => { $("sy").hidden = true; list.focus({ preventScroll: true }); };
+$("sySurface").onclick = async () => { await command({ type: "start-pass", mode: "surface" }); await passPoll(); };
+$("syBody").onclick = async ev => {
+  const b = ev.target.closest("[data-ans]"); if (!b) return;
+  const a = b.dataset.ans, decision = a === "ignore" ? { decision: "ignore" } : a === "pending" ? { decision: "pending" } : { decision: "confirm", resolution: a };
+  try { await command({ type: "decide", fingerprint: b.dataset.fp, decision }); } catch (e) { $("err").textContent = e.message; }
+  syLoad();
+};
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("sy").hidden) { ev.stopPropagation(); $("syClose").onclick(); } }, true);
+
+(async () => { await sync(false); await Promise.all([totals(), tiles(), decor(), passPoll(), syLoad()]); list.focus({ preventScroll: true }); })();
 </script>
 </body>
 </html>

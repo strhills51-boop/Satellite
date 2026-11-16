@@ -1,33 +1,33 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 8,
+ "revision": 11,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T14:39:59Z",
+ "updatedAt": "2026-11-16T14:49:32Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
-  "activeDistanceId": "D3-run-window",
+  "activeDistanceId": "D4-sync-window",
   "activity": "CHANGE",
   "deepeningStack": [
    {
     "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
-    "childDistanceId": "D3-run-window",
+    "childDistanceId": "D4-sync-window",
     "returnPoint": {
-     "tacticalFocus": "Код ядра пробега в окне уже работает по HTTP (не закоммичен): дописать тесты, панель в index.html, MAP; затем коммит.",
+     "tacticalFocus": "Код и скриншоты готовы (не закоммичены): коммит, CI, печать D4; затем D5 «Обработка с сохранением» (--write, ревизия, «не сохранено»).",
      "posture": "ARCHITECT"
     },
-    "openedAt": "2026-11-16T14:39:59Z"
+    "openedAt": "2026-11-16T14:49:32Z"
    }
   ],
   "returnPoint": {
-   "tacticalFocus": "Код ядра пробега в окне уже работает по HTTP (не закоммичен): дописать тесты, панель в index.html, MAP; затем коммит.",
+   "tacticalFocus": "Код и скриншоты готовы (не закоммичены): коммит, CI, печать D4; затем D5 «Обработка с сохранением» (--write, ревизия, «не сохранено»).",
    "posture": "ARCHITECT"
   },
-  "tacticalFocus": "Код ядра пробега в окне уже работает по HTTP (не закоммичен): дописать тесты, панель в index.html, MAP; затем коммит.",
+  "tacticalFocus": "Код и скриншоты готовы (не закоммичены): коммит, CI, печать D4; затем D5 «Обработка с сохранением» (--write, ревизия, «не сохранено»).",
   "scheduler": {
    "events": [
     {
@@ -165,9 +165,9 @@
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
    "summary": "",
    "createdAt": "2026-11-16T14:17:55Z",
-   "updatedAt": "2026-11-16T14:39:59Z",
+   "updatedAt": "2026-11-16T14:49:32Z",
    "sealedAt": null,
-   "suspendedAt": "2026-11-16T14:39:59Z",
+   "suspendedAt": "2026-11-16T14:49:32Z",
    "readyAt": "2026-11-16T14:17:55Z",
    "resumableAt": null,
    "resumedAt": "2026-11-16T14:22:51Z",
@@ -223,11 +223,50 @@
    "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "objective": "Пробег из окна (ADR 0019 шаг 2): команды StartPass/CancelPass и запрос Pass в sat-app; оболочка запускает пробег задачей рода run (@sat:jobs: вытеснение, отмена, поздний результат не публикуется) в режимах «поверхность» (подписи + сверка) и «полный» (скан, факты, записи, источники, плагины, конфликты, печати); публикация новых фактов одним изменением, записи SYNC с решениями, принятыми во время пробега; панель пробега в окне со стадиями, прогрессом, отменой и итогом.",
    "closureContract": "Тесты sat-app (состояния пробега, set_facts) и sat-home (поверхность == полный по записям) зелёные; по HTTP на копии сборки: поверхность находит новую папку, решение переживает полный пробег, отмена и вытеснение ничего не публикуют, песочница ничего не пишет; скриншот панели пробега; MAP/check-map, clippy, CI; галочка «Пробег в окне».",
+   "status": "sealed",
+   "reason": "",
+   "summary": "D3 «Пробег в окне» запечатан.",
+   "createdAt": "2026-11-16T14:39:59Z",
+   "updatedAt": "2026-11-16T14:49:32Z",
+   "sealedAt": "2026-11-16T14:49:32Z",
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": {
+    "items": [
+     {
+      "commit": "700d9f6"
+     },
+     {
+      "ci": "GitHub Actions run 43888996025 success"
+     },
+     {
+      "test": "sat-app pass::tests (состояния, set_facts); sat-home surface_finds_what_the_full_run_finds"
+     },
+     {
+      "text": "HTTP на копии s11: поверхность нашла новую папку, решение пережило полный пробег, отмена и вытеснение ничего не опубликовали, песочница ничего не записала; скриншоты панели «Пробег»"
+     }
+    ],
+    "at": "2026-11-16T14:49:32Z"
+   }
+  },
+  "D4-sync-window": {
+   "id": "D4-sync-window",
+   "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "objective": "Синхронизация в окне: панель «Синхронизация» (кнопка Sync с числом ждущих), расхождения с ответами командой Decide, «поверхность» одной кнопкой, полный план фиксации от оболочки (PlanSource, тот же sat_home::plan::full, что у sat-cli commit) с блокерами; приложение держит проект целиком (project_base + своя истина), оболочке больше не нужно своё копирование проекта.",
+   "closureContract": "Тест sat-app: план с оболочкой учитывает решения окна, без оболочки — план по канону; скриншоты панели до и после ответов; clippy/fmt/check-map/тесты; CI; галочка «Синхронизация в окне».",
    "status": "active",
    "reason": "",
    "summary": "",
-   "createdAt": "2026-11-16T14:39:59Z",
-   "updatedAt": "2026-11-16T14:39:59Z",
+   "createdAt": "2026-11-16T14:49:32Z",
+   "updatedAt": "2026-11-16T14:49:32Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
@@ -275,6 +314,17 @@
    "revision": 6,
    "createdAt": "2026-11-16T14:34:56Z",
    "updatedAt": "2026-11-16T14:34:56Z"
+  },
+  {
+   "id": "note:1a1e4d1b72c:5784a185",
+   "kind": "promise",
+   "text": "Прогресс пробега в окне обновляется только при запросах страницы (оболочка тикает на запросах): страница опрашивает каждые 400 мс, пока идёт пробег — достаточно; нативной оболочке понадобится свой такт.",
+   "status": "open",
+   "distanceId": "D3-run-window",
+   "meta": null,
+   "revision": 9,
+   "createdAt": "2026-11-16T14:45:11Z",
+   "updatedAt": "2026-11-16T14:45:11Z"
   }
  ],
  "decisions": [
@@ -293,6 +343,14 @@
    "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "revision": 3,
    "createdAt": "2026-11-16T14:22:42Z"
+  },
+  {
+   "id": "decision:1a1e4d5b390:f3fa1434",
+   "text": "Приложение держит загруженный проект целиком (project_base): разделы, которые окно не правит, переносятся как есть, своя истина пишется поверх (App::project). Оболочка берёт проект у приложения для пробега, плана и (дальше) сохранения и фиксации — один источник.",
+   "reason": "",
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "revision": 11,
+   "createdAt": "2026-11-16T14:49:32Z"
   }
  ],
  "worklog": [
@@ -405,6 +463,49 @@
    "artifacts": [],
    "distanceId": "D3-run-window",
    "summary": "Шаг 2 ADR 0019: пробег в окне."
+  },
+  {
+   "id": "worklog:1a1e4d1b72d:8afb7fd0",
+   "revision": 9,
+   "at": "2026-11-16T14:45:11Z",
+   "action": "CONTINUE",
+   "activity": "VALIDATION",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    {
+     "commit": "700d9f6"
+    },
+    {
+     "file": "apps/devserver/src/home.rs"
+    },
+    {
+     "file": "crates/sat-app/src/pass.rs"
+    }
+   ],
+   "distanceId": "D3-run-window",
+   "summary": "Пробег в окне сделан и закоммичен (700d9f6): StartPass/CancelPass/Pass в sat-app, set_facts, load/store_project; поверхность в sat-home; задачи run в devserver с поколением; панель «Пробег». Проверено: тесты sat-app (состояния, set_facts) и sat-home (поверхность == полный); по HTTP на копии s11 — поверхность находит новую папку, решение переживает полный пробег, отмена и вытеснение ничего не публикуют, песочница ничего не пишет; скриншоты панели; вывод CLI прежний. Жду CI."
+  },
+  {
+   "id": "worklog:1a1e4d5b36f:40a539d3",
+   "revision": 10,
+   "at": "2026-11-16T14:49:32Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "D3 «Пробег в окне» запечатан."
+  },
+  {
+   "id": "worklog:1a1e4d5b390:e8d6d57e",
+   "revision": 11,
+   "at": "2026-11-16T14:49:32Z",
+   "action": "DEEPEN",
+   "activity": "CHANGE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "D4-sync-window",
+   "summary": "Шаг 3 ADR 0019: синхронизация в окне — и попутно полный план в окне (оболочка даёт тот же план, что sat-cli commit), потому что предпросмотр, не совпадающий с исполнением, хуже никакого (ADR 0019 разрыв 2)."
   }
  ],
  "humanRequests": {
@@ -557,13 +658,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T14:15:20Z"
  },
- "acceptanceSequence": 8,
+ "acceptanceSequence": 11,
  "lastControl": {
-  "at": "2026-11-16T14:39:59Z",
-  "revision": 8,
+  "at": "2026-11-16T14:49:32Z",
+  "revision": 11,
   "semanticChanged": true,
-  "acceptanceSequence": 8,
-  "modelSummary": "Шаг 2 ADR 0019: пробег в окне."
+  "acceptanceSequence": 11,
+  "modelSummary": "Шаг 3 ADR 0019: синхронизация в окне — и попутно полный план в окне (оболочка даёт тот же план, что sat-cli commit), потому что предпросмотр, не совпадающий с исполнением, хуже никакого (ADR 0019 разрыв 2)."
  },
  "hold": null,
  "completedAt": null

@@ -1,6 +1,6 @@
 //! The app's truth and the project: what a project gives the app, what the app gives back. @sat:app.project
 //!
-//! Owns: the one mapping between the app's truth (book, settled chains, ignores, plugin canon, sync records, tags,
+//! Owns: the project as loaded (its sections the window does not edit) and the one mapping between the app's truth (book, settled chains, ignores, plugin canon, sync records, tags,
 //! chain identities / layout / lineage, pins) and the sections of a [`Project`] — read when a build or a project
 //! opens, written back before a run (the run reconciles the canon the user has now) and when the project is saved.
 //! Not here: the project file (`@sat:stll.file`, `@sat:home.project`), the project's meaning (`@sat:project`).
@@ -14,6 +14,7 @@ impl App {
     /// member keys, conflict ignores, the plugin canon, sync records, tags, chain identities, layout and lineage,
     /// pins, stickers, sources, counters. Returns the problems of rules that did not compile.
     pub fn load_project(&mut self, p: &Project, disk: Vec<String>) -> Vec<String> {
+        self.project_base = Some(p.clone());
         let session = self.session();
         session.set_member_keys(p.member_keys());
         session.set_decisions(p.decisions.clone());
@@ -30,6 +31,15 @@ impl App {
         self.set_sources(p.sources_by_name());
         problems.extend(self.set_counters(&p.counters));
         problems
+    }
+
+    // @sat:app.project.now
+    /// The project as it is now: the sections the window does not edit as loaded, the app's truth written over
+    /// them. `None` when no project was loaded.
+    pub fn project(&mut self) -> Option<Project> {
+        let mut p = self.project_base.clone()?;
+        self.store_project(&mut p);
+        Some(p)
     }
 
     // @sat:app.project.store

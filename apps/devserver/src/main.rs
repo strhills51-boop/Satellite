@@ -244,8 +244,12 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
     }
     start_readers(&inst, &mut app);
     app.enable_passes();
+    app.set_plan_source(Arc::new(home::HomePlan {
+        layout: sat_mo2::commit::Layout::of(&inst),
+        inst: inst.clone(),
+    }));
     let path = sat_home::project::default_path(&inst);
-    let home = home::Home::new(inst, path, project);
+    let home = home::Home::new(inst, path);
     Ok((app, Some(home)))
 }
 

@@ -42,7 +42,7 @@ fn tree_limit() -> usize {
     2000
 }
 pub use domains::{DomainContextItem, DomainItem, DomainState, FileReader};
-pub use sync::{Decision, RecordView};
+pub use sync::{Decision, PlanExtras, PlanSource, RecordView};
 
 use serde::{Deserialize, Serialize};
 
@@ -784,6 +784,9 @@ pub enum Reply {
     Sync {
         records: Vec<RecordView>,
         plan: Box<sat_core::sync::plan::Plan>,
+        /// What the commit writes besides the plan, when the shell gives the full plan (`@sat:app.sync.full`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extras: Option<sync::PlanExtras>,
     },
     Pass {
         pass: pass::PassView,
@@ -963,6 +966,10 @@ pub struct App {
     domain_inputs: domains::DomainInputs,
     /// The run as the window sees it (`@sat:app.pass`).
     pass: pass::PassSlot,
+    /// The project as loaded (`@sat:app.project`): what the window does not edit, carried to saves and plans.
+    project_base: Option<sat_core::project::Project>,
+    /// The full commit plan of the build, from the shell (`@sat:app.sync.full`).
+    plan_source: Option<Arc<dyn sync::PlanSource>>,
 }
 
 impl App {
@@ -985,6 +992,8 @@ impl App {
             chain_lineage_rev: 0,
             preview_source: Default::default(),
             pinned_files: Vec::new(),
+            project_base: None,
+            plan_source: None,
             pass: Default::default(),
             vfs: None,
             records: Arc::default(),
@@ -1619,10 +1628,14 @@ impl App {
             Query::Pass => Reply::Pass {
                 pass: self.pass_view(),
             },
-            Query::Sync => Reply::Sync {
-                records: self.record_views(),
-                plan: Box::new(self.commit_plan()),
-            },
+            Query::Sync => {
+                let (plan, extras) = self.commit_plan();
+                Reply::Sync {
+                    records: self.record_views(),
+                    plan: Box::new(plan),
+                    extras,
+                }
+            }
             Query::Tags => Reply::Tags {
                 tags: self
                     .session
