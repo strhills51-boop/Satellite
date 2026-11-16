@@ -41,7 +41,8 @@ fn fit(w: u32, h: u32, rgba: Vec<u8>) -> (u32, u32, Vec<u8>) {
     (nw, nh, out)
 }
 
-fn picture(p: &mut Preview, w: u32, h: u32, rgba: Vec<u8>, note: String) {
+/// A picture from RGBA, fitted to a thumbnail (saves' screenshots too).
+pub(super) fn show(p: &mut Preview, w: u32, h: u32, rgba: Vec<u8>, note: String) {
     let (w, h, rgba) = fit(w, h, rgba);
     match png(w, h, &rgba) {
         Some(b) => {
@@ -331,7 +332,7 @@ pub(super) fn dds(b: &[u8]) -> Preview {
             } else {
                 String::new()
             };
-            picture(&mut p, w, h, rgba, note)
+            show(&mut p, w, h, rgba, note)
         }
         None => p.note("не распаковалось"),
     }
@@ -414,7 +415,7 @@ pub(super) fn tga(b: &[u8]) -> Preview {
             rgba[(y * w as usize + x) * 4..][..4].copy_from_slice(&v);
         }
     }
-    picture(&mut p, w, h, rgba, String::new());
+    show(&mut p, w, h, rgba, String::new());
     p
 }
 

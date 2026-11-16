@@ -666,7 +666,7 @@ const TREE_MODES = [["grouped", "сгруппировано", "Конфликт�
 const FOLDER_ICON = { meshes: "🧱", textures: "🎨", scripts: "📜", sound: "🔊", music: "🔊", voice: "🔊", interface: "🖥️", skse: "⚙️", seq: "🎬", meta: "🗂️", lodsettings: "🗺️", strings: "🔤" };
 function fileIcon(n) {
   const e = (n.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || "";
-  return { esp: "🧩", esm: "🧩", esl: "🧩", dll: "⚙️", nif: "📦", dds: "🖼️", png: "🖼️", jpg: "🖼️", tga: "🖼️", hkx: "🎞️", pex: "📜", psc: "📜", json: "📝", ini: "📝", toml: "📝", yaml: "📝", xml: "📝", wav: "🔊", xwm: "🔊", fuz: "🔊", bsa: "🗃️", ba2: "🗃️", seq: "🎬", swf: "🖥️" }[e] || "📄";
+  return { esp: "🧩", esm: "🧩", esl: "🧩", dll: "⚙️", nif: "📦", dds: "🖼️", png: "🖼️", jpg: "🖼️", tga: "🖼️", hkx: "🎞️", pex: "📜", psc: "📜", json: "📝", ini: "📝", toml: "📝", yaml: "📝", xml: "📝", wav: "🔊", xwm: "🔊", fuz: "🔊", bsa: "🗃️", ba2: "🗃️", seq: "🎬", swf: "🖥️", ess: "💾", fos: "💾", skse: "💾", log: "📜", txt: "📝", ogg: "🔊", mp3: "🔊", bik: "🎬", bgsm: "🎨", bgem: "🎨", zip: "🗜️", "7z": "🗜️", rar: "🗜️", exe: "⚙️", tri: "🙂", lip: "👄", strings: "🔤", dlstrings: "🔤", ilstrings: "🔤", jslot: "📝", pdf: "📕" }[e] || "📄";
 }
 function treeRowHtml(r, t, focusOn) {
   const ind = `style="--d:${r.depth}"`, ch = r.chain != null && r.chain !== 4294967295 ? t.chains[r.chain] : null;
@@ -764,8 +764,8 @@ function hl(lang, line) {
 }
 function pvHtml(f, compact) {
   if (!f) return `<div class="muted">Файл не найден в сборке.</div>`;
-  const p = f.preview, cur = f.copies[f.shown];
-  let h = `<div class="pv"><h4><span>${esc(f.path)}</span><button class="pin${f.pinned ? " on" : ""}" data-pin="${esc(f.path)}" data-v="${f.pinned ? 0 : 1}" title="${f.pinned ? "Открепить" : "Закрепить: быстрый доступ из «Проводник ▾»"}">${f.pinned ? "★" : "☆"}</button>` +
+  const p = f.preview, cur = f.copies[f.shown], pin = f.pin || f.path;
+  let h = `<div class="pv"><h4><span>${esc(f.title || f.path)}</span><button class="pin${f.pinned ? " on" : ""}" data-pin="${esc(pin)}" data-v="${f.pinned ? 0 : 1}" title="${f.pinned ? "Открепить" : "Закрепить: быстрый доступ из «Проводник ▾»"}">${f.pinned ? "★" : "☆"}</button>` +
     (compact ? `<button data-fxopen="${esc(f.path)}" title="Открыть в проводнике">↗</button>` : "") + `</h4>`;
   if (p) h += `<div class="fmt">${esc(p.format || "")}</div>`;
   // copies
@@ -816,7 +816,11 @@ async function sidePreview(path, archive) {
 }
 async function previewClicks(ev, where) {
   const pin = ev.target.closest("[data-pin]");
-  if (pin) { await run({ type: "pin-file", path: pin.dataset.pin, pinned: pin.dataset.v === "1" }); return where === "fx" ? fxShow(pin.dataset.pin, FX.copy) : sidePreview(pin.dataset.pin, null); }
+  if (pin) {
+    const k = pin.dataset.pin; await run({ type: "pin-file", path: k, pinned: pin.dataset.v === "1" });
+    const i = k.indexOf(":"); if (i > 0) return fxShowPlace(k.slice(0, i), k.slice(i + 1));
+    return where === "fx" ? fxShow(k, FX.copy) : sidePreview(k, null);
+  }
   const cp = ev.target.closest("[data-copy]");
   if (cp) { const f = await pvLoad(cp.dataset.path, +cp.dataset.copy); if (where === "fx") { FX.copy = +cp.dataset.copy; $("fxPrev").innerHTML = pvHtml(f, false); } else $("bPrev").innerHTML = `<h3>Предпросмотр</h3>` + pvHtml(f, true); return; }
   const g = ev.target.closest("[data-goto]");
@@ -831,12 +835,63 @@ $("bPrev").addEventListener("click", ev => previewClicks(ev, "side"));
 // ---------------------------------------------------------------- explorer modal
 // Subjects: the selection (its trees in the three modes, archives as folders) or the whole build (folders as the
 // game sees them, lazily); search over all paths; a file opens in the preview on the right.
-const FX = { subj: "selection", mode: "classic", opened: new Set(), closed: new Set(), vopen: new Set(), vkids: new Map(), sel: null, copy: null, q: "", hits: null };
+const FX = { subj: "selection", mode: "classic", opened: new Set(), closed: new Set(), vopen: new Set(), vkids: new Map(), sel: null, copy: null, q: "", hits: null, places: null };
 try { FX.subj = localStorage.getItem("sat-fx-subj") || "selection"; FX.mode = localStorage.getItem("sat-fx-mode") || "classic"; } catch (_) {}
+// Places outside the build (the game, the profile, MO2, the game's documents): subjects `place:<id>`.
+async function fxPlaces() {
+  if (!FX.places) {
+    FX.places = (await query({ type: "places" })).places || [];
+    $("fxSubj").innerHTML = `<button data-subj="selection" title="Выделенные моды: их файлы и архивы как папки">выделение</button><button data-subj="build" title="Все файлы сборки, как их видит игра: победившие копии">вся сборка</button>` +
+      FX.places.map(p => `<button data-subj="place:${esc(p.id)}" title="${esc(p.root)}">${esc(p.label)}</button>`).join("");
+    if (FX.subj.startsWith("place:") && !FX.places.some(p => "place:" + p.id === FX.subj)) FX.subj = "build";
+  }
+}
 async function fxOpen(path) {
   $("fx").hidden = false;
+  await fxPlaces();
+  const i = path ? path.indexOf(":") : -1;
+  if (i > 0) return fxRevealPlace(path.slice(0, i), path.slice(i + 1));
   if (path) { FX.subj = "build"; await fxReveal(path); return; }
   await fxDraw();
+}
+async function fxShowPlace(id, path) {
+  FX.sel = id + ":" + path;
+  $("fxPrev").innerHTML = `<div class="muted">читаю…</div>`;
+  const { file } = await query({ type: "place-file", place: id, path });
+  if (FX.sel !== id + ":" + path) return;
+  const pl = (FX.places || []).find(p => p.id === id);
+  $("fxPrev").innerHTML = file ? pvHtml({ ...file, title: `${pl ? pl.label : id}: ${file.path}`, pin: id + ":" + file.path, copies: [], shown: 0 }, false) : `<div class="muted">Файл не читается.</div>`;
+  document.querySelectorAll("#fxTree .sel2").forEach(x => x.classList.remove("sel2"));
+  document.querySelectorAll(`#fxTree [data-pk="${CSS.escape((id + ":" + path).toLowerCase())}"]`).forEach(x => x.classList.add("sel2"));
+}
+async function fxRevealPlace(id, path) {
+  FX.subj = "place:" + id; FX.q = ""; $("fxQ").value = ""; FX.hits = null;
+  const parts = path.split("/"); parts.pop();
+  for (let i = 1; i <= parts.length; i++) FX.vopen.add((id + ":" + parts.slice(0, i).join("/")).toLowerCase());
+  await fxDraw(); await fxShowPlace(id, path);
+  const el = document.querySelector(`#fxTree [data-pk="${CSS.escape((id + ":" + path).toLowerCase())}"]`); if (el) el.scrollIntoView({ block: "center" });
+}
+async function placeKids(id, dir) {
+  const k = id + ":" + dir;
+  if (FX.vkids.has(k)) return FX.vkids.get(k);
+  const { entries } = await query({ type: "place-dir", place: id, dir });
+  FX.vkids.set(k, entries); return entries;
+}
+async function placeHtml(id, dir, depth) {
+  const kids = await placeKids(id, dir); let h = "";
+  for (const e of kids.slice(0, 3000)) {
+    const ind = `style="--d:${depth}"`, key = (id + ":" + e.path).toLowerCase(), inar = e.inside ? " inar" : "";
+    if (e.dir) {
+      const open = FX.vopen.has(key), ico = e.archive ? "📦" : FOLDER_ICON[e.name.toLowerCase()] || "📁";
+      h += `<div class="te dir${e.archive ? " arch" : ""}${inar}" ${ind} data-pdir="${esc(e.path)}" data-pk="${esc(key)}"><span class="tw">${open ? "▾" : "▸"}</span><span class="ic">${ico}</span><span class="nm">${esc(e.name)}</span>${e.archive ? `<span class="c">${fmtSize(e.size)}</span>` : e.inside ? `<span class="c">${num(e.files)}</span>` : ""}</div>`;
+      if (open) h += await placeHtml(id, e.path, depth + 1);
+    } else {
+      h += `<div class="te fl${inar}" ${ind} data-pfile="${esc(e.path)}" data-pk="${esc(key)}"><span class="tw"></span><span class="ic">${fileIcon(e.name)}</span><span class="nm" title="${esc(e.path)}">${esc(e.name)}</span><span class="c">${fmtSize(e.size)}</span></div>`;
+    }
+  }
+  if (kids.length > 3000) h += `<div class="te" style="--d:${depth}"><span class="c">… ещё ${num(kids.length - 3000)}</span></div>`;
+  if (!kids.length && depth === 0) h = `<div class="muted">Папка пуста или не читается.</div>`;
+  return h;
 }
 async function fxShow(path, copy, archive) {
   FX.sel = path; FX.copy = copy ?? null;
@@ -887,6 +942,10 @@ async function fxDraw() {
     return;
   }
   if (FX.subj === "build") { box.innerHTML = `<div class="tree">${await vfsHtml("", 0)}</div>`; return; }
+  if (FX.subj.startsWith("place:")) {
+    const id = FX.subj.slice(6), pl = (FX.places || []).find(p => p.id === id);
+    box.innerHTML = `<div class="tmeta" title="только чтение">${esc(pl ? pl.root : id)}</div><div class="tree">${await placeHtml(id, "", 0)}</div>`; return;
+  }
   const { tree: t } = await query({ type: "file-tree", subject: { of: "selection", view: VIEW }, mode: FX.mode, opened: [...FX.opened], closed: [...FX.closed], limit: 6000 });
   if (!t) { box.innerHTML = `<div class="muted">Выдели мод или несколько в списке — или переключись на «вся сборка».</div>`; return; }
   box.innerHTML = `<div class="tmeta">${t.subject.length > 1 ? `${t.subject.length} модов` : esc(t.subject[0] || "")} · файлов ${num(t.files)} · в конфликтах ${num(t.conflicts)}</div>` +
@@ -908,6 +967,9 @@ $("fxQ").addEventListener("input", ev => {
 });
 $("fxTree").addEventListener("click", async ev => {
   const h = ev.target.closest("[data-hit]"); if (h) return fxShow(h.dataset.hit);
+  const pd = ev.target.closest("[data-pdir]");
+  if (pd) { const k = pd.dataset.pk; if (FX.vopen.has(k)) FX.vopen.delete(k); else FX.vopen.add(k); return fxDraw(); }
+  const pf = ev.target.closest("[data-pfile]"); if (pf) return fxShowPlace(FX.subj.slice(6), pf.dataset.pfile);
   const vd = ev.target.closest("[data-vdir]");
   if (vd) { const p = vd.dataset.vdir.toLowerCase(); if (FX.vopen.has(p)) FX.vopen.delete(p); else FX.vopen.add(p); return fxDraw(); }
   const vf = ev.target.closest("[data-vfile]"); if (vf) return fxShow(vf.dataset.vfile);
@@ -921,11 +983,13 @@ $("fxPrev").addEventListener("click", ev => previewClicks(ev, "fx"));
 $("fxPinBtn").onclick = async ev => {
   ev.stopPropagation();
   document.querySelectorAll(".fxmenu").forEach(x => x.remove());
+  await fxPlaces();
   const { files } = await query({ type: "pinned-files" });
   const m = document.createElement("div"), r = $("fxPinBtn").getBoundingClientRect();
   m.className = "fxmenu"; m.style.left = Math.max(8, r.right - 360) + "px"; m.style.top = r.bottom + 4 + "px";
   m.innerHTML = `<div class="hd">Закреплённые файлы${files.length ? "" : " — пока нет: ☆ в предпросмотре"}</div>` +
-    files.map(f => `<div class="it${f.found ? "" : " gone"}" data-pinned="${esc(f.path)}" title="${f.found ? "открыть" : "в сборке такого файла нет"}"><span>${fileIcon(f.path)}</span><span class="p">${esc(f.path)}</span><span class="m">${esc(f.winner || "")}</span></div>`).join("") +
+    files.map(f => { const i = f.path.indexOf(":"), pl = i > 0 ? (FX.places || []).find(p => p.id === f.path.slice(0, i)) : null;
+      return `<div class="it${f.found ? "" : " gone"}" data-pinned="${esc(f.path)}" title="${f.found ? "открыть" : "в сборке такого файла нет"}"><span>${fileIcon(f.path)}</span><span class="p">${esc(i > 0 ? f.path.slice(i + 1) : f.path)}</span><span class="m">${esc(i > 0 ? (pl ? pl.label : f.path.slice(0, i)) : f.winner || "")}</span></div>`; }).join("") +
     `<div class="it" data-pinned=""><span>🗂️</span><span class="p">Открыть проводник</span></div>`;
   document.body.appendChild(m);
   m.onclick = e => { const it = e.target.closest("[data-pinned]"); if (!it) return; m.remove(); fxOpen(it.dataset.pinned || null); };

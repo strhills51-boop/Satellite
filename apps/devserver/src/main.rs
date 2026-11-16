@@ -327,13 +327,27 @@ fn load(args: &[String]) -> Result<App, String> {
             std::fs::read(dir.join(rel)).ok()
         }));
         // the file explorer reads copies of files, loose or packed (`@sat:scan.fetch`)
+        // and the folders outside the build: the game, the profile, the instance, the game's documents
         let folders = sat_scan::fetch::Folders {
             mods: inst.mods_dir.clone(),
             overwrite: inst.overwrite_dir.clone(),
         };
-        app.set_preview_source(std::sync::Arc::new(
-            move |m: &str, rel: &str, arch: Option<&str>| sat_scan::fetch::preview(&folders, m, rel, arch),
-        ));
+        let mut places = vec![
+            ("game", "Игра", inst.game_path.clone()),
+            ("profile", "Профиль", inst.profile_dir()),
+            ("instance", "MO2", inst.base_dir.clone()),
+        ];
+        if let Some(dir) = inst.ini_path.parent().filter(|d| *d != inst.base_dir) {
+            places.push(("mo2ini", "MO2 (ini экземпляра)", dir.to_path_buf()));
+        }
+        if let Some(d) = inst.documents_dir() {
+            places.push(("documents", "Документы игры", d));
+        }
+        let disk = sat_scan::fetch::Disk::new(places);
+        for p in disk.places() {
+            eprintln!("explorer: {} = {}", p.label, p.root);
+        }
+        app.set_file_source(std::sync::Arc::new(Files { folders, disk }));
         let rt = sat_scan::game_runtime(&inst.game_path);
         if let Some(v) = rt.version {
             eprintln!("game: {}.{}.{}.{}", v.0, v.1, v.2, v.3);
@@ -480,5 +494,26 @@ fn main() {
             _ => json(r#"{"error":"not found"}"#.into(), 404),
         };
         let _ = req.respond(reply);
+    }
+}
+
+/// The explorer's disk (`@sat:scan.fetch`): copies of the build's files and the places outside it.
+struct Files {
+    folders: sat_scan::fetch::Folders,
+    disk: sat_scan::fetch::Disk,
+}
+
+impl sat_app::FileSource for Files {
+    fn copy(&self, m: &str, rel: &str, archive: Option<&str>) -> Option<sat_formats::preview::Preview> {
+        sat_scan::fetch::preview(&self.folders, m, rel, archive)
+    }
+    fn places(&self) -> Vec<sat_formats::preview::Place> {
+        self.disk.places()
+    }
+    fn list(&self, place: &str, dir: &str) -> Option<Vec<sat_formats::preview::DiskEntry>> {
+        self.disk.list(place, dir)
+    }
+    fn read(&self, place: &str, path: &str) -> Option<sat_formats::preview::Preview> {
+        self.disk.read(place, path)
     }
 }

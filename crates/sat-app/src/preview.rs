@@ -4,7 +4,8 @@
 //! disabled owners too), choosing the copy to show (the game's by default), asking the shell's preview source for
 //! it (`@sat:scan.fetch` behind `set_preview_source`); the build's folders listed lazily (a folder → its folders
 //! and files with counts, from the table's path interner, an index built once per table); search over paths;
-//! pinned files (the project keeps them).
+//! pinned files (the project keeps them; a file of a place is pinned as `place:path`); places outside the build
+//! (the game, the profile, the instance, the game's documents) listed and read through the same source.
 //! Not here: formats (`@sat:formats.preview`), trees of mods / chains (`@sat:app.tree`), editing (waits for
 //! commit processing).
 
@@ -15,16 +16,31 @@ use serde::{Deserialize, Serialize};
 use sat_core::ids::{ModId, PathId};
 use sat_core::order::Key;
 use sat_core::table::{ProviderTable, Source};
-use sat_formats::preview::Preview;
+use sat_formats::preview::{DiskEntry, Place, Preview};
 
 use crate::App;
 
-/// Reads a copy: (mod folder name, game path, archive file name if packed) → preview.
-pub type PreviewSource = Arc<dyn Fn(&str, &str, Option<&str>) -> Option<Preview> + Send + Sync>;
+/// Where the explorer reads from (the shell's disk, `@sat:scan.fetch`).
+pub trait FileSource: Send + Sync {
+    /// A copy: (mod folder name, game path, archive file name if packed) → preview.
+    fn copy(&self, m: &str, rel: &str, archive: Option<&str>) -> Option<Preview>;
+    /// Folders outside the build.
+    fn places(&self) -> Vec<Place> {
+        Vec::new()
+    }
+    /// A folder of a place.
+    fn list(&self, _place: &str, _dir: &str) -> Option<Vec<DiskEntry>> {
+        None
+    }
+    /// A file of a place.
+    fn read(&self, _place: &str, _path: &str) -> Option<Preview> {
+        None
+    }
+}
 
-/// The shell's preview source, if any (no `Debug` on closures).
+/// The shell's file source, if any.
 #[derive(Default, Clone)]
-pub(crate) struct SourceSlot(pub Option<PreviewSource>);
+pub(crate) struct SourceSlot(pub Option<Arc<dyn FileSource>>);
 
 impl std::fmt::Debug for SourceSlot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,6 +50,16 @@ impl std::fmt::Debug for SourceSlot {
             "SourceSlot(none)"
         })
     }
+}
+
+/// A file of a place and its preview.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlaceFile {
+    pub place: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<Preview>,
+    pub pinned: bool,
 }
 
 /// One copy of a path.
@@ -152,8 +178,8 @@ impl VfsIndex {
 }
 
 impl App {
-    /// Where the shell reads copies from (`@sat:scan.fetch`).
-    pub fn set_preview_source(&mut self, s: PreviewSource) {
+    /// Where the shell reads copies and places from (`@sat:scan.fetch`).
+    pub fn set_file_source(&mut self, s: Arc<dyn FileSource>) {
         self.preview_source = SourceSlot(Some(s));
     }
 
@@ -215,7 +241,7 @@ impl App {
         let game = table.path_string(p);
         let preview = copies.get(shown).and_then(|c| {
             let src = self.preview_source.0.as_ref()?;
-            src(&c.name, &game, c.archive.as_deref())
+            src.copy(&c.name, &game, c.archive.as_deref())
         });
         Some(FilePreview {
             pinned: self.pinned_files.iter().any(|f| f.eq_ignore_ascii_case(&game)),
@@ -328,13 +354,34 @@ impl App {
         (out, total)
     }
 
-    /// Pinned files with their state.
+    /// A file of a place.
+    pub(crate) fn place_file(&self, place: &str, path: &str) -> Option<PlaceFile> {
+        let src = self.preview_source.0.as_ref()?;
+        let path = path.trim_matches('/').replace('\\', "/");
+        let preview = src.read(place, &path)?;
+        let key = format!("{place}:{path}");
+        Some(PlaceFile {
+            pinned: self.pinned_files.iter().any(|f| f.eq_ignore_ascii_case(&key)),
+            place: place.to_string(),
+            path,
+            preview: Some(preview),
+        })
+    }
+
+    /// Pinned files with their state; a file of a place (`place:path`) is listed as is.
     pub(crate) fn pinned(&mut self) -> Vec<PinnedFile> {
         let table = self.session.table().clone();
         let ow = self.session.overwrite();
         self.pinned_files
             .iter()
             .map(|f| {
+                if f.contains(':') {
+                    return PinnedFile {
+                        path: f.clone(),
+                        found: true,
+                        winner: None,
+                    };
+                }
                 let p = table.find_path(f);
                 PinnedFile {
                     path: p.map_or_else(|| f.clone(), |p| table.path_string(p)),
@@ -357,9 +404,13 @@ impl App {
     /// Pins or unpins a file; true when the list changed.
     pub(crate) fn pin_file(&mut self, path: &str, pinned: bool) -> bool {
         let table = self.session.table();
-        let path = table
-            .find_path(path)
-            .map_or_else(|| path.replace('\\', "/"), |p| table.path_string(p));
+        let path = if path.contains(':') {
+            path.replace('\\', "/")
+        } else {
+            table
+                .find_path(path)
+                .map_or_else(|| path.replace('\\', "/"), |p| table.path_string(p))
+        };
         let at = self
             .pinned_files
             .iter()
@@ -387,12 +438,22 @@ mod tests {
     #[test]
     fn copies_show_who_has_a_file_and_the_source_previews_the_chosen_one() {
         let mut a = crate::tests::app_of(["A", "B"]);
-        a.set_preview_source(Arc::new(|m: &str, p: &str, arch: Option<&str>| {
-            Some(sat_formats::preview::Preview {
-                format: format!("{m}:{p}:{arch:?}"),
-                ..Default::default()
-            })
-        }));
+        struct S;
+        impl crate::FileSource for S {
+            fn copy(&self, m: &str, p: &str, arch: Option<&str>) -> Option<sat_formats::preview::Preview> {
+                Some(sat_formats::preview::Preview {
+                    format: format!("{m}:{p}:{arch:?}"),
+                    ..Default::default()
+                })
+            }
+            fn read(&self, place: &str, path: &str) -> Option<sat_formats::preview::Preview> {
+                (place == "profile").then(|| sat_formats::preview::Preview {
+                    format: path.to_string(),
+                    ..Default::default()
+                })
+            }
+        }
+        a.set_file_source(Arc::new(S));
         let Reply::FilePreview { file: Some(f) } = a
             .query(Query::FilePreview {
                 path: "Textures/A.dds".into(),
@@ -472,5 +533,22 @@ mod tests {
             ("textures/a.dds", true, Some("B"))
         );
         assert_eq!(a.pinned_files(), ["textures/a.dds"]);
+        // a file of a place: read through the source, pinned as `place:path`
+        let Reply::PlaceFile { file: Some(f) } = a
+            .query(Query::PlaceFile {
+                place: "profile".into(),
+                path: "SkyrimPrefs.ini".into(),
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(f.preview.unwrap().format, "SkyrimPrefs.ini");
+        a.command(Command::PinFile {
+            path: "profile:SkyrimPrefs.ini".into(),
+            pinned: true,
+        })
+        .unwrap();
+        assert_eq!(a.pinned_files(), ["textures/a.dds", "profile:SkyrimPrefs.ini"]);
     }
 }

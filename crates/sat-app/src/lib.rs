@@ -25,7 +25,7 @@ mod tree;
 pub use advisor::{AdviceRow, OrderAdvice};
 pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
-pub use preview::{FileCopy, FilePreview, PinnedFile, PreviewSource, VfsEntry};
+pub use preview::{FileCopy, FilePreview, FileSource, PinnedFile, PlaceFile, VfsEntry};
 pub use tree::{ChainRef, FileRow, FileTree, PathOwners, TreeSubject};
 
 fn yes() -> bool {
@@ -422,6 +422,19 @@ pub enum Query {
     },
     /// Pinned files.
     PinnedFiles,
+    /// Folders outside the build the explorer shows (the game, the profile, the instance, the game's documents).
+    Places,
+    /// One folder of a place (`""` — its root); archives are folders.
+    PlaceDir {
+        place: String,
+        #[serde(default)]
+        dir: String,
+    },
+    /// The preview of a file of a place.
+    PlaceFile {
+        place: String,
+        path: String,
+    },
     /// What the decoration editor edits: the mods of the view's selection (the focused one when none) and
     /// their distinct styles with counts, so the editor can mark fields that differ ("mixed").
     Decoration {
@@ -774,6 +787,15 @@ pub enum Reply {
     },
     PinnedFiles {
         files: Vec<PinnedFile>,
+    },
+    Places {
+        places: Vec<sat_formats::preview::Place>,
+    },
+    PlaceDir {
+        entries: Vec<sat_formats::preview::DiskEntry>,
+    },
+    PlaceFile {
+        file: Option<Box<PlaceFile>>,
     },
     ChainOrphans {
         orphans: find::Orphans,
@@ -1662,6 +1684,25 @@ impl App {
                 Reply::FoundPaths { paths, total }
             }
             Query::PinnedFiles => Reply::PinnedFiles { files: self.pinned() },
+            Query::Places => Reply::Places {
+                places: self
+                    .preview_source
+                    .0
+                    .as_ref()
+                    .map(|s| s.places())
+                    .unwrap_or_default(),
+            },
+            Query::PlaceDir { place, dir } => Reply::PlaceDir {
+                entries: self
+                    .preview_source
+                    .0
+                    .as_ref()
+                    .and_then(|s| s.list(&place, &dir))
+                    .unwrap_or_default(),
+            },
+            Query::PlaceFile { place, path } => Reply::PlaceFile {
+                file: self.place_file(&place, &path).map(Box::new),
+            },
             Query::ContextCard { key, index, limit } => Reply::ChainCard {
                 card: self.context_card(key, index, limit.min(5000)).map(Box::new),
             },

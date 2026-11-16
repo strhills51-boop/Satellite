@@ -282,7 +282,7 @@ fn header(r: &mut P<'_>, p: &mut Preview) -> Option<()> {
 }
 
 /// Unix seconds → `YYYY-MM-DD hh:mm` (UTC).
-fn date(t: u64) -> String {
+pub(super) fn date(t: u64) -> String {
     let days = (t / 86_400) as i64;
     let secs = t % 86_400;
     // civil from days (Howard Hinnant)

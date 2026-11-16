@@ -10,6 +10,10 @@ const TEXT: &[(&str, &str)] = &[
     ("ini", "ini"),
     ("json", "json"),
     ("jsonc", "json"),
+    ("jslot", "json"),
+    ("ckm", "text"),
+    ("cgid", "text"),
+    ("pas", "text"),
     ("xml", "xml"),
     ("psc", "papyrus"),
     ("toml", "toml"),
@@ -36,10 +40,14 @@ const TEXT: &[(&str, &str)] = &[
     ("glsl", "text"),
     ("ssf", "text"),
     ("modgroups", "text"),
-    ("pas", "text"),
     ("ws", "text"),
     ("swl", "text"),
 ];
+
+/// The language of a text extension.
+pub(super) fn lang_of(e: &str) -> Option<&'static str> {
+    TEXT.iter().find(|(x, _)| *x == e).map(|(_, l)| *l)
+}
 
 /// Windows-1252 → char for bytes that are not ASCII.
 pub(crate) fn cp1252(c: u8) -> char {
@@ -101,7 +109,7 @@ fn looks_text(b: &[u8]) -> bool {
 
 /// A text preview when the extension says text, or the bytes look like it.
 pub(super) fn detect(e: &str, b: &[u8]) -> Option<Preview> {
-    let lang = TEXT.iter().find(|(x, _)| *x == e).map(|(_, l)| *l);
+    let lang = lang_of(e);
     if lang.is_none() && !looks_text(b) {
         return None;
     }

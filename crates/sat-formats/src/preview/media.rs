@@ -1,6 +1,6 @@
-//! Sound, video and Scaleform for the preview: WAV, XWM, FUZ, LIP, BIK, SWF/GFX. @sat:formats.preview.media
+//! Sound, video and Scaleform for the preview: WAV, XWM, FUZ, LIP, BIK, SWF/GFX, Ogg/MP3/FLAC. @sat:formats.preview.media
 //!
-//! Owns: RIFF chunks and the fmt block, FUZ parts, Bink header, SWF stage, frame rate and frames; WAV bytes to play.
+//! Owns: RIFF chunks and the fmt block, FUZ parts, Bink header, SWF stage, frame rate and frames; WAV, Ogg, MP3, FLAC bytes to play.
 
 use super::{Cur, Kind, Preview};
 
@@ -218,6 +218,34 @@ pub(super) fn swf(b: &[u8]) -> Preview {
     // the interface names other files (fonts, images, other movies)
     for l in super::mentioned_paths(b, &[".swf", ".gfx", ".dds", ".png"]) {
         p.link(&l);
+    }
+    p
+}
+
+/// Sound the browser plays as is (Ogg, MP3, FLAC, Opus, M4A): the format, and the bytes when small enough.
+pub(super) fn play(e: &str, b: &[u8]) -> Preview {
+    let (fmt, mime) = match b.get(..4) {
+        Some(b"OggS") => (
+            "Ogg",
+            if e == "opus" {
+                "audio/ogg; codecs=opus"
+            } else {
+                "audio/ogg"
+            },
+        ),
+        Some(b"fLaC") => ("FLAC", "audio/flac"),
+        Some([b'I', b'D', b'3', _]) | Some([0xFF, 0xFB | 0xF3 | 0xF2, _, _]) => ("MP3", "audio/mpeg"),
+        _ if b.get(4..8) == Some(b"ftyp") => ("M4A", "audio/mp4"),
+        _ => (e, "application/octet-stream"),
+    };
+    let mut p = Preview::new(Kind::Audio, fmt.to_uppercase());
+    if mime.starts_with("audio/") && b.len() <= 32 << 20 {
+        p.audio = Some(super::Media {
+            mime: mime.into(),
+            data: super::base64(b),
+        });
+    } else if !mime.starts_with("audio/") {
+        p.note("формат не распознан");
     }
     p
 }

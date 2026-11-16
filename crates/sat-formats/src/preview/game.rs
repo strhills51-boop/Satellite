@@ -1,6 +1,7 @@
-//! Game files for the preview: plugins, archives, SEQ, TRI, FaceGen, strings, libraries, fonts. @sat:formats.preview.game
+//! Game files for the preview: plugins, archives, materials, SEQ, TRI, FaceGen, strings, libraries, fonts. @sat:formats.preview.game
 //!
-//! Owns: plugin header and record counts as a preview, archive manifests as a folder summary, SEQ quests, TRI morphs, localized strings, PE version and SKSE exports.
+//! Owns: plugin header and record counts as a preview, archive manifests as a folder summary, SEQ quests, TRI morphs, localized strings, PE version and SKSE exports, BGSM/BGEM
+//! materials, the file list of a zip (7z / RAR named only), PDF and PSD headers.
 //! Not here: the plugin and archive readers themselves (`@sat:formats.plugin`, `@sat:formats.archive`).
 
 use super::{Cur, Kind, Preview};
@@ -286,6 +287,90 @@ pub(super) fn font(e: &str, b: &[u8]) -> Preview {
     p
 }
 
+/// Fallout 4 / Skyrim SE materials (`.bgsm`, `.bgem`): version and the textures they name.
+pub(super) fn material(e: &str, b: &[u8]) -> Preview {
+    let mut p = Preview::new(Kind::Material, format!("Материал .{e}"));
+    let mut c = Cur::new(b);
+    match c.take(4) {
+        Some(m) if m == b"BGSM" || m == b"BGEM" => {
+            if let Some(v) = c.u32() {
+                p.fact("Версия", v);
+                p.format = format!("{} v{v}", String::from_utf8_lossy(m));
+            }
+        }
+        _ => p.note("это не BGSM / BGEM"),
+    }
+    let tex = super::mentioned_paths(b, &[".dds", ".tga", ".bgsm"]);
+    for t in &tex {
+        p.link(t);
+    }
+    p.section("Текстуры", tex);
+    p
+}
+
+/// Zip, 7z, RAR in a mod folder: the format; a zip's file list from its central directory.
+pub(super) fn packed(e: &str, b: &[u8]) -> Preview {
+    let fmt = match b.get(..4) {
+        Some([b'P', b'K', 3, 4]) => "ZIP",
+        Some([b'7', b'z', 0xBC, 0xAF]) => "7z",
+        Some(b"Rar!") => "RAR",
+        _ => e,
+    };
+    let mut p = Preview::new(Kind::Archive, format!("{fmt} (упакованный архив)"));
+    if fmt == "ZIP" {
+        let names = zip_names(b).unwrap_or_default();
+        p.fact("Файлов", names.len());
+        p.section("Состав", names);
+    } else {
+        p.note("состав 7z / RAR здесь не читается");
+    }
+    p
+}
+
+fn zip_names(b: &[u8]) -> Option<Vec<String>> {
+    let from = b.len().saturating_sub(65_557);
+    let eocd = (from..b.len().saturating_sub(21))
+        .rev()
+        .find(|&i| b[i..i + 4] == [b'P', b'K', 5, 6])?;
+    let mut c = Cur::new(b);
+    c.at = eocd + 10;
+    let total = c.u16()? as usize;
+    c.u32()?;
+    let mut at = c.u32()? as usize;
+    let mut out = Vec::new();
+    for _ in 0..total.min(super::LIST_LIMIT) {
+        let mut c = Cur::new(b);
+        c.at = at;
+        if c.take(4)? != [b'P', b'K', 1, 2] {
+            break;
+        }
+        c.skip(24)?;
+        let (n, x, m) = (c.u16()? as usize, c.u16()? as usize, c.u16()? as usize);
+        c.skip(12)?;
+        out.push(c.text(n)?);
+        at = c.at + x + m;
+    }
+    Some(out)
+}
+
+/// PDF and PSD: what they are and the size of a picture.
+pub(super) fn document(e: &str, b: &[u8]) -> Preview {
+    let mut p = Preview::new(Kind::Document, format!(".{e}"));
+    if b.starts_with(b"%PDF-") {
+        let v = super::lossy(&b[5..b.len().min(8)]);
+        p.format = format!("PDF {v}");
+    } else if b.starts_with(b"8BPS") {
+        let mut c = Cur::new(b);
+        c.at = 14;
+        if let (Some(h), Some(w)) = (c.u32be(), c.u32be()) {
+            p.format = format!("PSD · {w}×{h}");
+        }
+    } else {
+        p.note("формат не распознан");
+    }
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{Kind, inspect};
@@ -312,5 +397,34 @@ mod tests {
         d.extend_from_slice(b"..SKSEPlugin_Load..SKSEPlugin_Version..");
         let p = inspect("p.dll", &d);
         assert!(p.format.starts_with("SKSE-плагин · x64"), "{}", p.format);
+    }
+
+    #[test]
+    fn materials_zips_and_documents_say_what_they_are() {
+        let mut m = b"BGSM".to_vec();
+        m.extend_from_slice(&2u32.to_le_bytes());
+        m.extend_from_slice(b"\x10\0\0\0textures\\a\\b_d.dds\0");
+        let p = super::super::inspect("x.bgsm", &m);
+        assert_eq!(p.format, "BGSM v2");
+        assert_eq!(p.links, ["textures/a/b_d.dds"]);
+        // a zip with one file, stored
+        let name = b"readme.txt";
+        let mut z = vec![b'P', b'K', 3, 4];
+        z.extend_from_slice(&[0; 26]);
+        let cd = z.len() as u32;
+        z.extend_from_slice(&[b'P', b'K', 1, 2]);
+        z.extend_from_slice(&[0; 24]);
+        z.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        z.extend_from_slice(&[0; 4]);
+        z.extend_from_slice(&[0; 12]);
+        z.extend_from_slice(name);
+        z.extend_from_slice(&[b'P', b'K', 5, 6, 0, 0, 0, 0, 1, 0, 1, 0]);
+        z.extend_from_slice(&0u32.to_le_bytes());
+        z.extend_from_slice(&cd.to_le_bytes());
+        z.extend_from_slice(&[0, 0]);
+        let p = super::super::inspect("a.zip", &z);
+        assert_eq!(p.sections[0].lines, ["readme.txt"]);
+        let p = super::super::inspect("a.pdf", b"%PDF-1.7 ...");
+        assert_eq!(p.format, "PDF 1.7");
     }
 }

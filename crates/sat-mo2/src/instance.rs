@@ -35,14 +35,17 @@ impl Instance {
             p.clone()
         };
         if !ini_path.is_file() {
-            // Non-portable MO2 keeps its ini in %LOCALAPPDATA%; the folders themselves are enough (monolith model).
+            // Non-portable MO2 keeps its ini in %LOCALAPPDATA%\ModOrganizer\<instance>, naming this folder as its
+            // base directory; without it the folders themselves are enough (monolith model).
+            if p.is_dir()
+                && let Some(global) = global_ini_for(&p)
+            {
+                return Self::load(global);
+            }
             if p.is_dir() && p.join("mods").is_dir() && p.join("profiles").is_dir() {
-                return Ok(Self::from_dirs(
-                    p.join("mods"),
-                    p.join("profiles"),
-                    p.join("overwrite"),
-                    None,
-                ));
+                let mut i = Self::from_dirs(p.join("mods"), p.join("profiles"), p.join("overwrite"), None);
+                i.game_path = find_game(PathBuf::new(), &p, &p, "");
+                return Ok(i);
             }
             return Err(Mo2Error::NotInstance(format!(
                 "neither ModOrganizer.ini nor mods/ + profiles/ found at {}{}",
@@ -86,6 +89,7 @@ impl Instance {
             PathBuf::from(get(general, "gamepath").replace('/', std::path::MAIN_SEPARATOR_STR)),
             &inst_dir,
             &base_dir,
+            &get(general, "gamename"),
         );
         Ok(Self {
             ini_path,
@@ -152,6 +156,38 @@ impl Instance {
         out + &instances_inside(&self.base_dir)
     }
 
+    // @sat:mo2.instance.documents
+    /// The game's folder in the user's documents (`My Games\\Skyrim Special Edition`: its ini, logs, saves),
+    /// looked up in `Documents` and OneDrive's documents; the named game's first, else any known one there.
+    pub fn documents_dir(&self) -> Option<PathBuf> {
+        let home = PathBuf::from(std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?);
+        let docs = [
+            home.join("Documents"),
+            home.join("OneDrive").join("Documents"),
+            home.join("OneDrive").join("Документы"),
+        ];
+        let g = self.game_name.to_ascii_lowercase();
+        let names: &[&str] = if g.contains("fallout 4") {
+            &["Fallout4"]
+        } else if g.contains("starfield") {
+            &["Starfield"]
+        } else if g == "skyrim" {
+            &["Skyrim"]
+        } else {
+            &[
+                "Skyrim Special Edition",
+                "Skyrim Special Edition GOG",
+                "Skyrim VR",
+                "Fallout4",
+                "Starfield",
+            ]
+        };
+        names
+            .iter()
+            .flat_map(|n| docs.iter().map(move |d| d.join("My Games").join(n)))
+            .find(|p| p.is_dir())
+    }
+
     /// Folder of a mod. An instance has exactly one mods folder, as in MO2 and the monolith; other folders
     /// with mods are external donors (ADR 0006), never extra roots of the build.
     pub fn mod_dir(&self, name: &str) -> PathBuf {
@@ -188,8 +224,9 @@ fn is_game_root(p: &Path) -> bool {
 
 // @sat:mo2.instance.game
 /// The game's folder: the instance's `gamePath` when it holds the game, else a portable copy next to the instance
-/// (`Stock Game`, `Game Root`, `Game`), else what the instance says (it may be empty; callers say so).
-fn find_game(said: PathBuf, inst_dir: &Path, base_dir: &Path) -> PathBuf {
+/// (`Stock Game`, `Game Root`, `Game`), else the game in a Steam library or a usual GOG folder, else what the instance
+/// says (it may be empty; callers say so).
+fn find_game(said: PathBuf, inst_dir: &Path, base_dir: &Path, game_name: &str) -> PathBuf {
     if !said.as_os_str().is_empty() && is_game_root(&said) {
         return said;
     }
@@ -202,7 +239,104 @@ fn find_game(said: PathBuf, inst_dir: &Path, base_dir: &Path) -> PathBuf {
             }
         }
     }
-    said
+    installed_games(game_name).into_iter().next().unwrap_or(said)
+}
+
+/// Folder names a game installs to, the named game first (an instance without an ini names none).
+fn game_folders(game_name: &str) -> Vec<&'static str> {
+    const ALL: [(&str, &[&str]); 6] = [
+        (
+            "skyrim special edition",
+            &["Skyrim Special Edition", "Skyrim Anniversary Edition"],
+        ),
+        ("fallout 4", &["Fallout 4"]),
+        ("skyrim", &["Skyrim"]),
+        ("starfield", &["Starfield"]),
+        ("new vegas", &["Fallout New Vegas"]),
+        ("fallout 3", &["Fallout 3", "Fallout 3 goty"]),
+    ];
+    let g = game_name.to_ascii_lowercase();
+    let mut out: Vec<&str> = Vec::new();
+    for (n, dirs) in ALL {
+        if !g.is_empty() && g.contains(n) {
+            out.extend(dirs.iter());
+            return out;
+        }
+    }
+    for (_, dirs) in ALL {
+        out.extend(dirs.iter());
+    }
+    out
+}
+
+/// Steam libraries (`libraryfolders.vdf` of the usual Steam folders) and usual GOG folders holding the game.
+fn installed_games(game_name: &str) -> Vec<PathBuf> {
+    let mut libs: Vec<PathBuf> = Vec::new();
+    let mut steams: Vec<PathBuf> = Vec::new();
+    for v in ["ProgramFiles(x86)", "ProgramFiles"] {
+        if let Some(d) = std::env::var_os(v) {
+            steams.push(PathBuf::from(d).join("Steam"));
+        }
+    }
+    for d in ['C', 'D', 'E', 'F'] {
+        steams.push(PathBuf::from(format!("{d}:\\Steam")));
+        steams.push(PathBuf::from(format!("{d}:\\SteamLibrary")));
+    }
+    for s in &steams {
+        libs.push(s.clone());
+        if let Ok(t) = std::fs::read_to_string(s.join("steamapps").join("libraryfolders.vdf")) {
+            libs.extend(steam_libraries(&t));
+        }
+    }
+    let mut out = Vec::new();
+    for name in game_folders(game_name) {
+        for l in &libs {
+            let p = l.join("steamapps").join("common").join(name);
+            if is_game_root(&p) && !out.contains(&p) {
+                out.push(p);
+            }
+        }
+        for d in ['C', 'D', 'E'] {
+            let p = PathBuf::from(format!("{d}:\\GOG Games\\{name}"));
+            if is_game_root(&p) && !out.contains(&p) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// The `"path"` values of Steam's `libraryfolders.vdf`.
+fn steam_libraries(vdf: &str) -> Vec<PathBuf> {
+    vdf.lines()
+        .filter_map(|l| {
+            let mut q = l.split('"').filter(|x| !x.trim().is_empty());
+            if q.next()? != "path" {
+                return None;
+            }
+            Some(PathBuf::from(q.next()?.replace("\\\\", "\\")))
+        })
+        .collect()
+}
+
+/// A global instance's ini (`%LOCALAPPDATA%\ModOrganizer\*\ModOrganizer.ini`) whose base directory is `dir`.
+fn global_ini_for(dir: &Path) -> Option<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA")?;
+    global_ini_in(&PathBuf::from(local).join("ModOrganizer"), dir)
+}
+
+fn global_ini_in(root: &Path, dir: &Path) -> Option<PathBuf> {
+    let norm = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_lowercase();
+    let want = norm(&dir.to_string_lossy());
+    std::fs::read_dir(root).ok()?.flatten().find_map(|e| {
+        let ini_path = e.path().join("ModOrganizer.ini");
+        let ini = ini::parse(&read(&ini_path).ok()?);
+        let base = ini
+            .get("settings")?
+            .get("base_directory")
+            .map(|v| ini::unquote(v))?;
+        (norm(&base) == want).then_some(ini_path)
+    })
 }
 
 /// "; MO2 instances inside: …" for the subfolders of `dir` that are instances, else empty.
@@ -294,6 +428,34 @@ mod tests {
         .unwrap();
         let i = Instance::load(root).unwrap();
         assert!(i.game_path.ends_with("Stock Game"), "{}", i.game_path.display());
+    }
+
+    #[test]
+    fn a_global_instance_is_found_by_its_base_directory_and_steam_libraries_are_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let local = dir.path().join("ModOrganizer");
+        std::fs::create_dir_all(local.join("Other")).unwrap();
+        std::fs::create_dir_all(local.join("SSE")).unwrap();
+        std::fs::write(
+            local.join("Other/ModOrganizer.ini"),
+            "[Settings]\nbase_directory=Y:/x\n",
+        )
+        .unwrap();
+        std::fs::write(
+            local.join("SSE/ModOrganizer.ini"),
+            "[Settings]\nbase_directory=X:/MO2/SSE/\n",
+        )
+        .unwrap();
+        let found = global_ini_in(&local, Path::new("X:\\MO2\\SSE")).unwrap();
+        assert!(found.starts_with(local.join("SSE")));
+        assert!(global_ini_in(&local, Path::new("X:\\MO2\\FO4")).is_none());
+        let vdf = "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"D:\\\\SteamLibrary\"\n\t\t\"label\"\t\t\"\"\n";
+        assert_eq!(steam_libraries(vdf), [PathBuf::from("D:\\SteamLibrary")]);
+        assert_eq!(
+            game_folders("Skyrim Special Edition")[0],
+            "Skyrim Special Edition"
+        );
+        assert_eq!(game_folders("")[0], "Skyrim Special Edition");
     }
 
     #[test]

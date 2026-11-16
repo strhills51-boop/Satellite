@@ -559,6 +559,7 @@ version = "0.1.0"
 dependencies = [
  "sat-app",
  "sat-core",
+ "sat-formats",
  "sat-mo2",
  "sat-scan",
  "sat-stll",

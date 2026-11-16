@@ -2,7 +2,8 @@
 //!
 //! Owns: the preview model (`Preview`: kind, format line, facts, sections, text, picture, sound, links to other
 //! files, hex head, notes) and `inspect(name, bytes)` — dispatch by extension and by magic to the readers of
-//! `preview::*`, with the text and binary fallbacks.
+//! `preview::*`, with the text and binary fallbacks; the listing model of folders outside the build (`Place`,
+//! `DiskEntry`: the game, the profile, the instance, the game's documents).
 //! Not here: where the bytes come from (`@sat:scan.fetch`), which copy of a path (`@sat:app.preview`), drawing.
 //!
 //! Read-only: nothing here edits a file (editing waits for commit processing). Every reader is bounded: a corrupt
@@ -15,6 +16,7 @@ mod image;
 mod media;
 mod nif;
 mod pex;
+mod save;
 mod text;
 
 use serde::{Deserialize, Serialize};
@@ -43,6 +45,9 @@ pub enum Kind {
     Strings,
     Library,
     Facegen,
+    Save,
+    Material,
+    Document,
     #[default]
     Binary,
 }
@@ -85,6 +90,35 @@ pub struct Media {
     pub mime: String,
     /// Base64.
     pub data: String,
+}
+
+/// A folder outside the build the explorer shows: the game, the profile, the instance, the game's documents.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Place {
+    /// `game`, `profile`, `instance`, `documents`.
+    pub id: String,
+    pub label: String,
+    /// The folder on disk, for the user.
+    pub root: String,
+}
+
+/// One child of a folder of a place; an archive (BSA, BA2) is a folder of its entries.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskEntry {
+    pub name: String,
+    /// Relative to the place, forward slashes; inside an archive: `Data/A.bsa/textures/x.dds`.
+    pub path: String,
+    pub dir: bool,
+    pub size: u64,
+    /// An archive shown as a folder.
+    #[serde(default)]
+    pub archive: bool,
+    /// Packed in an archive.
+    #[serde(default)]
+    pub inside: bool,
+    /// Files under a folder of an archive.
+    #[serde(default)]
+    pub files: u32,
 }
 
 /// The preview of one file.
@@ -179,6 +213,35 @@ pub fn inspect_head(name: &str, head: &[u8], size: u64) -> Preview {
     p
 }
 
+// @sat:formats.preview.readers
+/// The reader an extension gets (`None`: by magic, else text when it looks like text, else hex) — for the census of
+/// a build's extensions. Kept next to `inspect`'s dispatch: a new reader is added in both.
+pub fn reader_of(e: &str) -> Option<&'static str> {
+    Some(match e {
+        "dds" | "tga" | "png" | "jpg" | "jpeg" | "bmp" | "gif" | "webp" => "картинка",
+        "nif" | "kf" | "bto" | "btr" | "btt" | "nifcache" => "NIF",
+        "hkx" | "hkt" => "Havok",
+        "pex" => "Papyrus (скомпилированный)",
+        "esp" | "esm" | "esl" => "плагин",
+        "bsa" | "ba2" => "архив игры",
+        "wav" | "xwm" | "fuz" | "ogg" | "mp3" | "flac" | "opus" | "m4a" => "звук",
+        "lip" => "LIP",
+        "bik" | "bk2" => "видео Bink",
+        "swf" | "gfx" => "Scaleform",
+        "seq" => "SEQ",
+        "tri" => "TRI",
+        "egm" | "egt" | "fg" => "FaceGen",
+        "strings" | "dlstrings" | "ilstrings" => "строки",
+        "dll" | "exe" => "библиотека",
+        "ttf" | "otf" | "fnt" => "шрифт",
+        "ess" | "fos" => "сохранение",
+        "bgsm" | "bgem" => "материал",
+        "zip" | "7z" | "rar" => "упакованный архив",
+        "pdf" | "psd" => "документ",
+        _ => return text::lang_of(e).map(|_| "текст"),
+    })
+}
+
 /// What a file is: the reader for its extension, then by magic, then text or binary.
 pub fn inspect(name: &str, bytes: &[u8]) -> Preview {
     let e = ext(name);
@@ -203,6 +266,11 @@ pub fn inspect(name: &str, bytes: &[u8]) -> Preview {
         "strings" | "dlstrings" | "ilstrings" => game::strings(&e, bytes),
         "dll" | "exe" => game::pe(bytes),
         "ttf" | "otf" | "fnt" => game::font(&e, bytes),
+        "ess" | "fos" => save::read(bytes),
+        "ogg" | "mp3" | "flac" | "opus" | "m4a" => media::play(&e, bytes),
+        "bgsm" | "bgem" => game::material(&e, bytes),
+        "zip" | "7z" | "rar" => game::packed(&e, bytes),
+        "pdf" | "psd" => game::document(&e, bytes),
         _ => by_magic(&e, bytes),
     };
     p.fact("Размер", human(bytes.len() as u64));
@@ -223,6 +291,10 @@ fn by_magic(e: &str, b: &[u8]) -> Preview {
         Some([0x57, 0xE0, 0xE0, 0x57]) => hkx::read(b),
         Some(b"Game") => nif::read(b),
         Some([0x89, b'P', b'N', b'G']) => image::raster("png", b),
+        Some(b"TESV") | Some(b"FO4_") => save::read(b),
+        Some(b"OggS") | Some(b"fLaC") => media::play(e, b),
+        Some(b"BGSM") | Some(b"BGEM") => game::material(e, b),
+        Some([b'P', b'K', 3, 4]) | Some([b'7', b'z', 0xBC, 0xAF]) | Some(b"Rar!") => game::packed(e, b),
         _ => match text::detect(e, b) {
             Some(p) => p,
             None => Preview::new(
