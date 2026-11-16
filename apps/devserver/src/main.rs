@@ -100,7 +100,7 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     Ok(app)
 }
 
-fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
+fn load(args: &[String], after_commit: bool) -> Result<(App, Option<home::Home>), String> {
     if let Some(dir) = flag(args, "--project") {
         return Ok((load_offline(std::path::Path::new(dir))?, None));
     }
@@ -126,10 +126,12 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
         );
     }
     // the same run as `sat-cli analyze` (`@sat:home.run`); opening writes nothing, even with `--write` — no facts,
-    // no project, the early layout read as it is
+    // no project, the early layout read as it is. After a commit (with `--write`) the opening run is the commit's
+    // check and saves like `analyze` does after `commit`: the facts of adopted mods, their signatures.
     let write = args.iter().any(|a| a == "--write");
+    let save = write && after_commit;
     let path = sat_home::project::default_path(&inst);
-    let stamp = sat_home::project::stamp_of(&path);
+    let mut stamp = sat_home::project::stamp_of(&path);
     let manager = sat_home::project::manager_list(&inst)?;
     let opened = sat_home::project::open_for_run(
         &path,
@@ -140,7 +142,7 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
         },
     )?;
     // what is on disk now: unsaved changes are measured against it (none yet — the window must save first)
-    let on_disk = (opened.origin == sat_home::project::Origin::Stored).then(|| opened.project.clone());
+    let mut on_disk = (opened.origin == sat_home::project::Origin::Stored).then(|| opened.project.clone());
     eprintln!("{}", opened.origin_line());
     let sat_home::project::Opened {
         mut stll,
@@ -150,7 +152,7 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
     let inv = sat_home::run::inventory(&inst, &project.canon);
     let jobs = sat_home::run::jobs(&inst, &project.canon, &inv.unlisted, true);
     let mut o = sat_home::run::RunOptions::for_build(&inst);
-    o.save_facts = false;
+    o.save_facts = save;
     o.tag_rules = Some(builtin_rules());
     let t = Instant::now();
     let progress = ScanProgress::default();
@@ -183,10 +185,15 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
             contexts: totals.contexts,
             conflict_paths: totals.conflict_paths,
         },
-        false,
+        save,
     )?;
     for v in &published.seals {
         eprintln!("seal: {v}");
+    }
+    if published.saved.is_some() {
+        eprintln!("project and facts saved → {}", path.display());
+        on_disk = Some(project.clone());
+        stamp = sat_home::project::stamp_of(&path);
     }
     let mut app = App::new(session, Registry::with_builtins());
     // the records of this run against the folders now: decisions and the plan, never a commit here
@@ -260,6 +267,7 @@ fn load(args: &[String]) -> Result<(App, Option<home::Home>), String> {
     }
     if write {
         app.enable_saving(path.display().to_string());
+        app.enable_commits();
         eprintln!(
             "write: the project is saved on request (Ctrl+S in the window) → {}",
             path.display()
@@ -372,7 +380,7 @@ fn json(body: String, status: u16) -> tiny_http::Response<std::io::Cursor<Vec<u8
 // @sat:devserver.http
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (mut app, mut home) = match load(&args) {
+    let (mut app, mut home) = match load(&args, false) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("error: {e}");
@@ -394,9 +402,7 @@ fn main() {
         }
     );
     for mut req in server.incoming_requests() {
-        if let Some(h) = home.as_mut() {
-            h.tick(&mut app);
-        }
+        reopen(&args, &mut app, &mut home);
         RECORDS.with(|r| {
             if let Some(report) = r.borrow().as_ref().and_then(|rx| rx.try_recv().ok()) {
                 app.set_records(report);
@@ -443,8 +449,30 @@ fn main() {
         };
         let _ = req.respond(reply);
         // a run asked by this request starts now, not at the next one
-        if let Some(h) = home.as_mut() {
-            h.tick(&mut app);
+        reopen(&args, &mut app, &mut home);
+    }
+}
+
+// @sat:devserver.reopen
+/// Ticks the build's runs and commits; after a commit wrote the build, opens it again — the run of the reopened
+/// build is the commit's check (ADR 0019 §4: no mismatches expected), and the window reloads.
+fn reopen(args: &[String], app: &mut App, home: &mut Option<home::Home>) {
+    let Some(r) = home.as_mut().and_then(|h| h.tick(app)) else {
+        return;
+    };
+    eprintln!("commit: done — opening the build again");
+    match load(args, true) {
+        Ok((mut a, h)) => {
+            let mut r = r;
+            r.records_after = Some(a.sync_records().len());
+            a.commit_finished(r);
+            *app = a;
+            *home = h;
+        }
+        Err(e) => {
+            let mut r = r;
+            r.error = Some(format!("committed, but opening the build again failed: {e}"));
+            app.commit_finished(r);
         }
     }
 }

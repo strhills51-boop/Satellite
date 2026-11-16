@@ -50,7 +50,9 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; borde
 .syr .st.pending { color: var(--m-txt); border-color: var(--m-txt); } .syr .st.confirmed { color: var(--ok); border-color: var(--ok); }
 .syr .ans { grid-column: 2 / 4; display: flex; gap: 6px; flex-wrap: wrap; }
 .syr .ans button { font-size: 12px; padding: 2px 10px; } .syr .ans button.on { border-color: var(--ok); color: var(--ok); }
-.syp { font: 12px/1.5 var(--mono); display: grid; gap: 2px; } .syp .bl { color: var(--l-txt); } .syp .nt { color: var(--muted); }
+.syp { font: 12px/1.5 var(--mono); display: grid; gap: 2px; }
+.syc { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 13px; display: grid; gap: 2px; }
+.syc.ok { border-color: var(--ok); } .syc.bad { border-color: var(--l-txt); } .syc small { color: var(--muted); font: 11px var(--mono); word-break: break-all; } .syp .bl { color: var(--l-txt); } .syp .nt { color: var(--muted); }
 #sy .foot { border-top: 1px solid var(--line); padding: 8px 14px; display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); }
 #passBtn { border-color: var(--ok); font-size: 13px; padding: 3px 10px; display: inline-flex; gap: 6px; align-items: center; }
 #passDot:not(:empty) { font: 11px var(--mono); color: var(--muted); }
@@ -462,7 +464,7 @@ footer b { color: var(--accent2); font-weight: 500; }
   <div class="top"><div class="t1"><b>Синхронизация</b><button id="sySurface" title="Перечитать подписи папок и сверить с проектом (секунды)">Поверхность</button><button id="syClose">Закрыть</button></div>
     <div class="t2" id="syInfo"></div></div>
   <div id="syBody"></div>
-  <div class="foot"><button id="syCommit" disabled title="Фиксация из окна — следующий шаг; сейчас: sat-cli commit">Зафиксировать…</button><span id="syFoot"></span></div>
+  <div class="foot"><button id="syCommit" disabled>Зафиксировать…</button><span id="syFoot"></span></div>
 </div>
 <div id="ctx" hidden></div>
 <div id="palette" hidden></div>
@@ -2489,9 +2491,45 @@ async function syLoad() {
   const plan = `<div class="syp">${ops.map(o => `<span>${o}</span>`).join("")}` +
     (x ? x.notes.map(n => `<span class="nt">${esc(n)}</span>`).join("") : "") +
     (p.blockers.length ? p.blockers.map(b => `<span class="bl">⛔ ${syBlocker(b, recs)}</span>`).join("") : `<span style="color:var(--ok)">блокеров нет</span>`) + `</div>`;
-  $("syBody").innerHTML = `<div><h4>Расхождения</h4>${rows}</div><div><h4>План фиксации${x ? " — тот же, что выполнит sat-cli commit" : ""}</h4>${plan}</div>`;
-  $("syFoot").textContent = p.blockers.length ? "фиксация заблокирована, пока есть блокеры" : (PROJ && PROJ.writable ? "ответы сохраняются вместе с проектом (Ctrl+S); " : "песочница: ") + "фиксация из окна — следующий шаг; сейчас план выполняет sat-cli commit … --apply";
+  const { commit: cv } = await query({ type: "commit" });
+  SY = { plan: p, commit: cv };
+  const L = cv.last, CS = { committed: "зафиксировано", refused: "не начато", "rolled-back": "ошибка — всё откатено", incomplete: "ошибка — откат НЕ полный" };
+  const res = cv.state === "running" || cv.state === "requested" ? `<div class="syc">фиксация идёт… окно перечитает сборку, когда она закончится</div>`
+    : L ? `<div class="syc ${L.state === "committed" ? "ok" : "bad"}"><b>Последняя фиксация: ${CS[L.state] || L.state}</b>` +
+      (L.state === "committed" ? `<span>шагов ${L.steps}; сборка перечитана, расхождений после: ${L.records_after ?? "?"}</span>` : "") +
+      (L.error ? `<span>${esc(L.error)}</span>` : "") + (L.left.length ? `<span class="warn">не откатено: ${esc(L.left.join("; "))}</span>` : "") +
+      (L.version_dir ? `<small>версия (бэкап, журнал): ${esc(L.version_dir)}</small>` : "") + `</div>` : "";
+  $("syBody").innerHTML = res + `<div><h4>Расхождения</h4>${rows}</div><div><h4>План фиксации${x ? " — тот же, что выполнит sat-cli commit" : ""}</h4>${plan}</div>`;
+  const onlyConfirm = p.blockers.length && p.blockers.every(b => b.blocker === "needs_confirmation");
+  const can = cv.available && (!p.blockers.length || onlyConfirm) && cv.state !== "running" && cv.state !== "requested";
+  $("syCommit").disabled = !can;
+  $("syCommit").title = !cv.available ? "фиксация — только с --write (по умолчанию окно — песочница)" : can ? "записать план в сборку: бэкап, журнал, откат при ошибке" : "сначала убери блокеры";
+  $("syFoot").textContent = !cv.available ? "песочница: зафиксировать — sat-cli commit … --apply или окно с --write"
+    : p.blockers.length && !onlyConfirm ? "фиксация заблокирована, пока есть блокеры"
+    : "перед записью окно сверит папку mods с записями; после — перечитает сборку";
 }
+
+let SY = null, syTimer = 0;
+$("syCommit").onclick = async () => {
+  if (!SY) return;
+  const p = SY.plan, need = p.blockers.filter(b => b.blocker === "needs_confirmation");
+  const n = p.project_ops.length + p.disk_ops.length;
+  let text = `Зафиксировать план: ${n} операций, modlist.txt из проекта${need.length ? "" : ""}?\n\nПеред записью — версия-бэкап; при ошибке всё откатывается.`;
+  if (need.length) text += "\n\nНеобратимо:\n" + need.map(b => "• " + b.what).join("\n");
+  if (!confirm(text)) return;
+  await command({ type: "commit", confirmed: need.map(b => b.confirm) });
+  syWatch();
+};
+async function syWatch() {
+  clearTimeout(syTimer);
+  let cv;
+  try { ({ commit: cv } = await query({ type: "commit" })); } catch (_) { syTimer = setTimeout(syWatch, 800); return; }
+  if (cv.state === "running" || cv.state === "requested") { syLoad(); syTimer = setTimeout(syWatch, 500); return; }
+  // committed: the server opened the build again — the page reads it anew and shows the result
+  if (cv.state === "committed") { try { sessionStorage.setItem("sat-open-sync", "1"); } catch (_) {} location.reload(); return; }
+  syLoad();
+}
+try { if (sessionStorage.getItem("sat-open-sync")) { sessionStorage.removeItem("sat-open-sync"); setTimeout(() => { $("sy").hidden = false; syLoad(); }, 300); } } catch (_) {}
 $("syncBtn").onclick = () => { $("sy").hidden = !$("sy").hidden; if (!$("sy").hidden) syLoad(); };
 $("syClose").onclick = () => { $("sy").hidden = true; list.focus({ preventScroll: true }); };
 $("sySurface").onclick = async () => { await command({ type: "start-pass", mode: "surface" }); await passPoll(); };

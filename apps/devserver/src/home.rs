@@ -17,6 +17,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::Instant;
 
 use sat_app::App;
+use sat_app::commit::{CommitResult, CommitState};
 use sat_app::pass::{PassMode, PassProgress, PassResult};
 use sat_core::jobs::{Jobs, Ticket};
 use sat_core::plugins::{PluginCanon, PluginVersions};
@@ -43,6 +44,8 @@ pub struct Home {
     stamp: Option<Stamp>,
     jobs: Jobs,
     running: Option<Running>,
+    /// A commit on its own thread.
+    committing: Option<Receiver<CommitResult>>,
 }
 
 #[derive(Debug)]
@@ -90,6 +93,7 @@ impl Home {
             stamp,
             jobs: Jobs::default(),
             running: None,
+            committing: None,
         }
     }
 
@@ -112,8 +116,29 @@ impl Home {
     }
 
     // @sat:devserver.pass.tick
-    /// Called around every request: a cancel, a new request, the progress, a finished run.
-    pub fn tick(&mut self, app: &mut App) {
+    /// Called around every request: a cancel, a new request, the progress, a finished run, a commit. Returns a
+    /// finished commit that wrote the build: the shell opens the build again (the run is the commit's check).
+    pub fn tick(&mut self, app: &mut App) -> Option<CommitResult> {
+        if let Some(rx) = &self.committing {
+            return match rx.try_recv() {
+                Ok(r) => {
+                    self.committing = None;
+                    self.stamp = sat_home::project::stamp_of(&self.path);
+                    if r.state == CommitState::Committed {
+                        Some(r)
+                    } else {
+                        app.commit_finished(r);
+                        None
+                    }
+                }
+                // one writer: nothing else starts while the commit runs
+                Err(_) => None,
+            };
+        }
+        if let Some(confirmed) = app.take_commit_request() {
+            self.commit(app, confirmed);
+            return None;
+        }
         if app.take_pass_cancel() && self.jobs.cancel(RUN) {
             eprintln!("run: cancel asked");
         }
@@ -123,6 +148,44 @@ impl Home {
         if let Some(mode) = app.take_pass_request() {
             self.start(app, mode);
         }
+        self.poll(app);
+        None
+    }
+
+    // @sat:devserver.commit
+    /// Starts the commit of the window's project on its own thread: a running run is superseded (its result is
+    /// not published), the gates are checked there (`commit_gates`), then the transaction (`@sat:home.commit`).
+    fn commit(&mut self, app: &mut App, confirmed: Vec<String>) {
+        if !self.write {
+            app.commit_finished(CommitResult {
+                state: CommitState::Refused,
+                error: Some("the window is a sandbox (start it with --write)".into()),
+                ..Default::default()
+            });
+            return;
+        }
+        let Some(project) = app.project() else {
+            return;
+        };
+        self.jobs.cancel(RUN);
+        self.running = None;
+        app.commit_started();
+        let (tx, rx) = channel();
+        let (inst, path, stamp) = (self.inst.clone(), self.path.clone(), self.stamp);
+        eprintln!("commit: started");
+        std::thread::spawn(move || {
+            let r = commit_gates(&inst, &path, &project, &confirmed, stamp);
+            eprintln!(
+                "commit: {:?}{}",
+                r.state,
+                r.error.as_deref().map(|e| format!(" — {e}")).unwrap_or_default()
+            );
+            let _ = tx.send(r);
+        });
+        self.committing = Some(rx);
+    }
+
+    fn poll(&mut self, app: &mut App) {
         let Some(r) = &self.running else {
             return;
         };
@@ -408,4 +471,79 @@ impl sat_app::PlanSource for HomePlan {
         };
         (f.plan, extras)
     }
+}
+
+/// The commit's gates and the commit (on the commit's thread): the project file is as this window knows it, the
+/// mods folder is as the records describe it (a surface run now, `@sat:home.commit.fresh`), the full plan is not
+/// blocked — then the transaction with its backup, journal and rollback.
+fn commit_gates(
+    inst: &Instance,
+    path: &std::path::Path,
+    project: &Project,
+    confirmed: &[String],
+    stamp: Option<Stamp>,
+) -> CommitResult {
+    let refused = |e: String| CommitResult {
+        state: CommitState::Refused,
+        error: Some(e),
+        ..Default::default()
+    };
+    if sat_home::project::stamp_of(path) != stamp {
+        return refused(
+            "the project file changed outside the window since it was read — reopen the window".into(),
+        );
+    }
+    let stale = sat_home::commit::stale(inst, project);
+    if !stale.is_empty() {
+        return refused(format!(
+            "the mods folder changed since the last run ({}) — run the surface again and look at the records",
+            stale.join(", ")
+        ));
+    }
+    let layout = sat_mo2::commit::Layout::of(inst);
+    let confirmed: Vec<&str> = confirmed.iter().map(String::as_str).collect();
+    let full = sat_home::plan::full(inst, &layout, project, &confirmed);
+    if full.plan.blocked() {
+        return refused(format!(
+            "the plan is blocked ({} blocker(s))",
+            full.plan.blockers.len()
+        ));
+    }
+    let stll = if path.exists() {
+        match Stll::open(path) {
+            Ok((s, _)) => s,
+            Err(e) => return refused(e.to_string()),
+        }
+    } else {
+        Stll::new(path)
+    };
+    let done = match sat_home::commit::run(&layout, stll, project, &full, &sat_mo2::commit::stamp_now()) {
+        Ok(d) => d,
+        Err(e) => return refused(e),
+    };
+    let mut r = CommitResult {
+        version_dir: Some(done.report.version_dir.display().to_string()),
+        steps: done.report.steps.len(),
+        ..Default::default()
+    };
+    match done.report.outcome {
+        sat_mo2::commit::Outcome::Committed => r.state = CommitState::Committed,
+        sat_mo2::commit::Outcome::RolledBack { error } => {
+            r.state = CommitState::RolledBack;
+            r.error = Some(error);
+        }
+        sat_mo2::commit::Outcome::RollbackIncomplete { error, left } => {
+            r.state = CommitState::Incomplete;
+            r.error = Some(error);
+            r.left = left;
+        }
+        sat_mo2::commit::Outcome::Refused { error } => {
+            r.state = CommitState::Refused;
+            r.error = Some(error);
+        }
+    }
+    r.error = r
+        .error
+        .or_else(|| (!done.notes.is_empty()).then(|| done.notes.join("; ")));
+    r
 }

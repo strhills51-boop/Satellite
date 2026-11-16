@@ -1,33 +1,33 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 13,
+ "revision": 16,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T14:55:23Z",
+ "updatedAt": "2026-11-16T15:04:28Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
-  "activeDistanceId": "D5-save",
+  "activeDistanceId": "D6-commit-window",
   "activity": "CHANGE",
   "deepeningStack": [
    {
     "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
-    "childDistanceId": "D5-save",
+    "childDistanceId": "D6-commit-window",
     "returnPoint": {
-     "tacticalFocus": "Код и проверки готовы (не закоммичены): коммит, CI, печать D5; затем D6 «Фиксация в окне»: Command::Commit, ворота (план без блокеров, поверхность совпадает с записями, файл проекта не тронут), задача commit, после успеха — переоткрыть сборку (полный пробег = проверка), страница перечитывается.",
+     "tacticalFocus": "Код и проверки готовы: коммит, CI, печать D6; затем D7 «Правки файлов в плане из окна» (ini-патчи из предпросмотра).",
      "posture": "ARCHITECT"
     },
-    "openedAt": "2026-11-16T14:55:23Z"
+    "openedAt": "2026-11-16T15:04:28Z"
    }
   ],
   "returnPoint": {
-   "tacticalFocus": "Код и проверки готовы (не закоммичены): коммит, CI, печать D5; затем D6 «Фиксация в окне»: Command::Commit, ворота (план без блокеров, поверхность совпадает с записями, файл проекта не тронут), задача commit, после успеха — переоткрыть сборку (полный пробег = проверка), страница перечитывается.",
+   "tacticalFocus": "Код и проверки готовы: коммит, CI, печать D6; затем D7 «Правки файлов в плане из окна» (ini-патчи из предпросмотра).",
    "posture": "ARCHITECT"
   },
-  "tacticalFocus": "Код и проверки готовы (не закоммичены): коммит, CI, печать D5; затем D6 «Фиксация в окне»: Command::Commit, ворота (план без блокеров, поверхность совпадает с записями, файл проекта не тронут), задача commit, после успеха — переоткрыть сборку (полный пробег = проверка), страница перечитывается.",
+  "tacticalFocus": "Код и проверки готовы: коммит, CI, печать D6; затем D7 «Правки файлов в плане из окна» (ini-патчи из предпросмотра).",
   "scheduler": {
    "events": [
     {
@@ -165,9 +165,9 @@
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
    "summary": "",
    "createdAt": "2026-11-16T14:17:55Z",
-   "updatedAt": "2026-11-16T14:55:23Z",
+   "updatedAt": "2026-11-16T15:04:28Z",
    "sealedAt": null,
-   "suspendedAt": "2026-11-16T14:55:23Z",
+   "suspendedAt": "2026-11-16T15:04:28Z",
    "readyAt": "2026-11-16T14:17:55Z",
    "resumableAt": null,
    "resumedAt": "2026-11-16T14:22:51Z",
@@ -301,11 +301,56 @@
    "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "objective": "Сохранение проекта из окна: флаг --write (по умолчанию песочница), «не сохранено» как разница проекта сейчас и сохранённого, Command::SaveProject / Query::Project, сохранение .stll с проверкой чужой записи (Stamp, ChangedOutside, force), полный пробег с --write пишет факты и проект как analyze; суперседнутый или отменённый пробег не пишет.",
    "closureContract": "Тесты sat-home (save_checked: новый файл, чужая запись, force) и sat-app (dirty, песочница, ошибки, force); по HTTP на копии: открытие не делает проект грязным, правка → грязный, сохранение, чужая запись CLI → отказ, force; полный пробег с --write записал факты (analyze --offline их читает); скриншот шапки; CI; галочка.",
+   "status": "sealed",
+   "reason": "",
+   "summary": "D5 «Обработка с сохранением» запечатан.",
+   "createdAt": "2026-11-16T14:55:23Z",
+   "updatedAt": "2026-11-16T15:04:25Z",
+   "sealedAt": "2026-11-16T15:04:25Z",
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": {
+    "items": [
+     {
+      "commit": "5781467"
+     },
+     {
+      "commit": "7ea4d71"
+     },
+     {
+      "commit": "01f829f"
+     },
+     {
+      "ci": "GitHub Actions run 43891535178 success (после падения 43890892898 на Windows и исправления)"
+     },
+     {
+      "test": "sat-home save_refuses_a_file_changed_outside; sat-app project::tests::unsaved_changes_and_saving"
+     },
+     {
+      "text": "HTTP на копии: открытие не грязное, правка → грязное, сохранение, чужая запись → отказ, force; полный пробег с --write записал факты (analyze --offline читает); скриншот шапки"
+     }
+    ],
+    "at": "2026-11-16T15:04:25Z"
+   }
+  },
+  "D6-commit-window": {
+   "id": "D6-commit-window",
+   "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "objective": "Фиксация из окна: Command::Commit / Query::Commit (@sat:app.commit), только с --write; ворота в оболочке — файл проекта не тронут извне, поверхность совпадает с записями (@sat:home.commit.fresh), полный план без блокеров (подтверждения по имени); транзакция на своём потоке; после успеха сборка открывается заново, её пробег сохраняет факты и проект (как analyze после commit) и показывает расхождения после; страница перечитывается и показывает итог.",
+   "closureContract": "Тесты sat-home (stale) и sat-app (commit: песочница, повтор, итог); в браузере на копии сборки: ответы → «Зафиксировать…» → modlist.txt, папки, проект, версия-бэкап, после — 0 расхождений и «сохранено»; ворота: новая папка после пробега → отказ, файл проекта переписан CLI → отказ; CI; галочки.",
    "status": "active",
    "reason": "",
    "summary": "",
-   "createdAt": "2026-11-16T14:55:23Z",
-   "updatedAt": "2026-11-16T14:55:23Z",
+   "createdAt": "2026-11-16T15:04:28Z",
+   "updatedAt": "2026-11-16T15:04:28Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
@@ -364,6 +409,17 @@
    "revision": 9,
    "createdAt": "2026-11-16T14:45:11Z",
    "updatedAt": "2026-11-16T14:45:11Z"
+  },
+  {
+   "id": "note:1a1e4deb92e:3a1f8aec",
+   "kind": "evidence",
+   "text": "Windows: замена .stll падает (os error 5), если у файла есть другой открытый дескриптор — держать Stll открытым между операциями нельзя; программы, читающие проект (sat-cli), могут кратко мешать сохранению окна.",
+   "status": "open",
+   "distanceId": "D5-save",
+   "meta": null,
+   "revision": 14,
+   "createdAt": "2026-11-16T14:59:24Z",
+   "updatedAt": "2026-11-16T14:59:24Z"
   }
  ],
  "decisions": [
@@ -567,6 +623,46 @@
    "artifacts": [],
    "distanceId": "D5-save",
    "summary": "Шаг 4 ADR 0019: обработка с сохранением."
+  },
+  {
+   "id": "worklog:1a1e4deb92e:f97160a0",
+   "revision": 14,
+   "at": "2026-11-16T14:59:24Z",
+   "action": "CONTINUE",
+   "activity": "VALIDATION",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    {
+     "commit": "7ea4d71"
+    },
+    {
+     "commit": "01f829f"
+    }
+   ],
+   "distanceId": "D5-save",
+   "summary": "CI 43890892898 (5781467) упал на Windows: тест save_refuses_a_file_changed_outside держал файл проекта открытым, Windows не заменяет открытый файл. Исправлено (7ea4d71: закрыть файл в тесте; 01f829f: ворота свежести, на которые ссылается тест). В коде окна файл не держится открытым (save_checked открывает и закрывает)."
+  },
+  {
+   "id": "worklog:1a1e4e351b9:66173f22",
+   "revision": 15,
+   "at": "2026-11-16T15:04:25Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "D5 «Обработка с сохранением» запечатан."
+  },
+  {
+   "id": "worklog:1a1e4e35fec:a73419d7",
+   "revision": 16,
+   "at": "2026-11-16T15:04:28Z",
+   "action": "DEEPEN",
+   "activity": "CHANGE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "D6-commit-window",
+   "summary": "Шаг 5 ADR 0019: фиксация в окне."
   }
  ],
  "humanRequests": {
@@ -719,13 +815,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T14:15:20Z"
  },
- "acceptanceSequence": 13,
+ "acceptanceSequence": 16,
  "lastControl": {
-  "at": "2026-11-16T14:55:23Z",
-  "revision": 13,
+  "at": "2026-11-16T15:04:28Z",
+  "revision": 16,
   "semanticChanged": true,
-  "acceptanceSequence": 13,
-  "modelSummary": "Шаг 4 ADR 0019: обработка с сохранением."
+  "acceptanceSequence": 16,
+  "modelSummary": "Шаг 5 ADR 0019: фиксация в окне."
  },
  "hold": null,
  "completedAt": null

@@ -13,6 +13,7 @@ use std::sync::Arc;
 mod advisor;
 mod cards;
 mod chains;
+pub mod commit;
 mod context;
 mod domains;
 pub mod find;
@@ -200,6 +201,12 @@ pub enum Command {
     },
     /// Stop the running run: nothing of it is published.
     CancelPass,
+    /// Commit the plan to the build (`@sat:app.commit`; only when the shell writes): `confirmed` names steps not
+    /// undone by a later commit (sealing a group).
+    Commit {
+        #[serde(default)]
+        confirmed: Vec<String>,
+    },
     /// Save the project (`@sat:app.project`; only when the shell writes): `force` overwrites a file changed outside.
     SaveProject {
         #[serde(default)]
@@ -284,6 +291,8 @@ pub enum Query {
     Pass,
     /// Saving the project: writable, unsaved changes, the last error (`@sat:app.project.state`).
     Project,
+    /// The commit: state and the last result (`@sat:app.commit`).
+    Commit,
     /// Conflict contexts for the table's selector, largest first.
     Contexts,
     /// A page of record chains (`@sat:app.records.page`), largest first; with `plugin` only its chains.
@@ -801,6 +810,9 @@ pub enum Reply {
     Project {
         project: project::ProjectState,
     },
+    Commit {
+        commit: commit::CommitView,
+    },
     Domains {
         domains: Vec<DomainItem>,
     },
@@ -982,6 +994,8 @@ pub struct App {
     plan_source: Option<Arc<dyn sync::PlanSource>>,
     /// Saving the project (`@sat:app.project.state`).
     save: project::SaveSlot,
+    /// The commit (`@sat:app.commit`).
+    commit: commit::CommitSlot,
 }
 
 impl App {
@@ -1005,6 +1019,7 @@ impl App {
             preview_source: Default::default(),
             pinned_files: Vec::new(),
             project_base: None,
+            commit: Default::default(),
             save: Default::default(),
             plan_source: None,
             pass: Default::default(),
@@ -1317,6 +1332,13 @@ impl App {
             }
             C::StartPass { mode } => {
                 return Ok(if self.request_pass(mode) {
+                    Event::Decided
+                } else {
+                    Event::Nothing
+                });
+            }
+            C::Commit { confirmed } => {
+                return Ok(if self.request_commit(confirmed) {
                     Event::Decided
                 } else {
                     Event::Nothing
@@ -1650,6 +1672,9 @@ impl App {
             },
             Query::Project => Reply::Project {
                 project: self.project_state(),
+            },
+            Query::Commit => Reply::Commit {
+                commit: self.commit_view(),
             },
             Query::Sync => {
                 let (plan, extras) = self.commit_plan();
