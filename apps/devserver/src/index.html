@@ -226,6 +226,11 @@ section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
 #bBuf .bufh { width: 100%; display: flex; gap: 6px; align-items: center; font-size: 11px; } #bBuf .bufh span { color: var(--subtle); font: 10px var(--mono); }
 #bBuf .bufh button { padding: 0 5px; font-size: 12px; } #bBuf .bufh button:first-of-type { margin-left: auto; }
 #bBuf .bufm { padding: 0 6px; border-radius: 6px; background: var(--surface2); cursor: default; } #bBuf .bufm.off { opacity: .6; }
+#guideDlg { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(460px, calc(100vw - 28px)); background: var(--panel); color: var(--fg); box-shadow: var(--shadow); }
+#guideDlg::backdrop { background: rgba(4,9,17,.55); backdrop-filter: blur(3px); }
+#guideDlg header { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); background: var(--bg2); }
+#guideDlg header strong { flex: 1; font-size: 14px; } #guideDlg .gt { padding: 14px 18px 18px; color: var(--muted); font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; }
+.block h3 .inf { margin-left: 4px; }
 /* the cloud: the mod's card at the mini level on hover */
 #cloud { position: fixed; z-index: 55; width: 300px; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
   background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; display: grid; gap: 8px; }
@@ -899,7 +904,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
 <main>
   <section id="tilesec"><h2>Разделители <small id="sepcount"></small></h2><div id="tiles"></div></section>
   <section>
-    <h2>Моды <small id="modcount"></small></h2>
+    <h2>Моды <small id="modcount"></small><button class="inf" data-guide="bricks" type="button" title="Гайд">i</button></h2>
     <div class="tools"><input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени">
       <select id="badgeModel" aria-label="Модель бейджей"><option value="classic">Коллекция цепочек</option><option value="summary">OW N</option></select>
       <span class="tooth" id="cols" role="radiogroup" aria-label="Вид списка"><button data-v="-1">Кирпичики</button><button data-v="340">Поток</button><button data-v="0">Строки</button></span>
@@ -910,12 +915,12 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
   <section id="summary" aria-label="Сводка">
     <div class="block empty" id="bSel"><h3>Выделение</h3></div>
     <div class="block empty" id="bBuf"><h3>Буфер</h3></div>
-    <div class="block empty" id="bMod"><h3>Мод</h3><div class="muted">Наведи фокус на мод — стрелками или кликом.</div></div>
-    <div class="block empty" id="bDecor"><h3>Декорация мода</h3><div class="muted">Выдели один или несколько модов.</div></div>
+    <div class="block empty" id="bMod"><h3>Мод</h3></div>
+    <div class="block empty" id="bDecor"><h3>Декорация мода</h3></div>
     <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
     <div class="block empty" id="bPlug"><h3>Плагины</h3></div>
     <div class="block empty" id="bTree"><h3>Проводник</h3></div>
-    <div class="block empty" id="bPrev"><h3>Предпросмотр</h3><div class="muted">Нажми на файл в проводнике.</div></div>
+    <div class="block empty" id="bPrev"><h3>Предпросмотр</h3></div>
   </section>
 </main>
 <div id="passPanel" hidden role="dialog" aria-label="Пробег"></div>
@@ -942,7 +947,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
     <span class="seg" id="fxView" title="Вид проводника"></span>
     <input type="search" id="fxQ" placeholder="Поиск по путям всей сборки (от 2 символов)">
     <button id="fxClose" title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></div>
-  <div class="fxb"><div class="fxt" id="fxTree"></div><div class="fxp" id="fxPrev"><div class="muted">Выбери файл слева.</div></div></div>
+  <div class="fxb"><div class="fxt" id="fxTree"></div><div class="fxp" id="fxPrev"></div></div>
 </div>
 <div id="ct" class="m-both" hidden role="dialog" aria-label="Таблица конфликтов">
   <div class="top">
@@ -965,6 +970,34 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
 const $ = id => document.getElementById(id);
 const list = $("list"), layer = $("layer"), spacer = $("spacer");
 const ROW = 44, GAP = 4, VIEW = 0, MAXPX = 8_000_000, CHAINS_SHOWN = 6;
+// guides (ADR 0020 §2): no explanations in the interface — a faint «i» in the corner of a context opens its guide.
+// Guides are data: [title, text]; the domain ones are filled from the core's own descriptions.
+const GUIDES = {
+  pass: ["Пробег", "Поверхность — подписи папок и сверка с проектом: новые, пропавшие, переименованные моды. Секунды; факты остаются прежними.\n\nПолный — скан (что не менялось — из кэша), факты, записи SYNC, источники, плагины, конфликты."],
+  patch: ["Правка файла", "Файл мода не меняется. При фиксации исправленная копия уходит в мод «Satellite Patches» — он стоит в конце порядка и выигрывает.\n\nИзмени значение и нажми Enter. В песочнице правка живёт только в памяти окна."],
+  advisor: ["Советник порядка", "Меньше оценка — раньше в списке (перекрывается). Имя: base / framework / core −22, patch / compat / fix +26, output / generated / nemesis / dyndolod +42; проигрывает втрое — −6, выигрывает втрое — +6.\n\nС текущим порядком: 0,45 · оценка + 0,55 · место. Моды двигаются только внутри своего разделителя; отмена — Ctrl+Z."],
+  ct: ["Конфликты", ""],
+  ctLegend: ["", ""],
+  bricks: ["Список модов", "Порядок загрузки — сверху вниз, а в строке — слева направо; читается по индикаторам.\n\nСтрелки — прицел (выделение не меняется), Space — в выделение, Shift — расширить, Ctrl+стрелки — перейти и выделить. Alt + стрелки — двигать выделенное.\n\nУгол контейнера — тянуть размер, двойной клик — сброс. Удерживай Alt — палитра над модом. Наведи и подожди — облачко мода.\n\nПравый клик: заметка, сводка по тегу, превью закреплённого файла, лог-группа."],
+  buffer: ["Буфер", "Отложенные моды для переноса: они остаются на местах, пока область не поставлена.\n\nБрось мод на «+» — новая область, на область — в неё (выделенный мод тянет всё выделение). Область — перетащи на мод в списке: встанет перед ним; «↧» — перед прицелом."],
+};
+const guideBtn = key => `<button class="inf" data-guide="${key}" type="button" title="Гайд">i</button>`;
+function showGuide(key) {
+  const g = GUIDES[key]; if (!g) return;
+  let d = document.getElementById("guideDlg");
+  if (!d) {
+    d = document.createElement("dialog"); d.id = "guideDlg";
+    d.innerHTML = `<header><strong></strong><button type="button" aria-label="Закрыть">×</button></header><div class="gt"></div>`;
+    document.body.appendChild(d);
+    d.querySelector("button").onclick = () => d.close();
+    d.addEventListener("click", ev => { if (ev.target === d) d.close(); });
+  }
+  d.querySelector("strong").textContent = g[0];
+  // a guide is text: markup from older notes becomes lines
+  d.querySelector(".gt").textContent = g[1].replace(/<\/span>\s*<span>/g, "\n").replace(/<[^>]+>/g, "").trim();
+  if (!d.open) d.showModal();
+}
+document.addEventListener("click", ev => { const b = ev.target.closest("[data-guide]"); if (b) { ev.stopPropagation(); ev.preventDefault(); showGuide(b.dataset.guide); } }, true);
 let len = 0, total = 0, busy = false, again = false, fetched = { y0: 0, y1: -1 }, frame = 0, shownKey = null, detailSeq = 0, shownChains = [];
 /** Cards on screen by entry key (ADR 0012: the page keeps what is visible; a card is rewritten only when it changed). */
 const cards = new Map(), spare = [];
@@ -1332,7 +1365,7 @@ async function metaBlocks() {
   }
   const f = $("bBuf");
   f.className = areas.length ? "block ok" : "block empty";
-  f.innerHTML = `<h3>Буфер${areas.length ? `<span class="bsub">${areas.reduce((a, x) => a + x.members.length, 0)}</span>` : ""}</h3><div class="bufs">` +
+  f.innerHTML = `<h3>Буфер${areas.length ? `<span class="bsub">${areas.reduce((a, x) => a + x.members.length, 0)}</span>` : ""}${guideBtn("buffer")}</h3><div class="bufs">` +
     areas.map((a, i) => `<div class="bufa" data-area="${i}" draggable="true" title="Тяни в список — встанет перед модом, на который бросишь">` +
       `<div class="bufh"><b>${esc(a.name || "Область " + (i + 1))}</b><span>${a.members.length}</span>` +
       `<button data-place="${i}" title="Вставить перед прицелом">↧</button><button data-clear="${i}" title="Забыть область">×</button></div>` +
@@ -1521,7 +1554,7 @@ async function detail(key) {
   const conf = $("bConf");
   if (d.opponents.length <= 1) {
     conf.className = "block empty";
-    conf.innerHTML = `<h3>Конфликты</h3><div class="muted">Ни с кем не конфликтует.</div>`;
+    conf.innerHTML = `<h3>Конфликты</h3><div class="muted">нет</div>`;
   } else {
     conf.className = "block ok";
     shownChains = d.chains;
@@ -1604,7 +1637,7 @@ async function treeDraw() {
     ({ tree: t } = await query({ type: "file-tree", subject: { of: "selection", view: VIEW }, mode: TREE.mode, focus: TREE.focus || undefined, opened: [...TREE.opened], closed: [...TREE.closed], limit: 1500 }));
   } catch (e) { if (seq === treeSeq) box.innerHTML = `<h3>Проводник</h3><div class="muted">${esc(e.message)}</div>`; return; }
   if (seq !== treeSeq) return;
-  if (!t) { box.className = "block empty"; box.innerHTML = `<h3>Проводник</h3><div class="muted">Выдели мод или несколько.</div>`; return; }
+  if (!t) { box.className = "block empty"; box.innerHTML = `<h3>Проводник</h3>`; return; }
   // a new subject forgets toggled folders and the picked file
   const sig = t.subject.join("\n");
   if (sig !== TREE.subjectSig) { TREE.subjectSig = sig; TREE.opened.clear(); TREE.closed.clear(); TREE.owners = null; }
@@ -2347,7 +2380,7 @@ async function decor() {
   decorSig = sig;
   lastStyle = rep.styles.length === 1 ? rep.styles[0].style : null;
   decorKeys = rep.keys;
-  if (!rep.keys.length) { box.className = "block empty"; box.innerHTML = `<h3>Декорация мода</h3><div class="muted">Выдели один или несколько модов.</div>`; return; }
+  if (!rep.keys.length) { box.className = "block empty"; box.innerHTML = `<h3>Декорация мода</h3><div class="muted" hidden>Выдели один или несколько модов.</div>`; return; }
   const styles = rep.styles.map(s => s.style);
   const val = path => { const vs = [...new Set(styles.map(s => JSON.stringify(get(s, path) ?? null)))]; return { v: JSON.parse(vs[0]), mixed: vs.length > 1 }; };
   const mx = f => f.mixed ? `<span class="mixed">mixed</span>` : "";
@@ -2443,11 +2476,14 @@ function ctTabsDraw() {
     return `<button class="${cls}" data-dom="${esc(d.id)}" title="${esc(tip)}">${esc(d.title)}<span class="badge">${n}</span></button>`;
   }).join("");
   const d = CT.domains.find(x => x.id === CT.tab);
-  $("ctAbout").textContent = d ? d.about + (d.notes && d.notes.length ? " · " + d.notes.join(" · ") : "") : "";
+  // what the domain is about is the guide's text, not a line over the table (ADR 0020 §2)
+  GUIDES.ct[1] = (d ? d.about + (d.notes && d.notes.length ? "\n\n" + d.notes.join("\n") : "") : "") + "\n\n" + GUIDES.ctLegend[1];
+  $("ctAbout").textContent = "";
 }
 function ctLegend() {
   const keys = CT.tab === "files" ? ["w", "l", "u"] : CT.tab === "records" ? ["w", "l", "s", "o"] : ["w", "l", "s", "o", "t", "x", "m"];
-  $("ctLegend").innerHTML = keys.map(k => `<span><i style="background:${cellColor(k)}"></i>${CELL[k][1]}</span>`).join("") +
+  $("ctLegend").innerHTML = keys.map(k => `<span><i style="background:${cellColor(k)}"></i>${CELL[k][1]}</span>`).join("") + guideBtn("ct");
+  GUIDES.ctLegend[1] = "" +
     (CT.tab === "records" ? `<span>полоса над столбцами — цепочка (стек плагинов); ⚠️ — вслепую: плагин ниже не держит плагин выше в мастерах</span>` : "") +
     (CT.tab === "files" ? `<span>выбрана цепочка: её столбцы яркие, остальные — «связанные» (бледнее), как в монолите</span>` : "") +
     `<span>полоска слева у строки: зелёная — только выигрывает, красная — только проигрывает, жёлтая — и то и другое, синяя — выключен, но владеет; потяни за имя — переставить</span>`;
@@ -2693,8 +2729,7 @@ async function advOpen() {
     `<label><input type="checkbox" id="advTruth"${ADV.truth ? " checked" : ""}> учитывать текущий порядок</label>` +
     `<button id="advApply"${a.reorder ? "" : " disabled"}>Применить (${moved})</button><button id="advClose">✕</button></div>` +
     ((a.warnings || []).length ? `<div class="note warn">${esc(a.warnings.join(" · "))}</div>` : "") +
-    `<div class="note">Меньше оценка — раньше в списке (перекрывается). Имя: base/framework/core −22, patch/compat/fix +26, output/generated/nemesis/dyndolod +42; проигрывает втрое — −6, выигрывает втрое — +6. ` +
-    `С текущим порядком: 0,45·оценка + 0,55·место. Моды двигаются только внутри своего разделителя; отмена — Ctrl+Z.</div>` +
+    `<div class="note">${guideBtn("advisor")}</div>` +
     `<table><tr><th></th><th class="n">мод</th><th>▲</th><th>▼</th><th title="эвристика">имя</th><th title="по ней сортировка">оценка</th><th>сейчас</th><th>станет</th><th class="n">внимание</th></tr>${rows}</table>`;
   $("advClose").onclick = () => { box.hidden = true; };
   $("advStrict").onchange = ev => { ADV.strict = ev.target.value; advOpen(); };
@@ -3279,8 +3314,8 @@ function passDraw() {
   const at = pr ? PASS_STAGES.findIndex(x => x[0] === pr.stage) : -1;
   const sec = ms => (ms / 1000).toFixed(1) + " с";
   el.innerHTML = `<h3>Пробег${v.mode ? ` · ${v.mode === "full" ? "полный" : "поверхность"}` : ""} <small class="muted">${PASS_STATE[v.state] || ""}</small></h3>` +
-    `<div class="modes"><button data-pass="surface" ${live ? "disabled" : ""}><b>Поверхность</b><small>подписи папок и сверка с проектом: новые, пропавшие, переименованные — секунды</small></button>` +
-    `<button data-pass="full" ${live ? "disabled" : ""}><b>Полный</b><small>скан (из кэша, что не менялось), факты, записи SYNC, источники, плагины, конфликты</small></button></div>` +
+    `<div class="modes"><button data-pass="surface" ${live ? "disabled" : ""}><b>Поверхность</b><small>секунды</small></button>` +
+    `<button data-pass="full" ${live ? "disabled" : ""}><b>Полный</b><small>всё</small></button></div>` + guideBtn("pass") + `` +
     (live ? `<div class="stages">${(v.mode === "surface" ? PASS_STAGES.filter(x => x[0] === "sync") : PASS_STAGES).map(([k, n], i) =>
         `<span class="${k === (pr && pr.stage) ? "now" : (v.mode !== "surface" && i < at ? "past" : "")}">${n}</span>`).join("")}</div>` +
       `<div class="bar"><i style="width:${pr && pr.total ? 100 * pr.done / pr.total : 0}%"></i></div>` +
@@ -3415,8 +3450,7 @@ async function peOpen(mod, path) {
       `<td class="b">${k.op ? `<button data-pe="revert" title="вернуть значение мода">↺</button>` : ""}${k.op !== "remove" && k.value != null ? `<button data-pe="remove" title="убрать ключ из копии">✕</button>` : ""}</td></tr>`;
   }
   box.innerHTML = `<div class="pe"><h4><span>${esc(mod)} / ${esc(path)}</span><button data-pe="back">Готово</button>${v.patched ? `<button data-pe="drop" title="убрать всю правку этого файла">Убрать правку</button>` : ""}</h4>` +
-    `<div class="note">Файл мода не меняется: при фиксации исправленная копия уйдёт в мод <b>Satellite Patches</b> (в конце порядка — он и выигрывает). ` +
-    `${v.patched ? "Правка есть." : "Правки пока нет — измени значение и нажми Enter."} В проекте правок файлов: ${v.total}.${PROJ && PROJ.writable ? "" : " Песочница: правка живёт в памяти окна."}</div>` +
+    `<div class="note">${v.patched ? "правка есть" : "правки нет"} · в проекте ${v.total}${PROJ && PROJ.writable ? "" : " · песочница"} ${guideBtn("patch")}</div>` +
     (v.base_changed ? `<div class="warn">⚠ файл мода изменился после правки (мод обновили?) — фиксация остановится, пока не посмотришь <button data-pe="rebase">Принять текущий файл как основу</button></div>` : "") +
     `<table><tr><th>ключ</th><th>значение мода</th><th>в копии</th><th></th></tr>${rows}</table>` +
     `<div class="add"><input id="peS" placeholder="секция"><input id="peK" placeholder="ключ"><input id="peV" placeholder="значение"><button data-pe="add">Добавить</button></div>` +
@@ -3529,7 +3563,6 @@ document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && e
   const summary = document.querySelector('#summary');
   const help = {
     tilesec: ['Разделители', 'Якоря областей модлиста. Переход к разделителю не меняет канонический порядок.'],
-    list: ['Модлист', 'Список читается сверху вниз; если модов несколько в строке — слева направо. Фокус с клавиатуры и выделение — разные состояния.'],
   };
   const dlg = document.createElement('dialog');
   dlg.id = 'sat-design-guide';
