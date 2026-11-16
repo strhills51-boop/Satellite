@@ -210,6 +210,15 @@ section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
 /* a brick with its own fill: no backdrop can match it, the layers just stand over the name */
 #list.bricks .row.dec { --bb: transparent; }
 #list.bricks .row.dec > .lead, #list.bricks .row.dec > .cnt { box-shadow: none; }
+/* size handle: bottom-right corner, on hover (and for every container while Alt is held) */
+#list .row .rsz { position: absolute; right: 0; bottom: 0; width: 9px; height: 9px; cursor: nwse-resize; z-index: 4; opacity: 0;
+  background: linear-gradient(135deg, transparent 50%, var(--accent) 50%); }
+#list .row:hover .rsz, #list.decor .row .rsz, #list .row.sizing .rsz { opacity: .85; }
+#list .row.sizing { z-index: 6; outline: 1px dashed var(--accent); }
+#list.decor .row:not(.sep):not(.att) { outline: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
+#quickDecor { position: fixed; z-index: 60; display: flex; gap: 3px; padding: 4px; border-radius: 9px; background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); }
+#quickDecor button { width: 20px; height: 20px; padding: 0; border-radius: 5px; justify-content: center; font-size: 11px; color: var(--fg); }
+#quickDecor button[data-qc] { border: 1px solid rgba(255,255,255,.15); }
 /* logical groups (ADR 0016): an open group's members are outlined in the family colour, the name on the first one;
    a collapsed group is one container with the same colour */
 #list .row.ingrp { box-shadow: inset 0 2px 0 hsl(var(--gh) 60% 58% / .9), inset 0 -2px 0 hsl(var(--gh) 60% 58% / .9);
@@ -684,6 +693,8 @@ section h2 small { font-size:9px; font-weight:450; opacity:.77; }
 #list.bricks .row.mod.sel:not(.sep) {--bb:color-mix(in srgb,var(--accent) 17%,var(--panel));background:color-mix(in srgb,var(--accent) 17%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));}
 #list.bricks .row.mod.off:not(.sep) {background:color-mix(in srgb,var(--bg) 25%,transparent);--bb:color-mix(in srgb,var(--bg) 25%,var(--panel));}
 #list.bricks .row .name { font-size:11.5px; font-weight:520; letter-spacing:.012em; }
+/* the card's own text style (decor) wins over the bricks' default name style */
+#list.bricks .row[style*="font-weight"] .name { font-weight: inherit; } #list.bricks .row[style*="font-size"] .name { font-size: inherit; }
 #list.bricks .row.off .name {opacity:.75;}
 #list.bricks .row > .lead { gap:4px; }
 #list.bricks .row .toggle { width:9px; height:9px; margin:0; background:var(--miss);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06); }
@@ -1036,7 +1047,8 @@ function paint(el, r) {
       (stk.length ? `<span class="stk">${stk.map(n => `<i style="--h:${hue(n)}" title="стикер">${esc(n)}</i>`).join("")}</span>` : "") +
       `<span class="lead"><span class="toggle" title="вкл/выкл"></span>${r.badges && r.badges.length ? strip(r) : ""}</span>` +
       `<span class="name">${esc(r.name)}</span><span class="cnt">${counters}</span>` + tagStripes(r, el._w, el._h) +
-      (r.group && r.group.first ? `<span class="glab" data-gfold="${r.key}" title="Свернуть группу">${esc(r.group.name)} · ${r.group.size} ▾</span>` : "");
+      (r.group && r.group.first ? `<span class="glab" data-gfold="${r.key}" title="Свернуть группу">${esc(r.group.name)} · ${r.group.size} ▾</span>` : "") +
+      `<span class="rsz" title="Тянуть — размер, двойной клик — свой размер сбросить"></span>`;
     if (r.marks && r.marks.tags && r.marks.tags.length) el.title = "Теги: " + r.marks.tags.join(", ");
     else el.removeAttribute("title");
     return;
@@ -1093,7 +1105,7 @@ function paintAtt(el, v, anchor) {
   el._att = a;
   el._sig = sig; el.hidden = false; el.style.cssText = ""; place(el);
   el.className = `row att ${a.kind}`;
-  const x = `<button class="attx" data-attx="${a.id}" title="Убрать">×</button>`;
+  const x = `<button class="attx" data-attx="${a.id}" title="Убрать">×</button><span class="rsz" title="Тянуть — размер, двойной клик — сбросить"></span>`;
   if (a.kind === "note") el.innerHTML = `<div class="atn" data-attnote="${a.id}" title="Двойной клик — править">${esc(a.text)}</div>` + x;
   else if (a.kind === "summary") {
     const s = v.summary || { total: 0, enabled: 0 };
@@ -1136,6 +1148,80 @@ list.addEventListener("dblclick", ev => {
   n.onblur = () => done(true);
   // the list's keys stay out while typing; Enter ends, Shift+Enter is a new line, Escape drops the edit
   n.onkeydown = e => { e.stopPropagation(); if (e.key === "Escape") done(false); else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); done(true); } };
+});
+
+// ---------------------------------------------------------------- size by hand (ADR 0020 §6: «растянули по ширине и высоте»)
+/** The corner handle: drag — the container's own width and height (bricks: height in whole lines), double click — back
+ *  to the view's size. A mod keeps it as its card style, an element without an indicator — in its own size. */
+let dragging = null;
+list.addEventListener("mousedown", ev => {
+  const h = ev.target.closest(".rsz"); if (!h || ev.button !== 0) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const el = h.closest(".row");
+  dragging = { el, x: ev.clientX, y: ev.clientY, w: parseFloat(el.style.width), h: parseFloat(el.style.height) };
+  el.classList.add("sizing");
+}, true);
+addEventListener("mousemove", ev => {
+  if (!dragging) return;
+  const d = dragging, w = Math.max(50, d.w + ev.clientX - d.x), h = Math.max(20, d.h + ev.clientY - d.y);
+  d.el.style.width = w + "px"; d.el.style.height = h + "px"; d.nw = w; d.nh = h;
+});
+addEventListener("mouseup", () => {
+  const d = dragging; if (!d) return;
+  dragging = null; d.el.classList.remove("sizing");
+  if (d.nw === undefined) return;
+  // the shared contour line (+1) is the window's, not the size; bricks grow by whole lines
+  const line = cols < 0 ? BRICK : ROW, w = Math.round(d.nw) - (cols < 0 ? 1 : 0);
+  const h = Math.max(line, Math.round((d.nh - (cols < 0 ? 1 : 0)) / line) * line);
+  d.el._sig = null; list._noclick = true; setTimeout(() => { list._noclick = false; }, 0);
+  if (d.el._att) attach(d.el._row.key, { op: "update", attachment: { ...d.el._att, width: w, height: Math.round(d.nh) } });
+  else run({ type: "patch-style", keys: [d.el._row.key], patch: { width: w, height: h === line ? null : h } });
+});
+list.addEventListener("click", ev => { if (list._noclick) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+list.addEventListener("dblclick", ev => {
+  const h = ev.target.closest(".rsz"); if (!h) return;
+  ev.stopPropagation();
+  const el = h.closest(".row");
+  if (el._att) { const a = { ...el._att }; delete a.width; delete a.height; attach(el._row.key, { op: "update", attachment: a }); }
+  else run({ type: "patch-style", keys: [el._row.key], patch: { width: null, height: null } });
+}, true);
+
+// ---------------------------------------------------------------- decor in place (ADR 0020 §6: hold a key over a mod)
+/** Hold Alt: every container shows its size handle, the mod under the pointer gets a small palette — colour, bold,
+ *  reset; let go — done. Applies to the selection when the mod under the pointer is selected. */
+const QUICK = [0x2f6fd0, 0x2a9d8f, 0x7bb661, 0xe9c46a, 0xf4a261, 0xe76f51, 0xb565d9, 0x6c757d];
+let decorOn = false, quickRow = null;
+const quick = document.createElement("div");
+quick.id = "quickDecor"; quick.hidden = true;
+document.body.appendChild(quick);
+function decorMode(on) {
+  if (on && !quick.firstChild) quick.innerHTML = QUICK.map(c => `<button data-qc="${c}" style="background:${hex(c)}" title="Цвет"></button>`).join("") +
+    `<button data-qb="1" title="Жирное имя"><b>Ж</b></button><button data-qx="1" title="Снять цвет и декор">⨯</button>`;
+  decorOn = on; list.classList.toggle("decor", on);
+  if (!on) { quick.hidden = true; quickRow = null; }
+}
+addEventListener("keydown", ev => { if (ev.key === "Alt" && !decorOn && document.activeElement && (document.activeElement === list || list.contains(document.activeElement) || document.activeElement === document.body)) { ev.preventDefault(); decorMode(true); } });
+addEventListener("keyup", ev => { if (ev.key === "Alt" && decorOn) { ev.preventDefault(); decorMode(false); } });
+addEventListener("blur", () => decorOn && decorMode(false));
+list.addEventListener("mousemove", ev => {
+  if (!decorOn) return;
+  const el = ev.target.closest(".row"); if (!el || !el._row || el._att || el.classList.contains("sep")) return;
+  if (quickRow === el) return;
+  quickRow = el;
+  const b = el.getBoundingClientRect();
+  quick.style.left = Math.min(b.left, innerWidth - 260) + "px"; quick.style.top = Math.max(4, b.top - 30) + "px";
+  quick.hidden = false;
+});
+quick.addEventListener("mousedown", ev => ev.preventDefault());
+quick.addEventListener("click", ev => {
+  const b = ev.target.closest("button"); if (!b || !quickRow) return;
+  const r = quickRow._row;
+  const go = keys => {
+    if (b.dataset.qc) run({ type: "set-color", keys, color: +b.dataset.qc });
+    else if (b.dataset.qb) run({ type: "patch-style", keys, patch: { text: { weight: r.style && r.style.text && r.style.text.weight >= 600 ? null : 700 } } });
+    else if (b.dataset.qx) { run({ type: "set-color", keys, color: null }); run({ type: "set-style", keys, style: null }); }
+  };
+  if (r.selected) query({ type: "decoration", view: VIEW }).then(rep => go(rep.keys.length ? rep.keys : [r.key])); else go([r.key]);
 });
 
 /** A stable hue of a name (stickers without a colour of their own). */
