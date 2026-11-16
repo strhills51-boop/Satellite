@@ -210,6 +210,14 @@ section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
 /* a brick with its own fill: no backdrop can match it, the layers just stand over the name */
 #list.bricks .row.dec { --bb: transparent; }
 #list.bricks .row.dec > .lead, #list.bricks .row.dec > .cnt { box-shadow: none; }
+/* the cloud: the mod's card at the mini level on hover */
+#cloud { position: fixed; z-index: 55; width: 300px; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
+  background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; display: grid; gap: 8px; }
+#cloud h4 { margin: 0; font-size: 13px; display: flex; gap: 8px; align-items: baseline; } #cloud h4 small { color: var(--subtle); font-weight: 400; font-size: 11px; }
+#cloud .csec { display: grid; gap: 1px; } #cloud .csec i { font: 600 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--subtle); font-style: normal; margin-bottom: 2px; }
+#cloud .cf { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); } #cloud .cf b { color: var(--fg); font-weight: 550; text-align: right; overflow-wrap: anywhere; }
+#cloud .csig { display: flex; flex-wrap: wrap; gap: 4px; } #cloud .csig .cf { border: 1px solid var(--line); border-radius: 7px; padding: 1px 7px; gap: 6px; font-size: 11px; }
+#cloud .cf.warn b { color: var(--m-txt); } #cloud .cf.problem b { color: var(--l-txt); } #cloud .csig .cf.problem { border-color: color-mix(in srgb, var(--l-txt) 40%, transparent); }
 /* size handle: bottom-right corner, on hover (and for every container while Alt is held) */
 #list .row .rsz { position: absolute; right: 0; bottom: 0; width: 9px; height: 9px; cursor: nwse-resize; z-index: 4; opacity: 0;
   background: linear-gradient(135deg, transparent 50%, var(--accent) 50%); }
@@ -1223,6 +1231,51 @@ quick.addEventListener("click", ev => {
   };
   if (r.selected) query({ type: "decoration", view: VIEW }).then(rep => go(rep.keys.length ? rep.keys : [r.key])); else go([r.key]);
 });
+
+// ---------------------------------------------------------------- the cloud (ADR 0015 mini level, ADR 0020 §8)
+/** Hover over a mod and wait: its card at the «mini» level — signals first, then the sections, one line each.
+ *  The core gives ids and values; the window only names the fields (`@sat:app.sheet`). */
+const SHEET_NAMES = {
+  content: "Состав", profile: "Профиль", conflicts: "Конфликты", plugins: "Плагины", source: "Источник", rules: "Правила", user: "Твоё",
+  bytes: "размер", files: "файлов", archives: "архивов", archive_files: "файлов в архивах", archived_share: "в архивах", plugins_n: "плагинов",
+  dds: "DDS", vram: "VRAM", nif: "NIF", pex: "PEX", hkx: "HKX", top_ext: "больше всего", chains: "цепочек", equal_copies: "одинаковых копий",
+  unique: "уникальных", loses: "проигрывает", win_rate: "выигрывает", opponents: "соперников", coverage80: "80% покрыто", domains: "роды",
+  active: "включено", enabled: "включён", update: "есть обновление", newest_version: "новая версия", version: "версия", site: "сайт",
+  mod_id: "id", link: "страница", package: "архив установки", found_tags: "найденные теги", labels: "метки", kind: "род", cases: "случаи",
+  presentation: "описание", tags: "теги", stickers: "стикеры", note: "заметка",
+};
+const sheetVal = v => !v ? "" : v.type === "count" ? num(v.n) : v.type === "bytes" ? bytesH(v.n) : v.type === "flag" ? (v.on ? "да" : "нет")
+  : v.type === "text" ? v.text : v.type === "names" ? v.items.join(", ") : JSON.stringify(v);
+function bytesH(n) { const u = ["Б", "КБ", "МБ", "ГБ"]; let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + " " + u[i]; }
+const cloud = document.createElement("div");
+cloud.id = "cloud"; cloud.hidden = true; document.body.appendChild(cloud);
+let cloudTimer = 0, cloudKey = null, cloudSeq = 0;
+function cloudHide() { clearTimeout(cloudTimer); cloud.hidden = true; cloudKey = null; }
+list.addEventListener("mousemove", ev => {
+  const el = ev.target.closest(".row");
+  const r = el && el._row;
+  if (!r || el._att || r.kind !== "mod" || dragging || decorOn) { if (!cloud.matches(":hover")) cloudHide(); return; }
+  if (cloudKey === r.key) return;
+  cloudHide(); cloudKey = r.key;
+  cloudTimer = setTimeout(async () => {
+    const seq = ++cloudSeq;
+    let sheet;
+    try { ({ sheet } = await query({ type: "mod-sheet", key: r.key, level: "mini" })); } catch (_) { return; }
+    if (seq !== cloudSeq || cloudKey !== r.key) return;
+    const field = f => `<div class="cf${f.signal ? " " + f.signal : ""}"><span>${esc(SHEET_NAMES[f.id] || f.id)}</span><b>${esc(sheetVal(f.value))}</b></div>`;
+    cloud.innerHTML = `<h4>${esc(sheet.name)}<small>${esc(sheet.separator || "")}</small></h4>` +
+      (sheet.signals.length ? `<div class="csig">${sheet.signals.map(field).join("")}</div>` : "") +
+      sheet.sections.filter(x => x.fields.length).map(x => `<div class="csec"><i>${esc(SHEET_NAMES[x.id] || x.id)}</i>${x.fields.map(field).join("")}</div>`).join("");
+    const b = el.getBoundingClientRect();
+    cloud.hidden = false;
+    const w = cloud.offsetWidth, h = cloud.offsetHeight;
+    cloud.style.left = Math.max(8, Math.min(b.left, innerWidth - w - 8)) + "px";
+    cloud.style.top = (b.bottom + 6 + h < innerHeight ? b.bottom + 6 : Math.max(8, b.top - h - 6)) + "px";
+  }, 650);
+});
+list.addEventListener("mouseleave", ev => { if (!cloud.contains(ev.relatedTarget)) cloudHide(); });
+cloud.addEventListener("mouseleave", cloudHide);
+list.addEventListener("scroll", cloudHide, { passive: true });
 
 /** A stable hue of a name (stickers without a colour of their own). */
 function hue(s) { let h = 0; for (const c of String(s).toLowerCase()) h = (h * 31 + c.codePointAt(0)) % 360; return h; }
