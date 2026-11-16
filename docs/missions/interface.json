@@ -1,32 +1,19 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e5429a78:ca941d6b",
- "revision": 4,
+ "revision": 5,
  "status": "active",
  "createdAt": "2026-11-16T16:48:29Z",
- "updatedAt": "2026-11-16T20:56:23Z",
+ "updatedAt": "2026-11-16T21:11:16Z",
  "mission": {
   "direction": "Интерфейс, UI и дизайн Satellite (владелец 2026-11-16 17:47, промежуточная большая задача поверх приостановленной миссии процессоров): сейчас интерфейс переизбыточен, слишком технический и хаотичный, кишит юзлесс-элементами и пояснительным текстом, многое забыто. Направление владельца: 1) убрать текст-примечания отовсюду; объяснения — гайд-модалка через маленькие слабовидимые «i» в углу контекста; 2) альтернативный вид — рабочее пространство с собираемыми воркфлоу из окон (ADR 0009); 3) пользовательская IDE-точка входа: свои контексты, окна, контракты анализов и прочие ресурсы (ADR 0011); 4) переключатели вида — сегментный контрол «зубная кнопка», отличимый от функциональных кнопок контекста; 5) курсор клавиатуры — прицел намерения, не выделяет (клик мышью — по-прежнему выделяет); 6) облачко (ADR 0015); 7) окно модов — рабочая среда с элементами произвольного размера при сохранении канона (ADR 0012/0016): кирпичики сверху-вниз слева-направо, размер ×N и декор, семейства, комментарии, панели управления мода, превью, лог-группы/фактори; фокус-группы — якоря-ярлыки с декором и размерами; 8) декор на месте при удержании клавиши (моды и разделители); 9) окно метаинфы: блоки с кружком-индикатором-переключателем; блоки: плагины и доноры (как в монолите), буфер с областями, постоянный блок выделенных модов (перечень, счётчики тегов/стикеров, суммы счётчиков); 10) состояние сборки — массив индикаторов в правом краю хедера с выпадающим полным списком, через конструктор счётчиков; 11) карточки цепочек перезаписи как в монолите (экран фактов + зубные ряды, постоянная ширина, сворачиваются только решённые, имена модов в своих рядах, цвет конфликтов — от темы карточки); 12) дизайн: менее технический, менее хаотичный, акцент не скучный однотонно-синий. Найти и довести недореализованное добро, заложенное раньше.",
   "reminder": "Законы ядра ADR 0010 и канон порядка не трогаются: окно только рисует, раскладку считает ядро. Монолит и старый Satellite — по анализам docs/semantic/monolith, old-satellite; не выдумывать. Семантический слой (@sat:, //! Owns:, MAP, check-map). Владелец решает по результату: показывать визуально (макеты, скриншоты), проверки пачкой. Владелец сейчас с телефона. Углубляться при столкновении с непредвиденным поведением объекта семантики. Миссия процессоров на HOLD — вернуться после."
  },
  "route": {
-  "activeDistanceId": "U2-mod-container",
-  "activity": "CHANGE",
-  "deepeningStack": [
-   {
-    "distanceId": "mission-continuity:1a1e5473e55:0b0b4103",
-    "childDistanceId": "U2-mod-container",
-    "returnPoint": {
-     "tacticalFocus": "Ядро: FlowParams.natural, ширина от имени, выравнивание строки; окно: CSS контейнера, стикеры в RowView.",
-     "posture": "EXPLORE"
-    },
-    "openedAt": "2026-11-16T20:56:23Z"
-   }
-  ],
-  "returnPoint": {
-   "tacticalFocus": "Ядро: FlowParams.natural, ширина от имени, выравнивание строки; окно: CSS контейнера, стикеры в RowView.",
-   "posture": "EXPLORE"
-  },
+  "activeDistanceId": "mission-continuity:1a1e5473e55:0b0b4103",
+  "activity": "CLOSURE",
+  "deepeningStack": [],
+  "returnPoint": null,
   "tacticalFocus": "Ядро: FlowParams.natural, ширина от имени, выравнивание строки; окно: CSS контейнера, стикеры в RowView.",
   "scheduler": {
    "events": [
@@ -135,11 +122,11 @@
    "parentId": null,
    "objective": "Reconcile the still-open Mission after local Distance completion. Use durable Mission authority, accepted evidence, scheduler blockers and Strategic Frontier to activate, resume or create the next highest-leverage executable Distance. Do not redo sealed work and do not treat advisory focus as work authority.",
    "closureContract": "Leave this continuity Distance only by establishing successor executable Distance authority, sealing the Mission, or entering an explicit genuine external-prerequisite wait. It may not be sealed into an open Mission with no successor.",
-   "status": "suspended",
+   "status": "active",
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
    "summary": "",
    "createdAt": "2026-11-16T16:53:33Z",
-   "updatedAt": "2026-11-16T20:56:23Z",
+   "updatedAt": "2026-11-16T21:11:16Z",
    "sealedAt": null,
    "suspendedAt": "2026-11-16T20:56:23Z",
    "readyAt": "2026-11-16T16:53:33Z",
@@ -158,12 +145,12 @@
    "parentId": "mission-continuity:1a1e5473e55:0b0b4103",
    "objective": "Контейнер мода в окне по модели монолита (однострочный, прозрачный, тонкий контур, индикатор слева сверху на линии строки, бейджи справа от индикатора, имя по центру и перекрывается, счётчики у правого нижнего угла копятся влево поверх имени, стикеры над левым верхним углом копятся вправо и кольца-контуры стикеров вокруг контейнера наслаиваются) и список по умолчанию — однострочные кирпичики: ширина от имени (общий минимум), строки сверху вниз, в строке слева направо; раскладку считает ядро (order::flow, естественная ширина).",
    "closureContract": "Тесты ядра (естественные ширины, порядок строк/внутри строки, выравнивание строки, последняя строка блока не растягивается); скриншоты окна на копии сборки; clippy/fmt/check-map; CI.",
-   "status": "active",
+   "status": "sealed",
    "reason": "",
-   "summary": "",
+   "summary": "U2 «Контейнер мода и кирпичики» запечатан: кирпичики по умолчанию, ширина по содержимому, контейнер монолита, стикеры ярлыками и кольцами.",
    "createdAt": "2026-11-16T20:56:23Z",
-   "updatedAt": "2026-11-16T20:56:23Z",
-   "sealedAt": null,
+   "updatedAt": "2026-11-16T21:11:16Z",
+   "sealedAt": "2026-11-16T21:11:16Z",
    "suspendedAt": null,
    "readyAt": null,
    "resumableAt": null,
@@ -174,7 +161,23 @@
    "resumeContract": "",
    "waitingOn": null,
    "schedulerReturn": null,
-   "evidence": null
+   "evidence": {
+    "items": [
+     {
+      "commit": "5affcb7"
+     },
+     {
+      "ci": "GitHub Actions run 43956617505 success"
+     },
+     {
+      "test": "sat-core bricks_are_as_wide_as_their_names_and_keep_the_order"
+     },
+     {
+      "text": "скриншот окна на копии s11: кирпичики, полные строки растянуты, последняя строка блока нет, стикеры ярлыками и кольцами"
+     }
+    ],
+    "at": "2026-11-16T21:11:16Z"
+   }
   }
  },
  "notes": [
@@ -199,6 +202,17 @@
    "revision": 3,
    "createdAt": "2026-11-16T17:43:06Z",
    "updatedAt": "2026-11-16T17:43:06Z"
+  },
+  {
+   "id": "note:1a1e6332e2e:a1815f4c",
+   "kind": "promise",
+   "text": "Ширина имени — средняя ширина глифа (8 px при шрифте окна): длинные широкие имена могут чуть резаться; при необходимости — таблица замеров из окна.",
+   "status": "open",
+   "distanceId": "U2-mod-container",
+   "meta": null,
+   "revision": 5,
+   "createdAt": "2026-11-16T21:11:16Z",
+   "updatedAt": "2026-11-16T21:11:16Z"
   }
  ],
  "decisions": [
@@ -280,6 +294,17 @@
    "artifacts": [],
    "distanceId": "U2-mod-container",
    "summary": "Владелец (21:54): применить вид к контейнерам модов сейчас и сделать кирпичики видом по умолчанию; поправка про стикеры. Вопрос по теме остаётся открытым (он думает)."
+  },
+  {
+   "id": "worklog:1a1e6332e39:a545ec11",
+   "revision": 5,
+   "at": "2026-11-16T21:11:16Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "mission-continuity:1a1e5473e55:0b0b4103",
+   "summary": "U2 «Контейнер мода и кирпичики» запечатан: кирпичики по умолчанию, ширина по содержимому, контейнер монолита, стикеры ярлыками и кольцами."
   }
  ],
  "humanRequests": {
@@ -443,13 +468,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T16:48:29Z"
  },
- "acceptanceSequence": 4,
+ "acceptanceSequence": 5,
  "lastControl": {
-  "at": "2026-11-16T20:56:23Z",
-  "revision": 4,
+  "at": "2026-11-16T21:11:16Z",
+  "revision": 5,
   "semanticChanged": true,
-  "acceptanceSequence": 4,
-  "modelSummary": "Владелец (21:54): применить вид к контейнерам модов сейчас и сделать кирпичики видом по умолчанию; поправка про стикеры. Вопрос по теме остаётся открытым (он думает)."
+  "acceptanceSequence": 5,
+  "modelSummary": "U2 «Контейнер мода и кирпичики» запечатан: кирпичики по умолчанию, ширина по содержимому, контейнер монолита, стикеры ярлыками и кольцами."
  },
  "hold": null,
  "completedAt": null
