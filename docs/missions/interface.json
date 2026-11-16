@@ -1,17 +1,17 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e5429a78:ca941d6b",
- "revision": 8,
+ "revision": 9,
  "status": "active",
  "createdAt": "2026-11-16T16:48:29Z",
- "updatedAt": "2026-11-16T21:49:54Z",
+ "updatedAt": "2026-11-16T22:00:39Z",
  "mission": {
   "direction": "Интерфейс, UI и дизайн Satellite (владелец 2026-11-16 17:47, промежуточная большая задача поверх приостановленной миссии процессоров): сейчас интерфейс переизбыточен, слишком технический и хаотичный, кишит юзлесс-элементами и пояснительным текстом, многое забыто. Направление владельца: 1) убрать текст-примечания отовсюду; объяснения — гайд-модалка через маленькие слабовидимые «i» в углу контекста; 2) альтернативный вид — рабочее пространство с собираемыми воркфлоу из окон (ADR 0009); 3) пользовательская IDE-точка входа: свои контексты, окна, контракты анализов и прочие ресурсы (ADR 0011); 4) переключатели вида — сегментный контрол «зубная кнопка», отличимый от функциональных кнопок контекста; 5) курсор клавиатуры — прицел намерения, не выделяет (клик мышью — по-прежнему выделяет); 6) облачко (ADR 0015); 7) окно модов — рабочая среда с элементами произвольного размера при сохранении канона (ADR 0012/0016): кирпичики сверху-вниз слева-направо, размер ×N и декор, семейства, комментарии, панели управления мода, превью, лог-группы/фактори; фокус-группы — якоря-ярлыки с декором и размерами; 8) декор на месте при удержании клавиши (моды и разделители); 9) окно метаинфы: блоки с кружком-индикатором-переключателем; блоки: плагины и доноры (как в монолите), буфер с областями, постоянный блок выделенных модов (перечень, счётчики тегов/стикеров, суммы счётчиков); 10) состояние сборки — массив индикаторов в правом краю хедера с выпадающим полным списком, через конструктор счётчиков; 11) карточки цепочек перезаписи как в монолите (экран фактов + зубные ряды, постоянная ширина, сворачиваются только решённые, имена модов в своих рядах, цвет конфликтов — от темы карточки); 12) дизайн: менее технический, менее хаотичный, акцент не скучный однотонно-синий. Найти и довести недореализованное добро, заложенное раньше.",
   "reminder": "Законы ядра ADR 0010 и канон порядка не трогаются: окно только рисует, раскладку считает ядро. Монолит и старый Satellite — по анализам docs/semantic/monolith, old-satellite; не выдумывать. Семантический слой (@sat:, //! Owns:, MAP, check-map). Владелец решает по результату: показывать визуально (макеты, скриншоты), проверки пачкой. Владелец сейчас с телефона. Углубляться при столкновении с непредвиденным поведением объекта семантики. Миссия процессоров на HOLD — вернуться после."
  },
  "route": {
-  "activeDistanceId": "mission-continuity:1a1e5473e55:0b0b4103",
-  "activity": "CLOSURE",
+  "activeDistanceId": "U4-design-system",
+  "activity": "CHANGE",
   "deepeningStack": [],
   "returnPoint": null,
   "tacticalFocus": "Ядро: FlowParams.natural, ширина от имени, выравнивание строки; окно: CSS контейнера, стикеры в RowView.",
@@ -122,12 +122,12 @@
    "parentId": null,
    "objective": "Reconcile the still-open Mission after local Distance completion. Use durable Mission authority, accepted evidence, scheduler blockers and Strategic Frontier to activate, resume or create the next highest-leverage executable Distance. Do not redo sealed work and do not treat advisory focus as work authority.",
    "closureContract": "Leave this continuity Distance only by establishing successor executable Distance authority, sealing the Mission, or entering an explicit genuine external-prerequisite wait. It may not be sealed into an open Mission with no successor.",
-   "status": "active",
+   "status": "sealed",
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
-   "summary": "",
+   "summary": "Продолжение миссии: владелец подтвердил перенос лаборатории («Да»). Первый виток сделан сразу (42bfacb): токены, контролы, иконки, зубной переключатель вида, индикаторы сборки в хедере. Дальше — отдельная Distance U4 на остаток системы дизайна.",
    "createdAt": "2026-11-16T16:53:33Z",
-   "updatedAt": "2026-11-16T21:49:54Z",
-   "sealedAt": null,
+   "updatedAt": "2026-11-16T22:00:39Z",
+   "sealedAt": "2026-11-16T22:00:39Z",
    "suspendedAt": "2026-11-16T21:39:34Z",
    "readyAt": "2026-11-16T16:53:33Z",
    "resumableAt": null,
@@ -211,6 +211,29 @@
     ],
     "at": "2026-11-16T21:49:54Z"
    }
+  },
+  "U4-design-system": {
+   "id": "U4-design-system",
+   "parentId": null,
+   "objective": "Система дизайна в окне по лаборатории владельца: токены, контролы, иконки, индикаторы сборки; затем вычистка пояснительного текста с «i»-гайдами и модалки (синхронизация, конфликты, проводник, пробег) в том же языке",
+   "closureContract": "Главный экран и модалки в языке лаборатории в обеих темах, без пояснительных абзацев (гайды за «i»); скриншоты владельцу; CI зелёный",
+   "status": "active",
+   "reason": "",
+   "summary": "",
+   "createdAt": "2026-11-16T22:00:39Z",
+   "updatedAt": "2026-11-16T22:00:39Z",
+   "sealedAt": null,
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": null
   }
  },
  "notes": [
@@ -381,6 +404,19 @@
    ],
    "distanceId": "mission-continuity:1a1e5473e55:0b0b4103",
    "summary": "U3 запечатан: кирпичики без зазоров и скруглений, однострочный контейнер на одном уровне, ширины по замерам шрифта окна (Natural.glyphs, BrickMeasures, кэш раскладки по ним), вертикальный запас — одна строка на блок, кольца стикеров внутрь. Скриншот отправлен владельцу."
+  },
+  {
+   "id": "worklog:1a1e660646f:30d3b159",
+   "revision": 9,
+   "at": "2026-11-16T22:00:39Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CHANGE",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    "42bfacb"
+   ],
+   "distanceId": "U4-design-system",
+   "summary": "Продолжение миссии: владелец подтвердил перенос лаборатории («Да»). Первый виток сделан сразу (42bfacb): токены, контролы, иконки, зубной переключатель вида, индикаторы сборки в хедере. Дальше — отдельная Distance U4 на остаток системы дизайна."
   }
  ],
  "humanRequests": {
@@ -544,13 +580,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T16:48:29Z"
  },
- "acceptanceSequence": 8,
+ "acceptanceSequence": 9,
  "lastControl": {
-  "at": "2026-11-16T21:49:54Z",
-  "revision": 8,
+  "at": "2026-11-16T22:00:39Z",
+  "revision": 9,
   "semanticChanged": true,
-  "acceptanceSequence": 8,
-  "modelSummary": "U3 запечатан: кирпичики без зазоров и скруглений, однострочный контейнер на одном уровне, ширины по замерам шрифта окна (Natural.glyphs, BrickMeasures, кэш раскладки по ним), вертикальный запас — одна строка на блок, кольца стикеров внутрь. Скриншот отправлен владельцу."
+  "acceptanceSequence": 9,
+  "modelSummary": "Продолжение миссии: владелец подтвердил перенос лаборатории («Да»). Первый виток сделан сразу (42bfacb): токены, контролы, иконки, зубной переключатель вида, индикаторы сборки в хедере. Дальше — отдельная Distance U4 на остаток системы дизайна."
  },
  "hold": null,
  "completedAt": null
