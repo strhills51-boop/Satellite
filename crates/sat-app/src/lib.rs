@@ -143,6 +143,10 @@ pub enum Command {
         name: String,
         checked: bool,
     },
+    /// Replace the build indicators (`@sat:app.indicators`); a definition that does not compile is refused.
+    SetIndicators {
+        defs: Vec<sat_core::counters::IndicatorDef>,
+    },
     /// Change the buffer (`@sat:app.buffer`): areas of mods set aside to be placed later. One undo step each (placing
     /// is two: the move, then the area gone).
     Buffer {
@@ -617,6 +621,8 @@ pub enum Query {
         #[serde(default = "thumb_side")]
         side: u32,
     },
+    /// The build indicators measured over the whole build (`@sat:app.indicators`).
+    Indicators,
     /// The buffer's areas.
     Buffer,
     /// The selection summary of a view.
@@ -979,6 +985,11 @@ pub enum Reply {
     Separators {
         tiles: Vec<SeparatorTile>,
     },
+    Indicators {
+        indicators: Vec<sat_core::counters::IndicatorValue>,
+        /// What they are made of (the built-in ones when the project has none).
+        defs: Vec<sat_core::counters::IndicatorDef>,
+    },
     Buffer {
         areas: Vec<BufferAreaView>,
     },
@@ -1187,6 +1198,9 @@ pub struct App {
     vfs: Option<Arc<preview::VfsIndex>>,
     /// The project's counters (`@sat:counters`).
     counters: sat_core::counters::Counters,
+    /// Build indicators (`@sat:counters.build`) and the project's definitions of them (empty: the built-in ones).
+    indicators: sat_core::counters::Indicators,
+    indicator_defs: Vec<sat_core::counters::IndicatorDef>,
     /// Where mods come from, by folded name (`@sat:source`).
     sources: std::collections::HashMap<String, sat_core::source::ModSource>,
     /// The project's own stickers by folded mod name (`planned`, `new`).
@@ -1243,6 +1257,8 @@ impl App {
             mod_content: None,
             system_stickers: Default::default(),
             counters: Default::default(),
+            indicators: sat_core::counters::Indicators::compile(&sat_core::counters::default_indicators()).0,
+            indicator_defs: Vec::new(),
             sources: Default::default(),
             domain_cache: Default::default(),
             domain_inputs: Default::default(),
@@ -1297,6 +1313,15 @@ impl App {
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             // @sat:app.marks
+            C::SetIndicators { defs } => {
+                let (_, errors) = sat_core::counters::Indicators::compile(&defs);
+                if let Some(e) = errors.into_iter().next() {
+                    return Err(AppError::Expr(e));
+                }
+                self.set_indicators(&defs);
+                self.revision += 1;
+                return Ok(Event::Decided);
+            }
             // @sat:app.buffer
             C::Buffer { edit } => {
                 let mut areas = self.session.book().buffer().to_vec();
@@ -1822,6 +1847,33 @@ impl App {
             }
         }
         rows
+    }
+
+    // @sat:app.indicators
+    /// The project's build indicators (the built-in ones when it has none); returns those that did not compile.
+    pub fn set_indicators(&mut self, defs: &[sat_core::counters::IndicatorDef]) -> Vec<String> {
+        self.indicator_defs = defs.to_vec();
+        let defs = if defs.is_empty() {
+            sat_core::counters::default_indicators()
+        } else {
+            defs.to_vec()
+        };
+        let (c, errors) = sat_core::counters::Indicators::compile(&defs);
+        self.indicators = c;
+        errors
+    }
+
+    /// Every indicator over every mod of the build, in one pass over the mods' views.
+    fn indicator_values(&mut self) -> Vec<sat_core::counters::IndicatorValue> {
+        let keys: Vec<Key> = {
+            let b = self.session.book();
+            b.entries()
+                .filter(|e| e.1 == sat_core::canon::EntryKind::Mod)
+                .filter_map(|e| b.key_of(e.0))
+                .collect()
+        };
+        let parts: Vec<_> = keys.iter().map(|&k| self.view_parts(k)).collect();
+        self.indicators.measure(parts.iter().map(|p| p.view()))
     }
 
     // @sat:app.selection
@@ -2364,6 +2416,14 @@ impl App {
                     .map(Box::new),
             },
             // @sat:app.decoration
+            Query::Indicators => Reply::Indicators {
+                indicators: self.indicator_values(),
+                defs: if self.indicator_defs.is_empty() {
+                    sat_core::counters::default_indicators()
+                } else {
+                    self.indicator_defs.clone()
+                },
+            },
             Query::Buffer => {
                 let book = self.session.book();
                 let areas = book

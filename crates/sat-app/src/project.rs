@@ -73,6 +73,7 @@ impl App {
         self.set_system_stickers(p.system_stickers());
         self.set_sources(p.sources_by_name());
         problems.extend(self.set_counters(&p.counters));
+        problems.extend(self.set_indicators(&p.indicators));
         problems
     }
 
@@ -155,6 +156,7 @@ impl App {
         p.chain_layout = self.chain_layout().clone();
         p.chain_lineage = self.chain_lineage().clone();
         p.pinned_files = self.pinned_files().to_vec();
+        p.indicators = self.indicator_defs.clone();
         let ids = &p.entities;
         p.patches = self
             .patches()

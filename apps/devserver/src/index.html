@@ -231,6 +231,12 @@ section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
 #guideDlg header { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); background: var(--bg2); }
 #guideDlg header strong { flex: 1; font-size: 14px; } #guideDlg .gt { padding: 14px 18px 18px; color: var(--muted); font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; }
 .block h3 .inf { margin-left: 4px; }
+#indBox { position: fixed; z-index: 58; top: 52px; right: 16px; width: min(720px, calc(100vw - 32px)); background: var(--pop); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: var(--shadow); padding: 10px 12px; display: grid; gap: 6px; font-size: 12px; }
+#indBox h4 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+#indBox .ir { display: grid; grid-template-columns: 120px minmax(0, 1fr) 140px 70px 34px 26px; gap: 6px; align-items: center; }
+#indBox .ir input, #indBox .ir select { padding: 3px 7px; font: 11px var(--mono); min-width: 0; }
+#indBox .ia { display: flex; gap: 6px; align-items: center; } #indBox .ia #indErr { flex: 1; color: var(--l-txt); font-size: 11px; }
 /* the cloud: the mod's card at the mini level on hover */
 #cloud { position: fixed; z-index: 55; width: 300px; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
   background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; display: grid; gap: 8px; }
@@ -1519,18 +1525,52 @@ async function sync(follow) {
   if (again) { again = false; sync(false); }
 }
 
+// the indicators' constructor: label, which mods (a condition in the counters' language), optionally a sum, a tone
+let INDDEFS = [];
+document.addEventListener("click", ev => {
+  if (ev.target.closest("#indEdit")) { ev.stopPropagation(); return indEditor(); }
+});
+function indEditor() {
+  let box = document.getElementById("indBox");
+  if (!box) { box = document.createElement("div"); box.id = "indBox"; document.body.appendChild(box); }
+  const row = (d, i) => `<div class="ir" data-i="${i}"><input data-f="label" value="${esc(d.label)}" placeholder="ИМЯ"><input data-f="when" value="${esc(d.when || "")}" placeholder="enabled && overridden">` +
+    `<input data-f="sum" value="${esc(d.sum || "")}" placeholder="сумма (пусто — счёт)"><select data-f="tone">${["", "note", "warn", "bad"].map(t => `<option${(d.tone || "") === t ? " selected" : ""}>${t}</option>`).join("")}</select>` +
+    `<label title="показывать и при нуле"><input type="checkbox" data-f="always"${d.always ? " checked" : ""}>0</label><button data-del="${i}" title="Убрать">×</button></div>`;
+  box.innerHTML = `<h4>Индикаторы сборки ${guideBtn("indicators")}</h4>${INDDEFS.map(row).join("")}<div class="ia"><button data-add>+ индикатор</button><span id="indErr"></span><button data-cancel>Отмена</button><button class="pri" data-save>Сохранить</button></div>`;
+  box.hidden = false;
+  box.onclick = async ev => {
+    const read = () => [...box.querySelectorAll(".ir")].map((r, i) => {
+      const f = n => r.querySelector(`[data-f="${n}"]`);
+      return { id: (INDDEFS[i] && INDDEFS[i].id) || "i" + Date.now().toString(36) + i, label: f("label").value.trim() || "?", when: f("when").value.trim(), sum: f("sum").value.trim(), tone: f("tone").value, always: f("always").checked };
+    });
+    if (ev.target.closest("[data-add]")) { INDDEFS = [...read(), { id: "", label: "", when: "", sum: "", tone: "warn", always: false }]; return indEditor(); }
+    const del = ev.target.closest("[data-del]"); if (del) { const all = read(); all.splice(+del.dataset.del, 1); INDDEFS = all; return indEditor(); }
+    if (ev.target.closest("[data-cancel]")) { box.hidden = true; return totals(); }
+    if (ev.target.closest("[data-save]")) {
+      try { await command({ type: "set-indicators", defs: read() }); box.hidden = true; totals(); }
+      catch (e) { $("indErr").textContent = e.message; }
+    }
+  };
+}
+GUIDES.indicators = ["Индикаторы сборки", "Одно число на всю сборку, на языке счётчиков модов.\n\nУсловие — какие моды считать (пусто — все): enabled && overridden, update, unresolved_cases > 0, tags ~ \"3BA\".\nСумма — что сложить по ним (пусто — их число): loses, equal_copies.\n\nИндикатор виден, когда не ноль (или всегда — галочка «0»). Тон: note, warn, bad."];
+
 /** Build indicators (ADR 0020 §5): what needs attention stands out; hover — the full list. */
 async function totals() {
-  const t = await query({ type: "totals" }), o = t.overwrite, p = t.plugins;
+  const [t, { indicators: ind, defs }] = await Promise.all([query({ type: "totals" }), query({ type: "indicators" }).catch(() => ({ indicators: [], defs: [] }))]);
+  INDDEFS = defs || [];
+  const o = t.overwrite, p = t.plugins;
   const item = (k, v, tip, cls = "") => `<span class="${cls}" tabindex="0">${k} <b>${num(v)}</b><span class="tip">${tip}</span></span>`;
   const over = p.overflow_full + p.overflow_light;
+  // the project's indicators (the counters' language over the whole build, `@sat:counters.build`) first
+  const own = ind.filter(x => x.always || x.value).map(x => item(x.label, Math.round(x.value), `${esc(x.label)}: ${num(Math.round(x.value))}`, x.tone === "bad" ? "bad" : x.tone === "warn" ? "warn" : ""));
   $("stats").innerHTML = [
+    ...own,
     item("ПУТИ", o.conflict_paths, `конфликтных путей ${num(o.conflict_paths)}<br>цепочек ${num(o.normalized)} (точных ${num(o.chains)})<br>контекстов ${o.contexts}`),
     o.fully_overridden ? item("X", o.fully_overridden, "модов не видно в игре: всё перекрыто", "warn") : "",
     item("ESP", p.active_full + p.active_light, `полных ${p.active_full} · лёгких ${p.active_light}<br>в нескольких модах ${p.versioned}`),
     over ? item("ЛИМИТ", over, `сверх лимита: полных ${p.overflow_full}, лёгких ${p.overflow_light}`, "bad") : "",
     p.with_missing_masters ? item("МАСТЕРА", p.with_missing_masters, "плагинов без мастеров", "bad") : "",
-  ].join("");
+  ].join("") + `<button class="inf" id="indEdit" title="Индикаторы сборки: свои условия">+</button>`;
 }
 
 async function tiles() {

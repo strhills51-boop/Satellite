@@ -184,9 +184,124 @@ impl Counters {
     }
 }
 
+// @sat:counters.build
+/// A build indicator (ADR 0020 §5): one number for the whole build, made with the counters' language — how many mods
+/// a condition holds for (`when`), or the sum of an expression over them (`sum`). Shown at the right of the header
+/// when it needs attention (non-zero), or always (`always`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndicatorDef {
+    pub id: String,
+    pub label: String,
+    /// The mods counted (empty: every mod). Disabled mods count only when the condition says so.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub when: String,
+    /// Summed over the counted mods (empty: count them).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sum: String,
+    /// The tone when non-zero: `note`, `warn`, `bad` or `#rrggbb`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tone: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub always: bool,
+}
+
+/// The built-in indicators, until the project has its own.
+pub fn default_indicators() -> Vec<IndicatorDef> {
+    let d = |id: &str, label: &str, when: &str, tone: &str, always: bool| IndicatorDef {
+        id: id.into(),
+        label: label.into(),
+        when: when.into(),
+        sum: String::new(),
+        tone: tone.into(),
+        always,
+    };
+    vec![
+        d("mods", "МОДЫ", "enabled", "", true),
+        d("hidden", "НЕ ВИДНЫ", "enabled && overridden", "warn", false),
+        d(
+            "unresolved",
+            "НЕРЕШЁННЫЕ",
+            "enabled && unresolved_cases > 0",
+            "warn",
+            false,
+        ),
+        d("updates", "ОБНОВЛЕНИЯ", "update", "note", false),
+    ]
+}
+
+/// An indicator as measured over the build.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IndicatorValue {
+    pub id: String,
+    pub label: String,
+    pub value: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
+    pub always: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct Indicators {
+    list: Vec<(IndicatorDef, Option<Expr>, Option<Expr>)>,
+}
+
+impl Indicators {
+    /// Compiles definitions; one that does not compile is reported and left out.
+    pub fn compile(defs: &[IndicatorDef]) -> (Self, Vec<String>) {
+        let mut out = Self::default();
+        let mut errors = Vec::new();
+        for d in defs {
+            let opt = |src: &str| (!src.trim().is_empty()).then(|| compile_expr(src)).transpose();
+            match (opt(&d.when), opt(&d.sum)) {
+                (Ok(w), Ok(s)) => out.list.push((d.clone(), w, s)),
+                (Err(e), _) | (_, Err(e)) => errors.push(format!("indicator {:?}: {e}", d.id)),
+            }
+        }
+        (out, errors)
+    }
+
+    // @sat:counters.build.measure
+    /// Measures every indicator over the mods' views in one pass.
+    pub fn measure<'a>(&self, views: impl Iterator<Item = ModView<'a>>) -> Vec<IndicatorValue> {
+        let mut acc = vec![0.0f64; self.list.len()];
+        for v in views {
+            let get = |id: &str| v.get(id);
+            for (i, (_, when, sum)) in self.list.iter().enumerate() {
+                if when.as_ref().is_none_or(|e| e.test(&get)) {
+                    acc[i] += match sum {
+                        Some(e) => match e.eval(&get) {
+                            Value::Num(n) => n,
+                            Value::Bool(b) => f64::from(u8::from(b)),
+                            _ => 0.0,
+                        },
+                        None => 1.0,
+                    };
+                }
+            }
+        }
+        self.list
+            .iter()
+            .zip(acc)
+            .map(|((d, _, _), value)| IndicatorValue {
+                id: d.id.clone(),
+                label: d.label.clone(),
+                value,
+                tone: (value != 0.0 && !d.tone.is_empty()).then(|| d.tone.clone()),
+                always: d.always,
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_indicators_compile() {
+        let (_, errors) = Indicators::compile(&default_indicators());
+        assert!(errors.is_empty(), "{errors:?}");
+    }
     use crate::facts::ModMetrics;
     use crate::overwrite::ModStat;
 

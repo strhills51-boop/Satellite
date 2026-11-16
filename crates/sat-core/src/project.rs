@@ -83,6 +83,9 @@ pub struct Project {
     /// User-made counters on mod cards (`@sat:counters`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub counters: Vec<crate::counters::CounterDef>,
+    /// Build indicators at the right of the header (`@sat:counters.build`); empty — the built-in ones.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub indicators: Vec<crate::counters::IndicatorDef>,
     /// Names, icons and colours the user gave chains (`@sat:naming.manual`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chain_identities: Vec<crate::naming::ManualIdentity>,
@@ -159,6 +162,7 @@ impl Project {
             sticker_rules: Vec::new(),
             new_mods: Vec::new(),
             counters: Vec::new(),
+            indicators: Vec::new(),
             chain_identities: Vec::new(),
             chain_layout: Default::default(),
             chain_lineage: Default::default(),
