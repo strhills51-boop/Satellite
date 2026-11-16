@@ -572,6 +572,8 @@ def apply(s0: dict, p: dict) -> dict:
 
         before_active = active(s)
         ad = p.get("activeDistance")
+        if isinstance(ad, str):  # [claude] an id alone means {"id": ...}
+            ad = {"id": ad}
         if ad and action != "DEEPEN":
             ex = s["distances"].get(str(ad.get("id") or ""))
             ex_st = (ex or {}).get("status", "")

@@ -1,20 +1,33 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 2,
+ "revision": 5,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T14:17:55Z",
+ "updatedAt": "2026-11-16T14:22:51Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
-  "activeDistanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+  "activeDistanceId": "D2-home",
   "activity": "PLANNING",
-  "deepeningStack": [],
-  "returnPoint": null,
-  "tacticalFocus": "Ждать ответа владельца по ADR 0019; затем D2 «Дом».",
+  "deepeningStack": [
+   {
+    "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+    "childDistanceId": "D2-home",
+    "returnPoint": {
+     "tacticalFocus": "Разведка точных границ: что в sat-cli analyze и devserver load общее, что специфично оболочке (печать, флаги).",
+     "posture": "ARCHITECT"
+    },
+    "openedAt": "2026-11-16T14:22:51Z"
+   }
+  ],
+  "returnPoint": {
+   "tacticalFocus": "Разведка точных границ: что в sat-cli analyze и devserver load общее, что специфично оболочке (печать, флаги).",
+   "posture": "ARCHITECT"
+  },
+  "tacticalFocus": "Разведка точных границ: что в sat-cli analyze и devserver load общее, что специфично оболочке (печать, флаги).",
   "scheduler": {
    "events": [
     {
@@ -36,6 +49,19 @@
      "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
      "previousDistanceId": null,
      "reason": "post-apply"
+    },
+    {
+     "type": "RESUMABLE",
+     "at": "2026-11-16T14:22:09Z",
+     "distanceId": "D1-audit-adr",
+     "reason": "Ответ владельца записан как HUMAN_DECISION; ADR переведён в «принято» с его правками; D1 запечатан, следующий шаг — дом (sat-home)."
+    },
+    {
+     "type": "ACTIVATED",
+     "at": "2026-11-16T14:22:51Z",
+     "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+     "previousDistanceId": null,
+     "reason": "distance-sealed"
     }
    ]
   }
@@ -69,15 +95,15 @@
    "parentId": "distance:1a1e4b60bf0:783a0491",
    "objective": "Аудит существующих частей цепочки (скан/кэш, записи синхронизации, решения и штампы, @sat:sync.plan, @sat:mo2.commit, sat-cli sync/commit, запись плагинов, доноры, намерения) по MAP, коду и анализу монолита (08-conflicts, pass S01–S23) и ADR конвейера: кто владеет какой истиной, поколение, сохранение проекта, пробег из окна, как любая правка попадает в план фиксации.",
    "closureContract": "Аудит (docs/research или раздел ADR) и ADR в docs/adr закоммичены, check-map проходит; владелец просмотрел ADR (ответ в Human Inbox) или его замечания внесены.",
-   "status": "waiting_on_human",
+   "status": "sealed",
    "reason": "",
-   "summary": "",
+   "summary": "D1 закрыт: аудит и ADR 0019 закоммичены, владелец принял.",
    "createdAt": "2026-11-16T14:15:20Z",
-   "updatedAt": "2026-11-16T14:17:55Z",
-   "sealedAt": null,
+   "updatedAt": "2026-11-16T14:22:51Z",
+   "sealedAt": "2026-11-16T14:22:51Z",
    "suspendedAt": null,
    "readyAt": null,
-   "resumableAt": null,
+   "resumableAt": "2026-11-16T14:22:09Z",
    "resumedAt": null,
    "resumePriority": "BLOCKING",
    "dependencyBlocking": false,
@@ -88,7 +114,7 @@
      "HRQ:1a1e4b8bf0a:9760b215"
     ],
     "humanStates": {
-     "HRQ:1a1e4b8bf0a:9760b215": "OPEN"
+     "HRQ:1a1e4b8bf0a:9760b215": "ANSWERED"
     },
     "reason": "ADR 0019 (docs/adr/0019-home-pipeline.md): принимаешь? Запись из окна — флагом запуска --write (по умолчанию песочница) или окно всегда только смотрит, а пишет только CLI? Порядок шагов: дом → пробег → синхронизация → обработка → фиксация → правки файлов.",
     "resumeContract": "Ответ владельца записан как HUMAN_DECISION; ADR переведён в «принято» с его правками; D1 запечатан, следующий шаг — дом (sat-home)."
@@ -115,25 +141,61 @@
     "objective": "Аудит существующих частей цепочки (скан/кэш, записи синхронизации, решения и штампы, @sat:sync.plan, @sat:mo2.commit, sat-cli sync/commit, запись плагинов, доноры, намерения) по MAP, коду и анализу монолита (08-conflicts, pass S01–S23) и ADR конвейера: кто владеет какой истиной, поколение, сохранение проекта, пробег из окна, как любая правка попадает в план фиксации.",
     "closureContract": "Аудит (docs/research или раздел ADR) и ADR в docs/adr закоммичены, check-map проходит; владелец просмотрел ADR (ответ в Human Inbox) или его замечания внесены."
    },
-   "evidence": null
+   "evidence": {
+    "items": [
+     {
+      "commit": "ef1cbe6"
+     },
+     {
+      "commit": "730adb8"
+     },
+     {
+      "owner": "2026-11-16: «со всем согласен»"
+     }
+    ],
+    "at": "2026-11-16T14:22:51Z"
+   }
   },
   "mission-continuity:1a1e4b8bf0a:1f769663": {
    "id": "mission-continuity:1a1e4b8bf0a:1f769663",
    "parentId": null,
    "objective": "Reconcile the still-open Mission after local Distance completion. Use durable Mission authority, accepted evidence, scheduler blockers and Strategic Frontier to activate, resume or create the next highest-leverage executable Distance. Do not redo sealed work and do not treat advisory focus as work authority.",
    "closureContract": "Leave this continuity Distance only by establishing successor executable Distance authority, sealing the Mission, or entering an explicit genuine external-prerequisite wait. It may not be sealed into an open Mission with no successor.",
-   "status": "active",
+   "status": "suspended",
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
    "summary": "",
    "createdAt": "2026-11-16T14:17:55Z",
-   "updatedAt": "2026-11-16T14:17:55Z",
+   "updatedAt": "2026-11-16T14:22:51Z",
    "sealedAt": null,
-   "suspendedAt": null,
+   "suspendedAt": "2026-11-16T14:22:51Z",
    "readyAt": "2026-11-16T14:17:55Z",
    "resumableAt": null,
-   "resumedAt": "2026-11-16T14:17:55Z",
+   "resumedAt": "2026-11-16T14:22:51Z",
    "resumePriority": "BLOCKING",
    "dependencyBlocking": true,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": null
+  },
+  "D2-home": {
+   "id": "D2-home",
+   "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "objective": "Крейт crates/sat-home (@sat:home) владеет открытием сборки (экземпляр + .stll), пробегом (инвентарь, импорт канона, скан с кешем, факты в проект, сверка SYNC, записи плагинов) и полным планом фиксации (sync.plan + фабрики + патчи + файлы плагинов + проект «после») с исполнением; sat-cli analyze/sync/commit и devserver load — тонкие оболочки над ним, код перенесён, не скопирован.",
+   "closureContract": "cargo test/clippy зелёные, CI зелёный; sat-cli analyze/sync/commit на тестовом экземпляре дают тот же вывод, что до переноса; devserver грузит ту же сборку; MAP и check-map обновлены; галочка «Дом» в PHILOSOPHY.",
+   "status": "active",
+   "reason": "",
+   "summary": "",
+   "createdAt": "2026-11-16T14:22:51Z",
+   "updatedAt": "2026-11-16T14:22:51Z",
+   "sealedAt": null,
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
    "strategicFrontId": null,
    "resumeContract": "",
    "waitingOn": null,
@@ -162,6 +224,14 @@
    "distanceId": "D1-audit-adr",
    "revision": 2,
    "createdAt": "2026-11-16T14:17:55Z"
+  },
+  {
+   "id": "decision:1a1e4bd226d:09463cfd",
+   "text": "HUMAN_DECISION (владелец, 2026-11-16): ADR 0019 принят как есть — запись из окна флагом --write, по умолчанию песочница; порядок шагов дом → пробег → синхронизация → обработка → фиксация → правки файлов; миссию ведёт Claude по харнессу, направление — PHILOSOPHY.md.",
+   "reason": "",
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "revision": 3,
+   "createdAt": "2026-11-16T14:22:42Z"
   }
  ],
  "worklog": [
@@ -193,6 +263,47 @@
    ],
    "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "summary": "Аудит сделан и записан в ADR 0019 (предложено): кирпичи есть, разрывы — пробег в двух оболочках, достройка плана в CLI, окно не запускает/не сохраняет/не фиксирует, @sat:run и @sat:jobs без потребителя. Решение — крейт sat-home, пробег задачей с поколением, ревизия и сохранение проекта, один план для окна и CLI с воротами свежести. Нужен просмотр владельца до кода."
+  },
+  {
+   "id": "worklog:1a1e4bd226d:74763c65",
+   "revision": 3,
+   "at": "2026-11-16T14:22:42Z",
+   "action": "CONTINUE",
+   "activity": "CLOSURE",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    {
+     "commit": "730adb8"
+    }
+   ],
+   "distanceId": "D1-audit-adr",
+   "summary": "Ответ владельца применён: ADR 0019 принят, запись флагом --write, порядок шагов как в ADR; возвращаюсь в D1 закрыть его."
+  },
+  {
+   "id": "worklog:1a1e4bd45a0:9ab77c86",
+   "revision": 4,
+   "at": "2026-11-16T14:22:51Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    {
+     "file": "tools/vibe.py"
+    }
+   ],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "D1 закрыт: аудит и ADR 0019 закоммичены, владелец принял."
+  },
+  {
+   "id": "worklog:1a1e4bd45ca:181fcfa4",
+   "revision": 5,
+   "at": "2026-11-16T14:22:51Z",
+   "action": "DEEPEN",
+   "activity": "PLANNING",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "D2-home",
+   "summary": "Шаг 1 ADR 0019: дом. Пробег и достройка плана переносятся из sat-cli и devserver в крейт sat-home."
   }
  ],
  "humanRequests": {
@@ -207,9 +318,11 @@
    "recommended_option": "Принять как есть (--write, порядок как в ADR)",
    "resume_contract": "Ответ владельца записан как HUMAN_DECISION; ADR переведён в «принято» с его правками; D1 запечатан, следующий шаг — дом (sat-home).",
    "request_id": "HRQ:1a1e4b8bf0a:9760b215",
-   "status": "OPEN",
+   "status": "CONSUMED",
    "createdAt": "2026-11-16T14:17:55Z",
-   "distance_id": "D1-audit-adr"
+   "distance_id": "D1-audit-adr",
+   "answer": "Владелец (2026-11-16): «со всем согласен» — ADR 0019 принят как есть: запись из окна флагом --write (по умолчанию песочница), порядок шагов как в ADR. Работать по скиллу вайбго, направление — PHILOSOPHY.md Satellite NG, руководство — на мне (Claude).",
+   "answeredAt": "2026-11-16T14:22:09Z"
   }
  },
  "activities": [
@@ -343,13 +456,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T14:15:20Z"
  },
- "acceptanceSequence": 2,
+ "acceptanceSequence": 5,
  "lastControl": {
-  "at": "2026-11-16T14:17:55Z",
-  "revision": 2,
+  "at": "2026-11-16T14:22:51Z",
+  "revision": 5,
   "semanticChanged": true,
-  "acceptanceSequence": 2,
-  "modelSummary": "Аудит сделан и записан в ADR 0019 (предложено): кирпичи есть, разрывы — пробег в двух оболочках, достройка плана в CLI, окно не запускает/не сохраняет/не фиксирует, @sat:run и @sat:jobs без потребителя. Решение — крейт sat-home, пробег задачей с поколением, ревизия и сохранение проекта, один план для окна и CLI с воротами свежести. Нужен просмотр владельца до кода."
+  "acceptanceSequence": 5,
+  "modelSummary": "Шаг 1 ADR 0019: дом. Пробег и достройка плана переносятся из sat-cli и devserver в крейт sat-home."
  },
  "hold": null,
  "completedAt": null
