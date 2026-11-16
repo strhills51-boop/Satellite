@@ -194,13 +194,25 @@ section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
 #list.bricks .row:not(.sep) { background: transparent; border-color: var(--line); overflow: visible; border-radius: 0; }
 #list.bricks .row.sel:not(.sep) { background: color-mix(in srgb, var(--primary) 20%, transparent); }
 #list.bricks .row.sep { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
-#list.bricks .row:not(.sep) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; padding: 0 5px 0 5px; column-gap: 6px; }
-#list.bricks .row > .lead { align-self: center; display: flex; align-items: center; gap: 4px; min-width: 0; }
-#list.bricks .row.tall > .lead { align-self: start; padding-top: 6px; }
+/* one cell, three layers (monolith): the name centred in the whole container and cut on both sides; the indicator
+   with badges at the left edge and the counters at the right edge stand over it — they cover the name, not squeeze it.
+   Their backdrop is the brick's own colour (--bb), so what they cover is hidden cleanly. */
+#list.bricks .row:not(.sep) { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); padding: 0 5px; --side: 6px; --bb: var(--panel); }
+#list.bricks .row:not(.sep) > :not(.stk):not(.tg):not(.selv):not(.wm) { grid-area: 1 / 1; }
+#list.bricks .row > .lead { align-self: center; justify-self: start; display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; z-index: 1;
+  background: var(--bb); box-shadow: 4px 0 4px -1px var(--bb); }
+#list.bricks .row.tall > .lead { align-self: start; margin-top: 6px; }
 #list.bricks .row > .lead .toggle { margin: 0; width: 10px; height: 10px; flex: none; }
-#list.bricks .row:not(.sep) > .name { align-self: center; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: clip; padding: 0; grid-column: auto; }
-#list.bricks .row > .cnt { align-self: center; display: flex; gap: 6px; font: 10px var(--mono); color: var(--muted); white-space: nowrap; }
-#list.bricks .row.tall > .cnt { align-self: end; padding-bottom: 3px; }
+#list.bricks .row:not(.sep) > .name { align-self: center; display: flex; justify-content: center; white-space: nowrap; overflow: hidden; padding: 0; min-width: 0; }
+#list.bricks .row > .cnt { align-self: center; justify-self: end; display: flex; gap: 6px; font: 10px var(--mono); color: var(--muted); white-space: nowrap; z-index: 1;
+  background: var(--bb); box-shadow: -4px 0 4px -1px var(--bb); max-width: 100%; overflow: hidden; }
+#list.bricks .row.tall > .cnt { align-self: end; margin-bottom: 3px; }
+/* a brick with its own fill: no backdrop can match it, the layers just stand over the name */
+#list.bricks .row.dec { --bb: transparent; }
+#list.bricks .row.dec > .lead, #list.bricks .row.dec > .cnt { box-shadow: none; }
+/* tags (ADR 0016): stripes on the contour from the bottom centre both ways to the top centre; a full round — the next inside */
+#list.bricks .row > .tg { position: absolute; left: -1px; top: -1px; pointer-events: none; overflow: visible; z-index: 2; }
+#list.bricks .row > .tg path { fill: none; stroke-width: 2; stroke-linecap: butt; }
 #list.bricks .row > * { line-height: 1; }
 #list.bricks .row > .cnt .w { color: var(--w-txt); } #list.bricks .row > .cnt .l { color: var(--l-txt); } #list.bricks .row > .cnt .m { color: var(--m-txt); }
 #list.bricks .row > .cnt .x { color: var(--x-txt); font-weight: 600; }
@@ -644,9 +656,9 @@ section h2 small { font-size:9px; font-weight:450; opacity:.77; }
   overflow:visible;
   transition: background-color .12s ease, border-color .12s ease;
 }
-#list.bricks .row.mod:not(.sep):hover {background:color-mix(in srgb,var(--accent) 8%,transparent); border-color:var(--accent-border);z-index:3;}
-#list.bricks .row.mod.sel:not(.sep) {background:color-mix(in srgb,var(--accent) 17%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));}
-#list.bricks .row.mod.off:not(.sep) {background:color-mix(in srgb,var(--bg) 25%,transparent);}
+#list.bricks .row.mod:not(.sep):hover {background:color-mix(in srgb,var(--accent) 8%,transparent); border-color:var(--accent-border);z-index:3; --bb:color-mix(in srgb,var(--accent) 8%,var(--panel));}
+#list.bricks .row.mod.sel:not(.sep) {--bb:color-mix(in srgb,var(--accent) 17%,var(--panel));background:color-mix(in srgb,var(--accent) 17%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));}
+#list.bricks .row.mod.off:not(.sep) {background:color-mix(in srgb,var(--bg) 25%,transparent);--bb:color-mix(in srgb,var(--bg) 25%,var(--panel));}
 #list.bricks .row .name { font-size:11.5px; font-weight:520; letter-spacing:.012em; }
 #list.bricks .row.off .name {opacity:.75;}
 #list.bricks .row > .lead { gap:4px; }
@@ -920,14 +932,14 @@ function brickMeasures() {
   for (let c = 32; c < 127; c++) glyphs.push(Math.round(cv.measureText(String.fromCharCode(c)).width * 10));
   const cs = getComputedStyle(probe);
   const px = v => parseFloat(v) || 0;
-  // padding, borders, the two column gaps, the toggle
-  const chrome = Math.ceil(px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth) + 2 * px(cs.columnGap) + w(probe.querySelector(".toggle"))) + 2;
+  // padding, borders and the free room on both sides of the name; the sides themselves come with the measures
+  const chrome = Math.ceil(px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth) + 2 * px(cs.getPropertyValue("--side"))) + 2;
   const gap = px(getComputedStyle(probe.querySelector(".lead")).columnGap);
   brickM = {
     natural: { glyph10: Math.round(cv.measureText("ж").width * 10), glyphs, chrome, min: 50 },
     measures: {
       digit10: Math.ceil(w(cnt[0])) /* ten digits wide = one digit in tenths */, counter_gap10: Math.ceil(px(getComputedStyle(probe.querySelector(".cnt")).columnGap) * 10),
-      context10: Math.ceil((w(ctx[0]) + gap) * 10), chain10: Math.ceil((w(ctx[1]) - w(ctx[0])) * 10), more10: Math.ceil((w(ctx[2]) - w(ctx[0])) * 10),
+      lead10: Math.ceil(w(probe.querySelector(".toggle")) * 10), context10: Math.ceil((w(ctx[0]) + gap) * 10), chain10: Math.ceil((w(ctx[1]) - w(ctx[0])) * 10), more10: Math.ceil((w(ctx[2]) - w(ctx[0])) * 10),
     },
   };
   probe.remove();
@@ -948,7 +960,7 @@ function cardEl(key) {
 
 /** Writes a row element only when what it shows changed. */
 function paint(el, r) {
-  const sig = r ? JSON.stringify(r) + (el._tall ? "T" : "") : "";
+  const sig = r ? JSON.stringify(r) + (el._tall ? "T" : "") + (cols < 0 && r.marks && r.marks.tags ? `${el._w}x${el._h}` : "") : "";
   if (el._sig === sig) return;
   el._sig = sig; el._row = r;
   if (!r) { el.hidden = true; return; }
@@ -966,6 +978,7 @@ function paint(el, r) {
   }
   cls.push(r.kind, `d${Math.min(r.depth, 1)}`, r.enabled ? "on" : "off");
   if (el._tall) cls.push("tall");
+  if (cols < 0 && ((r.style && r.style.fill) || (r.color !== null && r.color !== undefined))) cls.push("dec");
   el.className = cls.join(" ");
   const c = r.counters;
   const counters = c ? [
@@ -989,13 +1002,53 @@ function paint(el, r) {
     el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm +
       (stk.length ? `<span class="stk">${stk.map(n => `<i style="--h:${hue(n)}" title="стикер">${esc(n)}</i>`).join("")}</span>` : "") +
       `<span class="lead"><span class="toggle" title="вкл/выкл"></span>${r.badges && r.badges.length ? strip(r) : ""}</span>` +
-      `<span class="name">${esc(r.name)}</span><span class="cnt">${counters}</span>`;
+      `<span class="name">${esc(r.name)}</span><span class="cnt">${counters}</span>` + tagStripes(r, el._w, el._h);
+    if (r.marks && r.marks.tags && r.marks.tags.length) el.title = "Теги: " + r.marks.tags.join(", ");
+    else el.removeAttribute("title");
     return;
   }
   el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm + `<div class="card"><span class="toggle" title="вкл/выкл"></span><span class="name">${esc(r.name)}</span>` +
     `<div class="line2">${strip(r)}<div class="counters">${counters}<span class="prio" title="приоритет MO2">${r.pos}</span></div></div></div>`;
 }
 
+// tag stripes (MAP: «Слои контейнера-кирпичика и теги»)
+/** Tags on the contour (ADR 0016): each tag is a pair of stripes going from the bottom centre both ways towards the top
+ *  centre, a fixed share of the half-perimeter each; a full round — the next round 3 px inside; two rounds at most,
+ *  the rest is «+N» (names — on hover). */
+const TAG_ROUND = 6;
+let TAGC = new Map();
+async function loadTagColors() {
+  try {
+    const { catalog } = await query({ type: "tags" });
+    const m = new Map();
+    for (const c of catalog || []) for (const t of c.tags || []) if (t.color !== null && t.color !== undefined) m.set(t.name.toLowerCase(), hex(t.color));
+    TAGC = m;
+  } catch (_) {}
+}
+function tagStripes(r, w, h) {
+  const tags = (r.marks && r.marks.tags) || [];
+  if (!tags.length || !w || !h) return "";
+  let out = "", more = 0;
+  tags.forEach((t, k) => {
+    const ring = Math.floor(k / TAG_ROUND);
+    if (ring > 1) { more++; return; }
+    const d = 1 + ring * 3, x0 = d, y0 = d, y1 = h - d, cx = w / 2;
+    const half = (cx - x0) + (y1 - y0) + (cx - x0), seg = half / TAG_ROUND, a = (k % TAG_ROUND) * seg, b = a + seg - 1.5;
+    // a point at distance s along one half: bottom centre → corner → up the side → top centre
+    const at = (s, dir) => {
+      const bx = cx - x0, sy = y1 - y0;
+      if (s <= bx) return [cx + dir * -s, y1];
+      if (s <= bx + sy) return [cx - dir * bx, y1 - (s - bx)];
+      return [cx - dir * (bx - (s - bx - sy)), y0];
+    };
+    const path = dir => { const pts = [at(a, dir)]; for (const c of [cx - x0, cx - x0 + y1 - y0]) if (c > a && c < b) pts.push(at(c, dir)); pts.push(at(b, dir));
+      return "M" + pts.map(p => p.map(v => v.toFixed(1)).join(" ")).join("L"); };
+    const col = TAGC.get(t.toLowerCase()) || `hsl(${hue(t)} 65% 60%)`;
+    out += `<path d="${path(1)}${path(-1)}" stroke="${col}"/>`;
+  });
+  return `<svg class="tg" width="${w}" height="${h}" aria-hidden="true">${out}</svg>` +
+    (more ? `<span class="stk" style="left:auto;right:4px"><i style="--h:210">+${more}</i></span>` : "");
+}
 /** A stable hue of a name (stickers without a colour of their own). */
 function hue(s) { let h = 0; for (const c of String(s).toLowerCase()) h = (h * 31 + c.codePointAt(0)) % 360; return h; }
 /** Overwrite badges of a card: "classic" = per context, one icon per chain; "summary" = one OW pill. */
@@ -1082,6 +1135,7 @@ async function sync(follow) {
       const b1 = cols < 0 && !l.header ? 1 : 0; // bricks: neighbours share one contour line
       const pos = [`translate(${c.x}px,${Math.round(el._ly - vt)}px)`, (c.width + b1) + "px", (l.header ? (cols < 0 ? BRICK_HEAD - 4 : ROW) : c.height + b1) + "px"];
       el._tall = cols < 0 && !l.header && c.height > BRICK;
+      el._w = c.width + b1; el._h = c.height + b1;
       if (!el._pos || el._pos.join() !== pos.join()) { el._pos = pos; place(el); }
       paint(el, r);
       if (r.focused) focused = r;
@@ -2753,6 +2807,7 @@ const repaint = () => { cards.forEach(el => { el._sig = null; }); sync(false); }
 const colsShow = () => $("cols").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === cols));
 $("cols").onclick = ev => { const b = ev.target.closest("button"); if (!b) return; cols = +b.dataset.v; colsShow(); try { localStorage.setItem("sat-cols2", cols); } catch (_) {} list.classList.toggle("bricks", cols < 0); cards.forEach(el => { el._sig = null; }); sync(true); };
 colsShow();
+loadTagColors().then(() => { if (cols < 0) { cards.forEach(el => { el._sig = null; }); sync(false); } });
 list.classList.toggle("bricks", cols < 0);
 // fonts arrive late: measure again with the real ones
 if (document.fonts) document.fonts.ready.then(() => { if (brickM) { brickM = null; if (cols < 0) sync(false); } });

@@ -535,6 +535,9 @@ pub struct BrickMeasures {
     pub chain10: u32,
     /// The «+N» of a context with more chains.
     pub more10: u32,
+    /// The indicator and the gap after it (the left side starts with it; the right side mirrors the wider side).
+    #[serde(default)]
+    pub lead10: u32,
 }
 
 impl BrickMeasures {
@@ -544,6 +547,7 @@ impl BrickMeasures {
         context10: 140,
         chain10: 150,
         more10: 200,
+        lead10: 150,
     };
 }
 
@@ -1598,7 +1602,9 @@ impl App {
             .into_iter()
             .filter(|r| r.kind == RowKind::Mod)
             .map(|r| {
-                let mut w = 0;
+                // the name stands in the middle of the container (monolith): the badges on the left and the
+                // counters on the right each get the wider side's room, so at its natural width nothing covers it
+                let (mut left, mut w) = (m.lead10, 0);
                 if let Some(c) = &r.counters {
                     let mut shown = 0;
                     for (n, extra) in [(c.win, 1), (c.lose, 1), (c.mid, 1), (c.unique, 1), (c.plugins, 4)] {
@@ -1614,11 +1620,11 @@ impl App {
                     w += shown * m.counter_gap10;
                 }
                 for b in &r.badges {
-                    w += m.context10
+                    left += m.context10
                         + b.chains.len() as u32 * m.chain10
                         + if b.more > 0 { m.more10 } else { 0 };
                 }
-                (r.key, w.div_ceil(10))
+                (r.key, (2 * left.max(w)).div_ceil(10))
             })
             .collect()
     }
