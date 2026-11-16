@@ -488,6 +488,21 @@ table.fxtab { width: 100%; border-collapse: collapse; font-size: 12px; } .fxtab 
 .cc .mem.win .nm { color: var(--win); }
 .cc .mem.off .nm { color: var(--muted); font-style: italic; }
 .cc .mem { grid-template-columns: 150px minmax(0, 1fr) 128px; }
+/* the cards mode (monolith, ADR 0020 §9): cards of one width in a flow; facts on top; each participant's row is its
+   teeth with the mod's name written inside; a solved card folds to its head */
+#ct.m-cards .cx .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 380px)); gap: 10px; align-items: start; }
+#ct.m-cards .cx .cards > .br { display: none; }
+#ct.m-cards .cc { margin: 0; }
+#ct.m-cards .cc .facts { padding: 6px 8px; margin: 2px 0 6px; border-radius: 8px; background: var(--surface2); font-size: 11px; color: var(--muted); display: grid; gap: 2px; }
+#ct.m-cards .cc .facts b { color: var(--fg); font-weight: 600; }
+#ct.m-cards .cc .facts .fp { font: 10px/1.35 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ct.m-cards .cc .facts .fp i { font-style: normal; color: var(--subtle); margin-right: 6px; }
+#ct.m-cards .cc .mem { position: relative; grid-template-columns: minmax(0, 1fr) auto; height: 22px; margin-bottom: 2px; }
+#ct.m-cards .cc .mem canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 4px; }
+#ct.m-cards .cc .mem .nm { position: relative; z-index: 1; padding-left: 6px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.85), 0 0 6px rgba(0,0,0,.6); }
+#ct.m-cards .cc .mem.off .nm { color: #d6dbe3; }
+#ct.m-cards .cc .mem .wlmx, #ct.m-cards .cc .mem .wl { position: relative; z-index: 1; padding-right: 6px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.85); }
+#ct.m-cards .cc.done { opacity: .7; }
 .cc .wlmx { font: 11px var(--mono); text-align: right; white-space: nowrap; }
 .cc .wlmx .w { color: #86efac; } .cc .wlmx .l { color: #fca5a5; } .cc .wlmx .m { color: #94a3b8; } .cc .wlmx .x { color: #fcd34d; }
 .cc .idle { padding: 0 8px 4px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2725,6 +2740,7 @@ const ccCur = () => CT.tab !== "files" ? CT.rctx : +$("ctCtx").value;
 function ctMode(m) {
   $("ct").className = "m-" + m; document.querySelectorAll("#ct [data-mode]").forEach(b => b.classList.toggle("cur", b.dataset.mode === m));
   if (m !== "cards") ctSync(false);
+  ctCards();
 }
 async function ccFetch(i) {
   const id = ccId(i);
@@ -2746,7 +2762,9 @@ async function ccDetail(i, ix) {
   return r.card;
 }
 function ccCard(i, k) {
-  const id = ccId(i) + ":" + k.index, open = CC.shown.has(id), d = open && CC.det.get(id), files = CT.tab === "files";
+  // the monolith's cards (ADR 0020 §9): in the cards mode every card is open; only a solved one folds
+  const wall = $("ct").classList.contains("m-cards");
+  const id = ccId(i) + ":" + k.index, open = wall ? (!k.done || CC.shown.has(id)) : CC.shown.has(id), d = open && CC.det.get(id), files = CT.tab === "files";
   const unit = CT.tab === "records" ? "зап." : CT.tab === "files" ? "ф." : "цел.";
   const eq = k.equal ? ` · = ${num(k.equal)}` : "";
   let body = "";
@@ -2756,10 +2774,16 @@ function ccCard(i, k) {
     const wl = m => CT.tab === "files"
       ? `<span class="wlmx" title="files=${d.targets_total} · есть ${m.owned} · W выигрывает ${m.wins} · L проигрывает ${m.loses} · M нет файла цепочки ${m.missing} · X конфликтных файлов вне цепочки ${m.extra}"><span class="w">${num(m.wins)}</span> <span class="l">${num(m.loses)}</span> <span class="m">${num(m.missing)}</span> <span class="x">${num(m.extra)}</span></span>`
       : `<span class="wl">▲${m.wins} ▼${m.loses}</span>`;
-    body = !d ? `<div class="body">загрузка…</div>` : `<div class="body">` + d.members.map((m, mi) =>
+    // the facts screen: what the chain is about — size, files, piles, the first paths and their kinds
+    const kinds = {};
+    for (const it of d ? d.items : []) for (const m of it.matchAll(/\.([a-z0-9]{2,5})\b/gi)) kinds[m[1].toLowerCase()] = (kinds[m[1].toLowerCase()] || 0) + 1;
+    const facts = !wall || !d ? "" : `<div class="facts"><div class="fl"><b>${num(k.files)}</b> ${unit}${k.bytes ? ` · <b>${bytesH(k.bytes)}</b>` : ""} · стаков <b>${num(d.items_total)}</b>` +
+      `${Object.keys(kinds).length ? ` · ${Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([e]) => "." + e).join(" ")}` : ""}</div>` +
+      d.items.slice(0, 3).map((it, j) => `<div class="fp"><i>×${num((d.counts || [])[j] || 1)}</i>${esc(it)}</div>`).join("") + `</div>`;
+    body = !d ? `<div class="body">загрузка…</div>` : `<div class="body">` + facts + d.members.map((m, mi) =>
       `<div class="mem${m.wins && !m.loses ? " win" : ""}${m.enabled ? "" : " off"}"><span class="nm" title="${esc(m.name)}${m.enabled ? "" : " — выключен"}"><i style="background:${m.enabled ? css("--ok") : css("--miss")}"></i>${esc(m.name)}</span>` +
-      `<canvas data-t="${m.teeth}" data-cc="${id}" data-m="${mi}"></canvas>${wl(m)}</div>`).join("") +
-      `<details${d.items.length <= 40 ? " open" : ""}><summary>Стаки: ${num(d.items_total)} · ${CT.tab === "records" ? "записей" : CT.tab === "files" ? "путей" : "целей"}: ${num(d.targets_total || d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary>` +
+      `<canvas data-t="${m.teeth}" data-cc="${id}" data-m="${mi}" data-h="${k.hue}"></canvas>${wl(m)}</div>`).join("") +
+      `<details${!wall && d.items.length <= 40 ? " open" : ""}><summary>Стаки: ${num(d.items_total)} · ${CT.tab === "records" ? "записей" : CT.tab === "files" ? "путей" : "целей"}: ${num(d.targets_total || d.items_total)}${d.items_total > d.items.length ? ` (показаны первые ${d.items.length})` : ""}</summary>` +
       d.items.map((it, k) => `<div class="stk" data-cc="${id}" data-k="${k}" title="нажми — список"><b>×${num((d.counts || [])[k] || 1)}</b><span>${esc(it)}</span></div>`).join("") + `</details>` +
       // the chain's files as a tree (monolith: baked conflict-only tree of the card), winners on folders
       (files ? `<details class="ctree" data-tree="${id}"${CC.treeOpen.has(id) ? " open" : ""}><summary>Дерево цепочки</summary>${CC.trees.get(id) || (CC.treeOpen.has(id) ? `<div class="muted">загрузка…</div>` : "")}</details>` : "") + `</div>`;
@@ -2831,6 +2855,24 @@ async function ctCards() {
   box.innerHTML = html; box.scrollTop = top;
   if (had) { const el = $("ccQ"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   box.querySelectorAll("canvas[data-t]").forEach(ccTeeth);
+  // the cards mode opens every unsolved card: fetch what is shown, then draw once more
+  if ($("ct").classList.contains("m-cards") && !CC.walling) {
+    const want = [...box.querySelectorAll(".cc[data-cx]")].filter(el => el.querySelector(".body") && el.querySelector(".body").textContent === "загрузка…").slice(0, 60);
+    if (want.length) {
+      CC.walling = true;
+      try { await Promise.all(want.map(el => ccDetail(+el.dataset.cx, +el.dataset.ix))); } catch (_) {}
+      CC.walling = false;
+      return ctCards();
+    }
+  }
+}
+/** In the cards mode a tooth's colour is its meaning mixed with the card's own hue (monolith): 72 % meaning. */
+function tint(col, hue) {
+  if (hue === undefined || !$("ct").classList.contains("m-cards")) return col;
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(col) || (/^#([0-9a-f]{6})$/i.exec(col) && [0, ...[1, 3, 5].map(i => parseInt(col.slice(i, i + 2), 16))]);
+  if (!m) return col;
+  const c = hslToInt(+hue, 60, 50), r = [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+  return `rgb(${[1, 2, 3].map((i, j) => Math.round(+m[i] * .72 + r[j] * .28)).join(",")})`;
 }
 function ccTeeth(cv) {
   const t = cv.dataset.t, dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
@@ -2843,7 +2885,7 @@ function ccTeeth(cv) {
     let x = 0;
     for (let j = 0; j < t.length; j++) {
       const tw = wt[j] / sum * w;
-      g.fillStyle = CELL[t[j]] ? cellColor(t[j]) : "rgba(127,127,127,.12)"; g.fillRect(x, 0, Math.max(1, tw - (tw >= 4 ? 1 : 0)), h);
+      g.fillStyle = CELL[t[j]] ? tint(cellColor(t[j]), cv.dataset.h) : "rgba(127,127,127,.12)"; g.fillRect(x, 0, Math.max(1, tw - (tw >= 4 ? 1 : 0)), h);
       x += tw;
     }
     cv._edges = wt.map((v, j) => wt.slice(0, j + 1).reduce((a, b) => a + b, 0) / sum * w);
