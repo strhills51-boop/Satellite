@@ -698,6 +698,10 @@ pub struct RowView {
     /// Tags, stickers and note of the entry (`@sat:order.decor.marks`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub marks: Option<sat_core::order::Marks>,
+    /// Stickers the project's rules and the project itself give the mod (`planned`, `new`) — beside the user's own
+    /// in `marks` (the card draws both: labels above its top-left corner, a contour per sticker around it).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rule_stickers: Vec<String>,
 }
 
 // @sat:app.badges
@@ -963,6 +967,8 @@ pub struct App {
     revision: u64,
     /// Flow index per view, valid for one book revision and one set of parameters.
     flows: std::collections::HashMap<ViewId, FlowIndex>,
+    /// Bricks: what each container holds besides its name, by view (`@sat:app.bricks`), built with its flow index.
+    brick_extra: std::collections::HashMap<ViewId, std::collections::HashMap<Key, u32>>,
     /// Sorted columns of the context table that is open.
     open_context: Option<context::OpenContext>,
     /// Sync records and the folder names they were found against.
@@ -1026,6 +1032,7 @@ impl App {
             registry,
             revision: 0,
             flows: Default::default(),
+            brick_extra: Default::default(),
             open_context: None,
             heads: None,
             sync: Default::default(),
@@ -1488,7 +1495,8 @@ impl App {
             }
         }
         let book = self.session.book();
-        book.rows(view, start, count)
+        let mut rows = book
+            .rows(view, start, count)
             .into_iter()
             .map(|r| {
                 let counters = (r.kind == RowKind::Mod)
@@ -1528,9 +1536,46 @@ impl App {
                     },
                     counters,
                     custom: Vec::new(),
+                    rule_stickers: Vec::new(),
                 }
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        for r in &mut rows {
+            if r.kind == RowKind::Mod {
+                r.rule_stickers = self.rule_stickers(r.key);
+            }
+        }
+        rows
+    }
+
+    // @sat:app.bricks
+    /// What each mod container holds besides its name, in pixels, for the bricks layout (ADR 0020 §6): its badges
+    /// and counters as the window draws them (one line, 10 px digits). So a container is as wide as its content and
+    /// nothing covers the name unless the line is short of room.
+    fn brick_extras(&mut self, view: ViewId, badges: u8) -> std::collections::HashMap<Key, u32> {
+        let len = self.session.book().row_count(view);
+        let digits = |n: u32| n.to_string().len() as u32;
+        self.row_views(view, 0, len, badges)
+            .into_iter()
+            .filter(|r| r.kind == RowKind::Mod)
+            .map(|r| {
+                let mut w = 0;
+                if let Some(c) = &r.counters {
+                    for (n, extra) in [(c.win, 1), (c.lose, 1), (c.mid, 1), (c.unique, 1), (c.plugins, 4)] {
+                        if n > 0 {
+                            w += (digits(n) + extra) * 6 + 6;
+                        }
+                    }
+                    if c.x {
+                        w += 12;
+                    }
+                }
+                for b in &r.badges {
+                    w += 14 + b.chains.len() as u32 * 15 + if b.more > 0 { 20 } else { 0 };
+                }
+                (r.key, w)
+            })
+            .collect()
     }
 
     /// Answers a query (projections are brought up to date lazily, only what the query needs).
@@ -1646,14 +1691,24 @@ impl App {
                     .get(&view)
                     .is_some_and(|i| i.revision == rev && i.params == flow);
                 if !fresh {
-                    let idx = book.flow_index(view, flow);
+                    let extra = if flow.natural.is_some() {
+                        self.brick_extras(view, badges)
+                    } else {
+                        Default::default()
+                    };
+                    let book = self.session.book();
+                    let idx = book.flow_index_by(view, flow, &|k| extra.get(&k).copied().unwrap_or(0));
                     self.flows.insert(view, idx);
+                    self.brick_extra.insert(view, extra);
                 }
+                let book = self.session.book();
+                let extra = &self.brick_extra[&view];
+                let by = |k: Key| extra.get(&k).copied().unwrap_or(0);
                 let idx = &self.flows[&view];
-                let lines = book.flow_lines(view, idx, y, height);
+                let lines = book.flow_lines_by(view, idx, y, height, &by);
                 let focus = book
                     .focus_row(view)
-                    .and_then(|r| book.flow_row_y(view, idx, r as u32));
+                    .and_then(|r| book.flow_row_y_by(view, idx, r as u32, &by));
                 let total_height = idx.total_height;
                 let len = book.row_count(view);
                 let (lo, hi) = lines
@@ -2694,6 +2749,7 @@ pub(crate) mod tests {
             header_height: 30,
             gap: 4,
             reserve: 0,
+            natural: None,
         };
         let q = Query::Lines {
             view: order::MAIN,

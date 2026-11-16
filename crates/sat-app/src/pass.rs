@@ -189,6 +189,8 @@ impl App {
         self.vfs = None;
         self.heads = None;
         self.records_pending();
+        // layouts measured the old badges and counters
+        self.flows.clear();
         self.revision += 1;
     }
 }

@@ -27,6 +27,41 @@ pub struct FlowParams {
     /// below (only crossing a multiple does). 0 — no spare room.
     #[serde(default)]
     pub reserve: u32,
+    /// Bricks (ADR 0020 §6): a card is as wide as its name — `None` keeps the grid of equal cards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural: Option<Natural>,
+}
+
+// @sat:order.flow.natural
+/// The natural width of a card in the bricks layout: its name decides it (the window measures nothing — an
+/// average glyph width is enough, a name that does not fit is cut, ADR 0020 §6). A line is read left to right,
+/// lines top to bottom; a full line shares what is left of it among its cards, the last line of a block keeps
+/// the natural widths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Natural {
+    /// Average glyph width of a name, in tenths of a pixel.
+    pub glyph10: u32,
+    /// Everything besides the name: padding, indicator, room for badges and counters.
+    pub chrome: u32,
+    /// The common minimum width of every container.
+    pub min: u32,
+}
+
+impl Natural {
+    /// `extra` — what else the container holds besides its name (badges, counters), as the caller measures it.
+    fn width(&self, name: &str, extra: u32, max: u32) -> u32 {
+        let chars = name.chars().count() as u32;
+        (self.chrome + extra + (chars * self.glyph10).div_ceil(10))
+            .max(self.min)
+            .min(max)
+    }
+}
+
+/// What a container holds besides its name, by key, in pixels (badges, counters): the caller's measure.
+pub type Extra<'a> = &'a dyn Fn(Key) -> u32;
+
+fn no_extra(_: Key) -> u32 {
+    0
 }
 
 impl FlowParams {
@@ -97,10 +132,25 @@ impl OrderBook {
         self.flow_index_in(v, params, None)
     }
 
+    /// [`flow_index`](Self::flow_index) with what each container holds besides its name (bricks).
+    pub fn flow_index_by(&self, v: ViewId, params: FlowParams, extra: Extra<'_>) -> FlowIndex {
+        self.flow_index_with(v, params, None, extra)
+    }
+
     // @sat:order.flow.scope
     /// Builds the block index of view `v` limited to the blocks of the given separators (the monolith's classic
     /// view shows the current separator, or the selected ones stacked). Rows keep their view numbers.
     pub fn flow_index_in(&self, v: ViewId, params: FlowParams, scope: Option<&[Key]>) -> FlowIndex {
+        self.flow_index_with(v, params, scope, &no_extra)
+    }
+
+    fn flow_index_with(
+        &self,
+        v: ViewId,
+        params: FlowParams,
+        scope: Option<&[Key]>,
+        extra: Extra<'_>,
+    ) -> FlowIndex {
         let rows_total = self.row_count(v) as u32;
         let seps = self.seq.separator_count();
         let mut blocks = Vec::with_capacity(seps + 1);
@@ -152,8 +202,11 @@ impl OrderBook {
         let mut y = 0;
         for b in &mut blocks {
             b.y = y;
-            let natural = if b.styled {
-                self.block_lines(v, b, &params, 0).iter().map(|l| l.height).sum()
+            let natural = if b.styled || params.natural.is_some() {
+                self.block_lines(v, b, &params, 0, extra)
+                    .iter()
+                    .map(|l| l.height)
+                    .sum()
             } else {
                 plain_height(b, &params)
             };
@@ -170,6 +223,18 @@ impl OrderBook {
 
     /// Lines of view `v` that intersect `[y, y + height)`.
     pub fn flow_lines(&self, v: ViewId, idx: &FlowIndex, y: u32, height: u32) -> Vec<Line> {
+        self.flow_lines_by(v, idx, y, height, &no_extra)
+    }
+
+    /// [`flow_lines`](Self::flow_lines) with the same `extra` the index was built with.
+    pub fn flow_lines_by(
+        &self,
+        v: ViewId,
+        idx: &FlowIndex,
+        y: u32,
+        height: u32,
+        extra: Extra<'_>,
+    ) -> Vec<Line> {
         let end = y.saturating_add(height);
         let mut out = Vec::new();
         let start = idx.blocks.partition_point(|b| b.y + b.height <= y);
@@ -177,9 +242,9 @@ impl OrderBook {
             if b.y >= end {
                 break;
             }
-            if b.styled {
+            if b.styled || idx.params.natural.is_some() {
                 out.extend(
-                    self.block_lines(v, b, &idx.params, b.y)
+                    self.block_lines(v, b, &idx.params, b.y, extra)
                         .into_iter()
                         .filter(|l| l.y + l.height > y && l.y < end),
                 );
@@ -193,6 +258,17 @@ impl OrderBook {
     // @sat:order.flow.row-y
     /// The line (y, height) holding row `row` of view `v`, to scroll the focus into view.
     pub fn flow_row_y(&self, v: ViewId, idx: &FlowIndex, row: u32) -> Option<(u32, u32)> {
+        self.flow_row_y_by(v, idx, row, &no_extra)
+    }
+
+    /// [`flow_row_y`](Self::flow_row_y) with the same `extra` the index was built with.
+    pub fn flow_row_y_by(
+        &self,
+        v: ViewId,
+        idx: &FlowIndex,
+        row: u32,
+        extra: Extra<'_>,
+    ) -> Option<(u32, u32)> {
         let i = idx.blocks.partition_point(|b| b.first_row + b.rows <= row);
         let b = idx.blocks.get(i)?;
         let p = &idx.params;
@@ -202,9 +278,9 @@ impl OrderBook {
         if row < b.first_row {
             return None; // outside the scope
         }
-        if b.styled {
+        if b.styled || p.natural.is_some() {
             return self
-                .block_lines(v, b, p, b.y)
+                .block_lines(v, b, p, b.y, extra)
                 .into_iter()
                 .find(|l| l.cards.iter().any(|c| c.row == row))
                 .map(|l| (l.y, l.height));
@@ -271,7 +347,7 @@ impl OrderBook {
     }
 
     /// Greedy layout of a block with styled entries: widths, breaks, full width, heights, margins.
-    fn block_lines(&self, v: ViewId, b: &Block, p: &FlowParams, y0: u32) -> Vec<Line> {
+    fn block_lines(&self, v: ViewId, b: &Block, p: &FlowParams, y0: u32, extra: Extra<'_>) -> Vec<Line> {
         let mut out = Vec::new();
         let mut y = y0;
         if let Some(h) = b.header {
@@ -292,6 +368,7 @@ impl OrderBook {
         }
         let cw = p.default_card_width();
         let mut cur: Vec<Placed> = Vec::new();
+        let mut own: Vec<bool> = Vec::new();
         // (top margin, bottom margin) of each card of the current line
         let mut margins: Vec<(u32, u32)> = Vec::new();
         let mut x = 0u32;
@@ -299,11 +376,33 @@ impl OrderBook {
         // The load order is read by the indicators (ADR 0016): in a line they keep the line of the majority. The
         // cards' top margins vote; every card of the line takes the winning offset, so a minority card is pulled to
         // the majority instead of breaking the reading line.
+        // in bricks, cards with no width of their own share what is left of a full line (`stretch`)
         let flush = |cur: &mut Vec<Placed>,
                      margins: &mut Vec<(u32, u32)>,
+                     own: &mut Vec<bool>,
+                     stretch: bool,
                      x: &mut u32,
                      y: &mut u32,
                      out: &mut Vec<Line>| {
+            if stretch && p.natural.is_some() && !cur.is_empty() {
+                let used = cur.last().map_or(0, |c| c.x + c.width);
+                let free = p.width.saturating_sub(used);
+                let n = own.iter().filter(|o| !**o).count() as u32;
+                if free > 0 && n > 0 {
+                    let (each, mut rest) = (free / n, free % n);
+                    let mut shift = 0;
+                    for (c, o) in cur.iter_mut().zip(own.iter()) {
+                        c.x += shift;
+                        if !*o {
+                            let add = each + u32::from(rest > 0);
+                            rest = rest.saturating_sub(1);
+                            c.width += add;
+                            shift += add;
+                        }
+                    }
+                }
+            }
+            own.clear();
             if !cur.is_empty() {
                 let dy = majority(margins.iter().map(|m| m.0));
                 let body = cur
@@ -338,7 +437,11 @@ impl OrderBook {
             let w = if full {
                 p.width
             } else {
-                st.and_then(|s| s.width).map_or(cw, u32::from).min(p.width)
+                match (st.and_then(|s| s.width), p.natural) {
+                    (Some(w), _) => u32::from(w).min(p.width),
+                    (None, Some(n)) => n.width(self.name(k), extra(k), p.width),
+                    (None, None) => cw,
+                }
             };
             let h = st.and_then(|s| s.height).map_or(p.card_height, u32::from);
             let m = st.map_or((0, 0), |s| {
@@ -349,7 +452,17 @@ impl OrderBook {
             });
             let break_before = st.is_some_and(|s| s.break_before) || full;
             if break_before || (x > 0 && x + w > p.width) {
-                flush(&mut cur, &mut margins, &mut x, &mut y, &mut out);
+                // a line ended by the width is full: it is stretched; one ended by a break keeps its widths
+                let stretch = !break_before;
+                flush(
+                    &mut cur,
+                    &mut margins,
+                    &mut own,
+                    stretch,
+                    &mut x,
+                    &mut y,
+                    &mut out,
+                );
             }
             cur.push(Placed {
                 row: b.first_row + i as u32,
@@ -360,12 +473,13 @@ impl OrderBook {
                 dy: 0,
             });
             margins.push(m);
+            own.push(full || st.and_then(|s| s.width).is_some());
             x += w + p.gap;
             if full || st.is_some_and(|s| s.break_after) {
-                flush(&mut cur, &mut margins, &mut x, &mut y, &mut out);
+                flush(&mut cur, &mut margins, &mut own, false, &mut x, &mut y, &mut out);
             }
         }
-        flush(&mut cur, &mut margins, &mut x, &mut y, &mut out);
+        flush(&mut cur, &mut margins, &mut own, false, &mut x, &mut y, &mut out);
         out
     }
 }
@@ -433,6 +547,7 @@ mod tests {
         header_height: 30,
         gap: 4,
         reserve: 0,
+        natural: None,
     };
 
     /// Every visible row appears exactly once, lines do not overlap and cover the whole height.
@@ -604,5 +719,86 @@ mod tests {
         )
         .unwrap();
         assert_eq!(b.flow_index(MAIN, r).total_height, before.total_height);
+    }
+
+    #[test]
+    fn bricks_are_as_wide_as_their_names_and_keep_the_order() {
+        let mut entries = vec![Entry {
+            name: "S_separator".into(),
+            kind: EntryKind::Separator,
+            enabled: false,
+        }];
+        let names = [
+            "A",
+            "Longer name here",
+            "B",
+            "Medium one",
+            "C",
+            "Another long mod name",
+            "D",
+            "E",
+            "F",
+        ];
+        for n in names {
+            entries.push(Entry {
+                name: n.into(),
+                kind: EntryKind::Mod,
+                enabled: true,
+            });
+        }
+        let b = OrderBook::from_modlist(&Modlist::new(entries));
+        let p = FlowParams {
+            width: 300,
+            card_width: 300,
+            card_height: 28,
+            header_height: 32,
+            gap: 6,
+            reserve: 0,
+            natural: Some(Natural {
+                glyph10: 70,
+                chrome: 40,
+                min: 50,
+            }),
+        };
+        let idx = b.flow_index(MAIN, p);
+        let lines = b.flow_lines(MAIN, &idx, 0, idx.total_height);
+        let cards: Vec<&Placed> = lines
+            .iter()
+            .filter(|l| !l.header)
+            .flat_map(|l| &l.cards)
+            .collect();
+        // every mod once, rows increase left to right and top to bottom
+        let rows: Vec<u32> = cards.iter().map(|c| c.row).collect();
+        assert_eq!(rows, (1..=9).collect::<Vec<_>>());
+        let body: Vec<&Line> = lines.iter().filter(|l| !l.header).collect();
+        assert!(
+            body.len() > 1 && body.len() < 9,
+            "several mods per line: {}",
+            body.len()
+        );
+        for (i, l) in body.iter().enumerate() {
+            for w in l.cards.windows(2) {
+                assert!(
+                    w[0].x + w[0].width + p.gap <= w[1].x + 1,
+                    "left to right, no overlap"
+                );
+            }
+            assert!(l.cards.iter().all(|c| c.width >= 50), "the common minimum");
+            let right = l.cards.last().map_or(0, |c| c.x + c.width);
+            if i + 1 < body.len() {
+                assert_eq!(right, p.width, "a full line is stretched to the width");
+            } else {
+                assert!(right <= p.width);
+            }
+        }
+        // the last line keeps the natural widths: a one-letter mod is the minimum
+        let last = body.last().unwrap().cards.last().unwrap();
+        assert_eq!(last.width, 50);
+        // a long name makes a wider card than a short one on the same kind of line
+        let long = cards.iter().find(|c| c.row == 6).unwrap().width;
+        let short = cards.iter().find(|c| c.row == 7).unwrap().width;
+        assert!(long > short, "{long} > {short}");
+        // the index height matches the lines
+        assert_eq!(idx.total_height, lines.iter().map(|l| l.height).sum::<u32>());
     }
 }

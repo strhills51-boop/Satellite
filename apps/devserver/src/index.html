@@ -151,6 +151,22 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 #palette .act { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .d1 .card { padding-left: 22px; }
 /* keyboard focus: two opposite corners (monolith) */
+/* bricks: the monolith's mod container (ADR 0020 §6) — transparent, thin contour, one line */
+#list.bricks .row:not(.sep) { background: transparent; border-color: var(--line); overflow: visible; border-radius: 7px; }
+#list.bricks .row.sel:not(.sep) { background: color-mix(in srgb, var(--primary) 20%, transparent); }
+#list.bricks .row.sep { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+#list.bricks .row:not(.sep) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; padding: 0 5px 0 5px; column-gap: 6px; }
+#list.bricks .row > .lead { align-self: start; display: flex; align-items: center; gap: 4px; padding-top: 6px; min-width: 0; }
+#list.bricks .row > .lead .toggle { margin: 0; width: 10px; height: 10px; flex: none; }
+#list.bricks .row > .lead .strip { margin-top: -1px; }
+#list.bricks .row:not(.sep) > .name { align-self: center; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: clip; padding: 0; grid-column: auto; }
+#list.bricks .row > .cnt { align-self: end; display: flex; gap: 6px; font: 10px var(--mono); color: var(--muted); padding-bottom: 2px; white-space: nowrap; }
+#list.bricks .row > .cnt .w { color: var(--w-txt); } #list.bricks .row > .cnt .l { color: var(--l-txt); } #list.bricks .row > .cnt .m { color: var(--m-txt); }
+#list.bricks .row > .cnt .x { color: var(--x-txt); font-weight: 600; }
+#list.bricks .row .ctx { height: 14px; } #list.bricks .row .ico { width: 12px; height: 12px; flex-basis: 12px; font-size: 8px; }
+#list.bricks .row > .stk { position: absolute; left: 4px; top: -9px; z-index: 2; display: flex; gap: 2px; }
+#list.bricks .row > .stk i { font: 600 8px/10px var(--ui); font-style: normal; padding: 0 4px; border-radius: 4px; color: #111;
+  background: hsl(var(--h) 62% 62%); white-space: nowrap; }
 .row.focus::before, .row.focus::after { content: ""; position: absolute; width: 10px; height: 10px; border: 2px solid var(--accent); pointer-events: none; }
 .row.focus::before { top: 2px; left: 2px; border-right: 0; border-bottom: 0; }
 .row.focus::after { bottom: 2px; right: 2px; border-left: 0; border-top: 0; }
@@ -453,7 +469,7 @@ footer b { color: var(--accent2); font-weight: 500; }
     <h2>Моды <small id="modcount"></small></h2>
     <div class="tools"><input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени">
       <select id="badgeModel" aria-label="Модель бейджей"><option value="classic">Коллекция цепочек</option><option value="summary">OW N</option></select>
-      <select id="cols" aria-label="Колонки"><option value="340">Поток · 340</option><option value="260">Поток · 260</option><option value="0">Одна колонка</option></select>
+      <select id="cols" aria-label="Колонки"><option value="-1">Кирпичики</option><option value="340">Поток · 340</option><option value="260">Поток · 260</option><option value="0">Одна колонка</option></select>
       <select id="density" aria-label="Плотность"><option value="3">Плотно · 3</option><option value="6">Обычно · 6</option><option value="12">Свободно · 12</option></select>
       <span id="err" role="status"></span></div>
     <div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
@@ -520,7 +536,7 @@ let len = 0, total = 0, busy = false, again = false, fetched = { y0: 0, y1: -1 }
 const cards = new Map(), spare = [];
 let badgeModel = "classic", density = 6, cols = 340;
 try { badgeModel = localStorage.getItem("sat-badges") || "classic"; density = +(localStorage.getItem("sat-density") || 6);
-  cols = +(localStorage.getItem("sat-cols") ?? 340); } catch (_) {}
+  cols = +(localStorage.getItem("sat-cols2") ?? -1); } catch (_) {}
 
 async function post(path, body) {
   const r = await fetch(path, { method: "POST", body: JSON.stringify(body) });
@@ -536,7 +552,14 @@ const num = n => n.toLocaleString("ru-RU");
 function scale() { return total > MAXPX ? (total - list.clientHeight) / (MAXPX - list.clientHeight) : 1; }
 function vtop() { return list.scrollTop * scale(); }
 function flowWidth() { return Math.max(200, list.clientWidth - 12); }
-function flow() { const w = flowWidth(); return { width: w, card_width: cols || w, card_height: ROW, header_height: ROW + GAP, gap: GAP }; }
+// bricks (ADR 0020 §6, the owner's default): one-line containers as wide as their names, several in a line, read left
+// to right, lines top to bottom; the core places them (`@sat:order.flow.natural`)
+const BRICK = 28, BRICK_GAP = 9, BRICK_HEAD = 32;
+function flow() {
+  const w = flowWidth();
+  if (cols < 0) return { width: w, card_width: w, card_height: BRICK, header_height: BRICK_HEAD, gap: BRICK_GAP, natural: { glyph10: 80, chrome: 40, min: 50 } };
+  return { width: w, card_width: cols || w, card_height: ROW, header_height: ROW + GAP, gap: GAP };
+}
 /** Position only: scrolling moves cards without rewriting them. */
 function place(el) { if (el._pos) { [el.style.transform, el.style.width, el.style.height] = el._pos; } }
 function cardEl(key) {
@@ -575,10 +598,26 @@ function paint(el, r) {
     c.unique ? `<span title="уникальных файлов">+${c.unique}</span>` : "",
   ].join("") : "";
   const wm = r.style && r.style.watermark ? watermark(r.style.watermark) : "";
+  if (cols < 0) {
+    // the monolith's container: name centred (cut, covered), indicator top-left, badges after it, counters bottom-right
+    // growing left over the name; stickers above the top-left corner, one contour per sticker around the container
+    const stk = [...((r.marks && r.marks.stickers) || []), ...(r.rule_stickers || [])];
+    if (stk.length) {
+      const rings = stk.map((n, i) => `0 0 0 ${2 * (i + 1)}px hsl(${hue(n)} 62% 58% / ${i ? .55 : .8})`);
+      el.style.boxShadow = [el.style.boxShadow, ...rings].filter(Boolean).join(",");
+    }
+    el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm +
+      (stk.length ? `<span class="stk">${stk.map(n => `<i style="--h:${hue(n)}" title="стикер">${esc(n)}</i>`).join("")}</span>` : "") +
+      `<span class="lead"><span class="toggle" title="вкл/выкл"></span>${r.badges && r.badges.length ? strip(r) : ""}</span>` +
+      `<span class="name">${esc(r.name)}</span><span class="cnt">${counters}</span>`;
+    return;
+  }
   el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm + `<div class="card"><span class="toggle" title="вкл/выкл"></span><span class="name">${esc(r.name)}</span>` +
     `<div class="line2">${strip(r)}<div class="counters">${counters}<span class="prio" title="приоритет MO2">${r.pos}</span></div></div></div>`;
 }
 
+/** A stable hue of a name (stickers without a colour of their own). */
+function hue(s) { let h = 0; for (const c of String(s).toLowerCase()) h = (h * 31 + c.codePointAt(0)) % 360; return h; }
 /** Overwrite badges of a card: "classic" = per context, one icon per chain; "summary" = one OW pill. */
 const hex = c => "#" + (c >>> 0).toString(16).padStart(6, "0");
 const rgba = (c, a) => `rgba(${(c >> 16) & 255}, ${(c >> 8) & 255}, ${c & 255}, ${a})`;
@@ -660,7 +699,7 @@ async function sync(follow) {
       seen.add(r.key);
       r.index = c.index;
       el._lx = c.x; el._ly = l.y + (c.dy || 0);
-      const pos = [`translate(${c.x}px,${Math.round(el._ly - vt)}px)`, c.width + "px", (l.header ? ROW : c.height) + "px"];
+      const pos = [`translate(${c.x}px,${Math.round(el._ly - vt)}px)`, c.width + "px", (l.header ? (cols < 0 ? BRICK_HEAD - 4 : ROW) : c.height) + "px"];
       if (!el._pos || el._pos.join() !== pos.join()) { el._pos = pos; place(el); }
       paint(el, r);
       if (r.focused) focused = r;
@@ -2326,7 +2365,8 @@ $("filter").addEventListener("input", ev => {
 $("badgeModel").value = badgeModel; $("density").value = String(density);
 const repaint = () => { cards.forEach(el => { el._sig = null; }); sync(false); };
 $("cols").value = String(cols);
-$("cols").onchange = ev => { cols = +ev.target.value; try { localStorage.setItem("sat-cols", cols); } catch (_) {} sync(true); };
+$("cols").onchange = ev => { cols = +ev.target.value; try { localStorage.setItem("sat-cols2", cols); } catch (_) {} list.classList.toggle("bricks", cols < 0); cards.forEach(el => { el._sig = null; }); sync(true); };
+list.classList.toggle("bricks", cols < 0);
 $("badgeModel").onchange = ev => { badgeModel = ev.target.value; try { localStorage.setItem("sat-badges", badgeModel); } catch (_) {} repaint(); };
 $("density").onchange = ev => { density = +ev.target.value; try { localStorage.setItem("sat-density", density); } catch (_) {} repaint(); };
 $("theme").onclick = () => {
