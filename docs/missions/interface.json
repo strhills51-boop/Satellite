@@ -1,35 +1,43 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e5429a78:ca941d6b",
- "revision": 1,
+ "revision": 2,
  "status": "active",
  "createdAt": "2026-11-16T16:48:29Z",
- "updatedAt": "2026-11-16T16:48:29Z",
+ "updatedAt": "2026-11-16T16:53:33Z",
  "mission": {
   "direction": "Интерфейс, UI и дизайн Satellite (владелец 2026-11-16 17:47, промежуточная большая задача поверх приостановленной миссии процессоров): сейчас интерфейс переизбыточен, слишком технический и хаотичный, кишит юзлесс-элементами и пояснительным текстом, многое забыто. Направление владельца: 1) убрать текст-примечания отовсюду; объяснения — гайд-модалка через маленькие слабовидимые «i» в углу контекста; 2) альтернативный вид — рабочее пространство с собираемыми воркфлоу из окон (ADR 0009); 3) пользовательская IDE-точка входа: свои контексты, окна, контракты анализов и прочие ресурсы (ADR 0011); 4) переключатели вида — сегментный контрол «зубная кнопка», отличимый от функциональных кнопок контекста; 5) курсор клавиатуры — прицел намерения, не выделяет (клик мышью — по-прежнему выделяет); 6) облачко (ADR 0015); 7) окно модов — рабочая среда с элементами произвольного размера при сохранении канона (ADR 0012/0016): кирпичики сверху-вниз слева-направо, размер ×N и декор, семейства, комментарии, панели управления мода, превью, лог-группы/фактори; фокус-группы — якоря-ярлыки с декором и размерами; 8) декор на месте при удержании клавиши (моды и разделители); 9) окно метаинфы: блоки с кружком-индикатором-переключателем; блоки: плагины и доноры (как в монолите), буфер с областями, постоянный блок выделенных модов (перечень, счётчики тегов/стикеров, суммы счётчиков); 10) состояние сборки — массив индикаторов в правом краю хедера с выпадающим полным списком, через конструктор счётчиков; 11) карточки цепочек перезаписи как в монолите (экран фактов + зубные ряды, постоянная ширина, сворачиваются только решённые, имена модов в своих рядах, цвет конфликтов — от темы карточки); 12) дизайн: менее технический, менее хаотичный, акцент не скучный однотонно-синий. Найти и довести недореализованное добро, заложенное раньше.",
   "reminder": "Законы ядра ADR 0010 и канон порядка не трогаются: окно только рисует, раскладку считает ядро. Монолит и старый Satellite — по анализам docs/semantic/monolith, old-satellite; не выдумывать. Семантический слой (@sat:, //! Owns:, MAP, check-map). Владелец решает по результату: показывать визуально (макеты, скриншоты), проверки пачкой. Владелец сейчас с телефона. Углубляться при столкновении с непредвиденным поведением объекта семантики. Миссия процессоров на HOLD — вернуться после."
  },
  "route": {
-  "activeDistanceId": "U1-audit-direction",
-  "activity": "RECON",
-  "deepeningStack": [
-   {
-    "distanceId": "distance:1a1e5429a78:23dc18f3",
-    "childDistanceId": "U1-audit-direction",
-    "returnPoint": {
-     "tacticalFocus": "Инвентарь index.html и сверка с ADR.",
-     "posture": "EXPLORE"
-    },
-    "openedAt": "2026-11-16T16:48:29Z"
-   }
-  ],
-  "returnPoint": {
-   "tacticalFocus": "Инвентарь index.html и сверка с ADR.",
-   "posture": "EXPLORE"
-  },
-  "tacticalFocus": "Инвентарь index.html и сверка с ADR.",
+  "activeDistanceId": "mission-continuity:1a1e5473e55:0b0b4103",
+  "activity": "PLANNING",
+  "deepeningStack": [],
+  "returnPoint": null,
+  "tacticalFocus": "Ждать владельца по макетам.",
   "scheduler": {
-   "events": []
+   "events": [
+    {
+     "type": "WAITING_ON_HUMAN",
+     "at": "2026-11-16T16:53:33Z",
+     "distanceId": "U1-audit-direction",
+     "requestId": "HRQ:1a1e5473e55:be818b22",
+     "reason": "Макеты «Satellite — новый интерфейс» и ADR 0020: направление то? Тема — янтарь, коралл или мята? Поток модов по умолчанию — сверху вниз? Декор на месте — удержание D или Alt?"
+    },
+    {
+     "type": "OPEN_MISSION_CONTINUITY_QUEUED",
+     "at": "2026-11-16T16:53:33Z",
+     "distanceId": "mission-continuity:1a1e5473e55:0b0b4103",
+     "reason": "post-apply"
+    },
+    {
+     "type": "ACTIVATED",
+     "at": "2026-11-16T16:53:33Z",
+     "distanceId": "mission-continuity:1a1e5473e55:0b0b4103",
+     "previousDistanceId": null,
+     "reason": "post-apply"
+    }
+   ]
   }
  },
  "distances": {
@@ -61,18 +69,71 @@
    "parentId": "distance:1a1e5429a78:23dc18f3",
    "objective": "Аудит интерфейса и недореализованного: инвентарь окна (панели, контролы, тексты), заложенное в ADR/ядре и не доведённое до окна; направление дизайна (тема, акцент, система контролов, «i»-гайд, раскладка, курсор-прицел) — ADR и визуальный макет для владельца.",
    "closureContract": "Аудит и ADR интерфейса закоммичены; макет опубликован; владелец посмотрел и ответил (Human Inbox).",
-   "status": "active",
+   "status": "waiting_on_human",
    "reason": "",
    "summary": "",
    "createdAt": "2026-11-16T16:48:29Z",
-   "updatedAt": "2026-11-16T16:48:29Z",
+   "updatedAt": "2026-11-16T16:53:33Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
    "resumableAt": null,
    "resumedAt": null,
-   "resumePriority": "NORMAL",
+   "resumePriority": "BLOCKING",
    "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": {
+    "humanRequestIds": [
+     "HRQ:1a1e5473e55:be818b22"
+    ],
+    "humanStates": {
+     "HRQ:1a1e5473e55:be818b22": "OPEN"
+    },
+    "reason": "Макеты «Satellite — новый интерфейс» и ADR 0020: направление то? Тема — янтарь, коралл или мята? Поток модов по умолчанию — сверху вниз? Декор на месте — удержание D или Alt?",
+    "resumeContract": "Ответ — HUMAN_DECISION; ADR 0020 принят с правками; дальше U2 «Система дизайна»: токены, четыре рода контролов, «i»-гайды, вычистка текста."
+   },
+   "schedulerReturn": {
+    "capturedAt": "2026-11-16T16:53:33Z",
+    "deepeningStack": [
+     {
+      "distanceId": "distance:1a1e5429a78:23dc18f3",
+      "childDistanceId": "U1-audit-direction",
+      "returnPoint": {
+       "tacticalFocus": "Инвентарь index.html и сверка с ADR.",
+       "posture": "EXPLORE"
+      },
+      "openedAt": "2026-11-16T16:48:29Z"
+     }
+    ],
+    "returnPoint": {
+     "tacticalFocus": "Инвентарь index.html и сверка с ADR.",
+     "posture": "EXPLORE"
+    },
+    "tacticalFocus": "Ждать владельца по макетам.",
+    "resumeContract": "",
+    "objective": "Аудит интерфейса и недореализованного: инвентарь окна (панели, контролы, тексты), заложенное в ADR/ядре и не доведённое до окна; направление дизайна (тема, акцент, система контролов, «i»-гайд, раскладка, курсор-прицел) — ADR и визуальный макет для владельца.",
+    "closureContract": "Аудит и ADR интерфейса закоммичены; макет опубликован; владелец посмотрел и ответил (Human Inbox)."
+   },
+   "evidence": null
+  },
+  "mission-continuity:1a1e5473e55:0b0b4103": {
+   "id": "mission-continuity:1a1e5473e55:0b0b4103",
+   "parentId": null,
+   "objective": "Reconcile the still-open Mission after local Distance completion. Use durable Mission authority, accepted evidence, scheduler blockers and Strategic Frontier to activate, resume or create the next highest-leverage executable Distance. Do not redo sealed work and do not treat advisory focus as work authority.",
+   "closureContract": "Leave this continuity Distance only by establishing successor executable Distance authority, sealing the Mission, or entering an explicit genuine external-prerequisite wait. It may not be sealed into an open Mission with no successor.",
+   "status": "active",
+   "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
+   "summary": "",
+   "createdAt": "2026-11-16T16:53:33Z",
+   "updatedAt": "2026-11-16T16:53:33Z",
+   "sealedAt": null,
+   "suspendedAt": null,
+   "readyAt": "2026-11-16T16:53:33Z",
+   "resumableAt": null,
+   "resumedAt": "2026-11-16T16:53:33Z",
+   "resumePriority": "BLOCKING",
+   "dependencyBlocking": true,
    "strategicFrontId": null,
    "resumeContract": "",
    "waitingOn": null,
@@ -80,7 +141,19 @@
    "evidence": null
   }
  },
- "notes": [],
+ "notes": [
+  {
+   "id": "note:1a1e5473e55:df150b15",
+   "kind": "evidence",
+   "text": "Главный экран: 6 200 знаков видимого текста, 47 пояснений; заложено и не доведено: окна/пространства (ADR 0009), реестр в окне (0011), поток с линией индикаторов (0012/0016), облачко (0015), стикеры (0 упоминаний в окне), конструктор счётчиков сборки.",
+   "status": "open",
+   "distanceId": "U1-audit-direction",
+   "meta": null,
+   "revision": 2,
+   "createdAt": "2026-11-16T16:53:33Z",
+   "updatedAt": "2026-11-16T16:53:33Z"
+  }
+ ],
  "decisions": [],
  "worklog": [
   {
@@ -93,9 +166,45 @@
    "artifacts": [],
    "distanceId": "U1-audit-direction",
    "summary": "Сначала разведка: что из обещанного уже заложено (ADR 0009, 0011, 0012, 0015, 0016, монолит 12-mod-card, Фаза 2), что сделано в ядре, что не дошло до окна; сколько текста и лишних элементов в окне; затем направление дизайна с макетами владельцу (он с телефона)."
+  },
+  {
+   "id": "worklog:1a1e5473e55:f454c935",
+   "revision": 2,
+   "at": "2026-11-16T16:53:33Z",
+   "action": "CONTINUE",
+   "activity": "PLANNING",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    {
+     "commit": "7e6195d"
+    },
+    {
+     "file": "docs/adr/0020-interface-direction.md"
+    },
+    {
+     "file": "artifact:Satellite — новый интерфейс"
+    }
+   ],
+   "distanceId": "mission-continuity:1a1e5473e55:0b0b4103",
+   "summary": "Аудит сделан, направление записано в ADR 0020, макеты опубликованы (артефакт «Satellite — новый интерфейс»: главное окно, система контролов и тема, карточки цепочек, пространство и Мастерская). Жду владельца."
   }
  ],
- "humanRequests": {},
+ "humanRequests": {
+  "HRQ:1a1e5473e55:be818b22": {
+   "question": "Макеты «Satellite — новый интерфейс» и ADR 0020: направление то? Тема — янтарь, коралл или мята? Поток модов по умолчанию — сверху вниз? Декор на месте — удержание D или Alt?",
+   "blocking_class": "BLOCKING",
+   "options": [
+    "Да, янтарь, сверху вниз, D",
+    "Есть правки"
+   ],
+   "recommended_option": "Да, янтарь, сверху вниз, D",
+   "resume_contract": "Ответ — HUMAN_DECISION; ADR 0020 принят с правками; дальше U2 «Система дизайна»: токены, четыре рода контролов, «i»-гайды, вычистка текста.",
+   "request_id": "HRQ:1a1e5473e55:be818b22",
+   "status": "OPEN",
+   "createdAt": "2026-11-16T16:53:33Z",
+   "distance_id": "U1-audit-direction"
+  }
+ },
  "activities": [
   {
    "name": "RECON",
@@ -241,13 +350,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T16:48:29Z"
  },
- "acceptanceSequence": 1,
+ "acceptanceSequence": 2,
  "lastControl": {
-  "at": "2026-11-16T16:48:29Z",
-  "revision": 1,
+  "at": "2026-11-16T16:53:33Z",
+  "revision": 2,
   "semanticChanged": true,
-  "acceptanceSequence": 1,
-  "modelSummary": "Сначала разведка: что из обещанного уже заложено (ADR 0009, 0011, 0012, 0015, 0016, монолит 12-mod-card, Фаза 2), что сделано в ядре, что не дошло до окна; сколько текста и лишних элементов в окне; затем направление дизайна с макетами владельцу (он с телефона)."
+  "acceptanceSequence": 2,
+  "modelSummary": "Аудит сделан, направление записано в ADR 0020, макеты опубликованы (артефакт «Satellite — новый интерфейс»: главное окно, система контролов и тема, карточки цепочек, пространство и Мастерская). Жду владельца."
  },
  "hold": null,
  "completedAt": null
