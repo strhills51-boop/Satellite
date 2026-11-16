@@ -17,6 +17,7 @@ mod context;
 mod domains;
 pub mod find;
 mod participants;
+mod preview;
 pub mod records;
 pub mod sheet;
 mod sync;
@@ -24,6 +25,7 @@ mod tree;
 pub use advisor::{AdviceRow, OrderAdvice};
 pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
+pub use preview::{FileCopy, FilePreview, PinnedFile, PreviewSource, VfsEntry};
 pub use tree::{ChainRef, FileRow, FileTree, PathOwners, TreeSubject};
 
 fn yes() -> bool {
@@ -168,6 +170,11 @@ pub enum Command {
     },
     /// Forgets the user's records no chain answers to any more (`@sat:app.orphans`).
     PruneOrphans,
+    /// Pins or unpins a file for quick access (`@sat:app.preview`).
+    PinFile {
+        path: String,
+        pinned: bool,
+    },
     /// Splits a card into its exact chains.
     SplitChain {
         signature: String,
@@ -395,6 +402,26 @@ pub enum Query {
     PathOwners {
         path: String,
     },
+    /// A file's copies and the preview of one (`@sat:app.preview`); `copy` — index into the copies, the game's
+    /// when absent.
+    FilePreview {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        copy: Option<u32>,
+    },
+    /// One folder of the whole build (`""` — the root).
+    VfsDir {
+        #[serde(default)]
+        dir: String,
+    },
+    /// Paths containing a text.
+    FindPaths {
+        text: String,
+        #[serde(default = "tree_limit")]
+        limit: usize,
+    },
+    /// Pinned files.
+    PinnedFiles,
     /// What the decoration editor edits: the mods of the view's selection (the focused one when none) and
     /// their distinct styles with counts, so the editor can mark fields that differ ("mixed").
     Decoration {
@@ -735,6 +762,19 @@ pub enum Reply {
     PathOwners {
         owners: Option<PathOwners>,
     },
+    FilePreview {
+        file: Option<Box<FilePreview>>,
+    },
+    VfsDir {
+        entries: Vec<VfsEntry>,
+    },
+    FoundPaths {
+        paths: Vec<String>,
+        total: usize,
+    },
+    PinnedFiles {
+        files: Vec<PinnedFile>,
+    },
     ChainOrphans {
         orphans: find::Orphans,
     },
@@ -838,6 +878,12 @@ pub struct App {
     /// Members of chains the user touched (`@sat:lineage`).
     chain_lineage: sat_core::lineage::ChainLineage,
     chain_lineage_rev: u64,
+    /// Reads a copy of a file for the explorer (`@sat:app.preview`), set by the shell.
+    preview_source: preview::SourceSlot,
+    /// Files the user pinned (the project keeps them).
+    pinned_files: Vec<String>,
+    /// The build's folders, built once per table.
+    vfs: Option<Arc<preview::VfsIndex>>,
     /// The project's counters (`@sat:counters`).
     counters: sat_core::counters::Counters,
     /// Where mods come from, by folded name (`@sat:source`).
@@ -867,6 +913,9 @@ impl App {
             chain_layout_rev: 0,
             chain_lineage: Default::default(),
             chain_lineage_rev: 0,
+            preview_source: Default::default(),
+            pinned_files: Vec::new(),
+            vfs: None,
             records: Arc::default(),
             record_state: records::RecordState::Off,
             content_hashes: Arc::default(),
@@ -1106,6 +1155,14 @@ impl App {
                     return Ok(Event::Nothing);
                 }
                 return Ok(self.set_layout(l));
+            }
+            C::PinFile { path, pinned } => {
+                return Ok(if self.pin_file(&path, pinned) {
+                    self.revision += 1;
+                    Event::Decided
+                } else {
+                    Event::Nothing
+                });
             }
             C::PruneOrphans => {
                 return Ok(if self.prune_orphans() > 0 {
@@ -1594,6 +1651,17 @@ impl App {
             Query::PathOwners { path } => Reply::PathOwners {
                 owners: self.path_owners(&path),
             },
+            Query::FilePreview { path, copy } => Reply::FilePreview {
+                file: self.file_preview(&path, copy).map(Box::new),
+            },
+            Query::VfsDir { dir } => Reply::VfsDir {
+                entries: self.vfs_dir(&dir).unwrap_or_default(),
+            },
+            Query::FindPaths { text, limit } => {
+                let (paths, total) = self.find_paths(&text, limit.min(5000));
+                Reply::FoundPaths { paths, total }
+            }
+            Query::PinnedFiles => Reply::PinnedFiles { files: self.pinned() },
             Query::ContextCard { key, index, limit } => Reply::ChainCard {
                 card: self.context_card(key, index, limit.min(5000)).map(Box::new),
             },

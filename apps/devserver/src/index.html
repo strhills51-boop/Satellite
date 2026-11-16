@@ -185,6 +185,49 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .plug .rs { grid-column: 2; font-size: 11px; color: var(--muted); }
 .plug .rs a { color: var(--accent); cursor: pointer; }
 /* conflict context table (monolith modal with the colour-types flag): rows = mods by separator, columns = paths */
+/* file explorer modal (`@sat:app.preview`) */
+#fx { position: fixed; inset: 28px; z-index: 36; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+#fx[hidden] { display: none; }
+#fx .fxh { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+#fx .fxh b { font-size: 15px; }
+#fx .fxh .seg button.on { background: var(--acc, #3b82f6); color: #fff; border-color: transparent; }
+#fx .fxh input[type=search] { flex: 1; min-width: 220px; }
+#fx .fxb { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 38%) 1fr; }
+#fx .fxt { overflow: auto; border-right: 1px solid var(--line); padding: 6px 8px; }
+#fx .fxt .tree { max-height: none; }
+#fx .fxp { overflow: auto; padding: 10px 14px; min-width: 0; }
+.te.sel2 { background: rgba(59,130,246,.18); }
+.te.arch > .nm { color: #c4b5fd; } .te.inar { background: rgba(167,139,250,.07); }
+.te .cp { font: 10px var(--mono); color: var(--muted); }
+.fhit { padding: 2px 6px; font: 12px var(--mono); cursor: pointer; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fhit:hover, .fhit.sel2 { background: rgba(59,130,246,.18); }
+.pv h4 { margin: 0 0 4px; font-size: 14px; display: flex; gap: 8px; align-items: center; word-break: break-all; }
+.pv .fmt { font: 12px var(--mono); color: var(--muted); margin-bottom: 8px; }
+.pv .pin { font-size: 14px; padding: 0 8px; border-radius: 999px; }
+.pv .pin.on { color: #f59e0b; border-color: #f59e0b; }
+.pv table.facts { border-collapse: collapse; font-size: 12px; margin: 6px 0 10px; }
+.pv table.facts td { padding: 1px 10px 1px 0; vertical-align: top; } .pv table.facts td:first-child { color: var(--muted); white-space: nowrap; }
+.pv .copies { display: grid; gap: 2px; margin: 4px 0 10px; font-size: 12px; }
+.pv .copies .cp1 { display: grid; grid-template-columns: 18px minmax(0,1fr) auto auto; gap: 8px; padding: 2px 6px; border-radius: 4px; cursor: pointer; align-items: center; }
+.pv .copies .cp1:hover { background: var(--bg2); } .pv .copies .cp1.on { background: rgba(59,130,246,.18); }
+.pv .copies .cp1.off { opacity: .6; font-style: italic; } .pv .copies .w { color: var(--w-txt); } .pv .copies .ar { color: #c4b5fd; font: 11px var(--mono); }
+.pv .pic { background-color: #888; background-image: linear-gradient(45deg,#aaa 25%,transparent 25%),linear-gradient(-45deg,#aaa 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#aaa 75%),linear-gradient(-45deg,transparent 75%,#aaa 75%); background-size: 16px 16px; background-position: 0 0,0 8px,8px -8px,-8px 0; display: inline-block; border-radius: 6px; overflow: hidden; max-width: 100%; }
+.pv .pic img { display: block; max-width: 100%; max-height: 60vh; image-rendering: auto; cursor: zoom-in; } .pv .pic img.full { max-width: none; max-height: none; cursor: zoom-out; }
+.pv .picn { font-size: 11px; color: var(--muted); margin: 2px 0 8px; }
+.pv pre.txt { font: 12px/1.45 var(--mono); background: var(--bg2); border-radius: 6px; padding: 8px 10px; max-height: 60vh; overflow: auto; white-space: pre; counter-reset: ln; }
+.pv pre.txt .ln { display: inline-block; width: 4ch; color: var(--muted); user-select: none; text-align: right; margin-right: 10px; }
+.pv pre.txt .c { color: #7c8a9e; } .pv pre.txt .s { color: #86efac; } .pv pre.txt .k { color: #93c5fd; } .pv pre.txt .h { color: #fcd34d; }
+.pv details { margin: 6px 0; font-size: 12px; } .pv details summary { cursor: pointer; color: var(--muted); }
+.pv details .ls { font: 12px/1.5 var(--mono); padding: 4px 0 0 12px; max-height: 40vh; overflow: auto; white-space: pre; }
+.pv .links a { display: block; font: 12px var(--mono); cursor: pointer; color: #93c5fd; }
+.pv .notes { color: #f59e0b; font-size: 12px; margin: 6px 0; }
+.pv pre.hex { font: 11px/1.4 var(--mono); background: var(--bg2); padding: 8px; border-radius: 6px; overflow: auto; }
+#bPrev .pv .pic img { max-height: 220px; } #bPrev .pv pre.txt { max-height: 280px; }
+.fxmenu { position: absolute; z-index: 40; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); padding: 6px; min-width: 320px; max-width: 520px; font-size: 12px; }
+.fxmenu .it { padding: 4px 8px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; } .fxmenu .it:hover { background: var(--bg2); }
+.fxmenu .it .p { font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .fxmenu .it .m { color: var(--muted); }
+.fxmenu .it.gone .p { text-decoration: line-through; color: var(--muted); }
+.fxmenu .hd { color: var(--muted); padding: 2px 8px 4px; }
 #ct { position: fixed; inset: 28px; z-index: 35; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
   border-radius: 16px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
 #ct[hidden] { display: none; }
@@ -325,6 +368,7 @@ footer b { color: var(--accent2); font-weight: 500; }
   <span class="brand">Satellite</span><span class="pill">NG</span>
   <div class="pipeline" aria-label="Конвейер"><span>Анализ mods</span><i>→</i><span>Конфликты</span><i>→</i><span>Sync</span></div>
   <button id="recBtn" title="Конфликты: файлы и записи плагинов">Конфликты</button>
+  <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр">Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
   <button id="theme" title="Светлая / тёмная">◐</button>
   <span class="sandbox">песочница: изменения живут в памяти и никуда не пишутся</span>
 </header>
@@ -345,6 +389,7 @@ footer b { color: var(--accent2); font-weight: 500; }
     <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
     <div class="block empty" id="bPlug"><h3>Плагины</h3></div>
     <div class="block empty" id="bTree"><h3>Проводник</h3></div>
+    <div class="block empty" id="bPrev"><h3>Предпросмотр</h3><div class="muted">Нажми на файл в проводнике.</div></div>
   </section>
 </main>
 <footer id="stats">загрузка…</footer>
@@ -357,6 +402,14 @@ footer b { color: var(--accent2); font-weight: 500; }
       <label><input id="recOnly" type="checkbox" checked> только конфликты (запись правят два плагина и больше)</label><span id="recStats"></span></div>
   </div>
   <div id="recList"></div>
+</div>
+<div id="fx" hidden role="dialog" aria-label="Проводник файлов">
+  <div class="fxh"><b>Проводник</b>
+    <span class="seg" id="fxSubj"><button data-subj="selection" title="Выделенные моды: их файлы и архивы как папки">выделение</button><button data-subj="build" title="Все файлы сборки, как их видит игра: победившие копии">вся сборка</button></span>
+    <span class="tmodes" id="fxModes"></span>
+    <input type="search" id="fxQ" placeholder="Поиск по путям всей сборки (от 2 символов)">
+    <button id="fxClose">Закрыть</button></div>
+  <div class="fxb"><div class="fxt" id="fxTree"></div><div class="fxp" id="fxPrev"><div class="muted">Выбери файл слева.</div></div></div>
 </div>
 <div id="ct" class="m-both" hidden role="dialog" aria-label="Таблица конфликтов">
   <div class="top">
@@ -622,14 +675,17 @@ function treeRowHtml(r, t, focusOn) {
   const nums = (r.wins ? `<span class="w">▲${num(r.wins)}</span>` : "") + (r.loses ? `<span class="l">▼${num(r.loses)}</span>` : "") + (r.owned ? `<span class="o">◆${num(r.owned)}</span>` : "");
   const win = r.winner_name ? `<span class="wn" title="победитель${r.kind === "dir" ? " всех конфликтных файлов в папке" : ""}">→ ${esc(r.winner_name)}</span>` : "";
   const chip = ch ? `<span class="tc" data-chain="${ch.signature}" style="--h:${ch.hue}" title="${esc(ch.name)}${ch.done ? " · решена" : ""} — нажми: подсветить цепочку">${ch.done ? "✓" : ch.emoji}</span>` : "";
+  // a mod's archive is a folder of its tree (archived rows lightly tinted)
+  const inar = r.archived ? " inar" : "", isArc = r.kind === "dir" && r.depth === 0 && r.archived && /\.(bsa|ba2)$/i.test(r.name);
   if (r.kind === "dir") {
-    const ico = FOLDER_ICON[r.name.toLowerCase()] || "📁";
-    return `<div class="te dir ${st}${dim}${lit}" ${ind} data-dir="${esc(r.path)}" data-open="${r.open ? 1 : 0}"><span class="tw">${r.open ? "▾" : "▸"}</span><span class="ic">${ico}</span><span class="nm">${esc(r.name)}</span>${chip}${win}${nums}<span class="c">${num(r.files)}</span></div>`;
+    const ico = isArc ? "📦" : FOLDER_ICON[r.name.toLowerCase()] || "📁";
+    return `<div class="te dir ${st}${dim}${lit}${inar}${isArc ? " arch" : ""}" ${ind}${isArc ? ' title="архив: его файлы как папка"' : ""} data-dir="${esc(r.path)}" data-open="${r.open ? 1 : 0}"><span class="tw">${r.open ? "▾" : "▸"}</span><span class="ic">${ico}</span><span class="nm">${esc(r.name)}</span>${chip}${win}${nums}<span class="c">${num(r.files)}</span></div>`;
   }
   if (r.kind === "merged") return `<div class="te mg" ${ind} title="${esc(r.name)}"><span class="tw"></span><span class="ic">🗂️</span><span class="nm">${esc(r.name)}</span><span class="c">${esc(r.exts.map(([e, n]) => `${n}× ${e}`).join(", "))}</span></div>`;
   if (r.kind === "agg") return `<div class="te ag" ${ind}><span class="tw"></span><span class="ic">${fileIcon("x" + r.exts[0][0])}</span><span class="nm">${esc(r.name)}</span></div>`;
-  const sel = TREE.owners && TREE.owners.path.toLowerCase() === r.path.toLowerCase() ? " pick" : "";
-  return `<div class="te fl ${st}${dim}${lit}${sel}" ${ind} data-file="${esc(r.path)}"><span class="tw"></span><span class="ic">${fileIcon(r.name)}</span><span class="nm" title="${esc(r.path)}">${esc(r.name)}</span>${chip}${win}${nums}</div>` +
+  const g = rowGame(r.path, r.archived > 0);
+  const sel = TREE.owners && TREE.owners.path.toLowerCase() === g.game.toLowerCase() ? " pick" : "";
+  return `<div class="te fl ${st}${dim}${lit}${sel}${inar}" ${ind} data-file="${esc(r.path)}" data-gp="${esc(g.game.toLowerCase())}" data-arch="${r.archived ? 1 : ""}"><span class="tw"></span><span class="ic">${fileIcon(r.name)}</span><span class="nm" title="${esc(r.path)}">${esc(r.name)}</span>${chip}${win}${nums}</div>` +
     (sel ? treeOwnersHtml(r.depth) : "");
 }
 function treeOwnersHtml(depth) {
@@ -684,13 +740,198 @@ $("bTree").addEventListener("click", async ev => {
   }
   const f = ev.target.closest(".te.fl");
   if (f) {
-    if (TREE.owners && TREE.owners.path.toLowerCase() === f.dataset.file.toLowerCase()) { TREE.owners = null; return treeDraw(); }
-    const { owners } = await query({ type: "path-owners", path: f.dataset.file });
+    const g = rowGame(f.dataset.file, !!f.dataset.arch);
+    if (TREE.owners && TREE.owners.path.toLowerCase() === g.game.toLowerCase()) { TREE.owners = null; return treeDraw(); }
+    sidePreview(g.game, g.archive);
+    const { owners } = await query({ type: "path-owners", path: g.game });
     TREE.owners = owners;
     if (owners && owners.chain) return treeFocus(owners.chain.signature);
     return treeDraw();
   }
 });
+
+// ---------------------------------------------------------------- file preview (`@sat:app.preview`, `@sat:formats.preview`)
+// One renderer for the explorer modal and the side block: what the file is, its copies (who has it, loose or in
+// which archive, which one the game takes), facts, picture, sound, text, lists, files it names, hex. Read-only.
+const PV = { side: null, fx: null };
+function hl(lang, line) {
+  let t = esc(line);
+  if (lang === "ini") return /^\s*[;#]/.test(line) ? `<span class="c">${t}</span>` : /^\s*\[.*\]\s*$/.test(line) ? `<span class="h">${t}</span>` : t.replace(/^([^=]+)=/, '<span class="k">$1</span>=');
+  if (lang === "papyrus") return /^\s*;/.test(line) ? `<span class="c">${t}</span>` : t.replace(/(&quot;[^&]*&quot;)/g, '<span class="s">$1</span>').replace(/\b(Scriptname|extends|Function|EndFunction|Event|EndEvent|Property|Auto|If|EndIf|Else|ElseIf|Return|State|EndState|While|EndWhile|Import|Global|Native)\b/gi, '<span class="k">$1</span>');
+  if (lang === "json") return t.replace(/(&quot;[^&]*&quot;)(\s*:)/g, '<span class="k">$1</span>$2').replace(/:\s*(&quot;[^&]*&quot;)/g, ': <span class="s">$1</span>');
+  if (lang === "xml") return t.replace(/(&lt;\/?[\w:.-]+)/g, '<span class="k">$1</span>').replace(/(&lt;!--.*?--&gt;)/g, '<span class="c">$1</span>');
+  return t;
+}
+function pvHtml(f, compact) {
+  if (!f) return `<div class="muted">Файл не найден в сборке.</div>`;
+  const p = f.preview, cur = f.copies[f.shown];
+  let h = `<div class="pv"><h4><span>${esc(f.path)}</span><button class="pin${f.pinned ? " on" : ""}" data-pin="${esc(f.path)}" data-v="${f.pinned ? 0 : 1}" title="${f.pinned ? "Открепить" : "Закрепить: быстрый доступ из «Проводник ▾»"}">${f.pinned ? "★" : "☆"}</button>` +
+    (compact ? `<button data-fxopen="${esc(f.path)}" title="Открыть в проводнике">↗</button>` : "") + `</h4>`;
+  if (p) h += `<div class="fmt">${esc(p.format || "")}</div>`;
+  // copies
+  if (f.copies.length > 1 || (cur && cur.archive)) {
+    h += `<div class="copies">` + f.copies.map((c, i) => `<div class="cp1${i === f.shown ? " on" : ""}${c.enabled ? "" : " off"}" data-copy="${i}" data-path="${esc(f.path)}" title="${c.wins ? "эту копию берёт игра" : c.enabled ? "перекрыта" : "мод выключен"} — нажми: показать эту копию">` +
+      `<span class="${c.wins ? "w" : ""}">${c.wins ? "▲" : c.enabled ? "▼" : "◆"}</span><span>${esc(c.name)}</span><span class="ar">${c.archive ? "📦 " + esc(c.archive) : "свободный"}</span><span class="muted">${fmtSize(c.size)}</span></div>`).join("") + `</div>`;
+  }
+  if (!p) return h + `<div class="muted">Предпросмотр недоступен: файл не читается с диска.</div></div>`;
+  if (p.notes && p.notes.length) h += `<div class="notes">${p.notes.map(esc).join("<br>")}</div>`;
+  if (p.picture) h += `<div class="pic"><img src="data:${p.picture.mime};base64,${p.picture.data}" alt=""></div>${p.picture.note ? `<div class="picn">показан ${esc(p.picture.note)}</div>` : ""}`;
+  if (p.audio) h += `<audio controls src="data:${p.audio.mime};base64,${p.audio.data}" style="width:100%;margin:6px 0"></audio>`;
+  const facts = compact ? p.facts.slice(0, 8) : p.facts;
+  if (facts.length) h += `<table class="facts">${facts.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>`;
+  if (p.text) {
+    const lines = p.text.body.split("\n"), shown = compact ? lines.slice(0, 80) : lines;
+    h += `<pre class="txt">${shown.map((l, i) => `<span class="ln">${i + 1}</span>${hl(p.text.lang, l)}`).join("\n")}</pre>` +
+      (compact && lines.length > 80 ? `<div class="muted">… ещё ${lines.length - 80} строк — открой в проводнике</div>` : "") + (p.text.truncated ? `<div class="muted">текст обрезан</div>` : "");
+  }
+  for (const sct of (p.sections || [])) {
+    h += `<details${!compact && sct.lines.length <= 30 ? " open" : ""}><summary>${esc(sct.title)} · ${sct.lines.length + (sct.more || 0)}</summary><div class="ls">${sct.lines.map(esc).join("\n")}${sct.more ? `\n… ещё ${sct.more}` : ""}</div></details>`;
+  }
+  if (p.links && p.links.length) h += `<details open><summary>Файлы, на которые ссылается · ${p.links.length}</summary><div class="links">${p.links.map(l => `<a data-goto="${esc(l)}" title="открыть">${esc(l)}</a>`).join("")}</div></details>`;
+  if (p.hex && !compact) h += `<details><summary>Начало файла (hex)</summary><pre class="hex">${esc(p.hex)}</pre></details>`;
+  return h + `</div>`;
+}
+function fmtSize(n) { return n < 1024 ? n + " Б" : n < 1 << 20 ? (n / 1024).toFixed(1) + " КБ" : n < 1 << 30 ? (n / 1048576).toFixed(1) + " МБ" : (n / 1073741824).toFixed(2) + " ГБ"; }
+// A tree row's file → (game path, the copy to show): a packed file sits under its archive folder.
+function rowGame(path, archived) {
+  if (!archived) return { game: path, archive: null };
+  const i = path.indexOf("/");
+  return { game: path.slice(i + 1), archive: path.slice(0, i) };
+}
+async function pvLoad(path, copy, archive) {
+  let { file } = await query({ type: "file-preview", path, copy: copy ?? undefined });
+  if (file && archive && copy == null) {
+    // the copy in that archive (the tree showed it there)
+    const i = file.copies.findIndex(c => c.archive && c.archive.toLowerCase() === archive.toLowerCase());
+    if (i > 0) ({ file } = await query({ type: "file-preview", path, copy: i }));
+  }
+  return file;
+}
+async function sidePreview(path, archive) {
+  const box = $("bPrev"); PV.side = { path, archive };
+  box.className = "block ok"; box.innerHTML = `<h3>Предпросмотр</h3><div class="muted">читаю…</div>`;
+  const f = await pvLoad(path, null, archive);
+  if (!PV.side || PV.side.path !== path) return;
+  box.innerHTML = `<h3>Предпросмотр</h3>` + pvHtml(f, true);
+}
+async function previewClicks(ev, where) {
+  const pin = ev.target.closest("[data-pin]");
+  if (pin) { await run({ type: "pin-file", path: pin.dataset.pin, pinned: pin.dataset.v === "1" }); return where === "fx" ? fxShow(pin.dataset.pin, FX.copy) : sidePreview(pin.dataset.pin, null); }
+  const cp = ev.target.closest("[data-copy]");
+  if (cp) { const f = await pvLoad(cp.dataset.path, +cp.dataset.copy); if (where === "fx") { FX.copy = +cp.dataset.copy; $("fxPrev").innerHTML = pvHtml(f, false); } else $("bPrev").innerHTML = `<h3>Предпросмотр</h3>` + pvHtml(f, true); return; }
+  const g = ev.target.closest("[data-goto]");
+  if (g) return where === "fx" ? fxReveal(g.dataset.goto) : fxOpen(g.dataset.goto);
+  const o = ev.target.closest("[data-fxopen]");
+  if (o) return fxOpen(o.dataset.fxopen);
+  const img = ev.target.closest(".pic img");
+  if (img) img.classList.toggle("full");
+}
+$("bPrev").addEventListener("click", ev => previewClicks(ev, "side"));
+
+// ---------------------------------------------------------------- explorer modal
+// Subjects: the selection (its trees in the three modes, archives as folders) or the whole build (folders as the
+// game sees them, lazily); search over all paths; a file opens in the preview on the right.
+const FX = { subj: "selection", mode: "classic", opened: new Set(), closed: new Set(), vopen: new Set(), vkids: new Map(), sel: null, copy: null, q: "", hits: null };
+try { FX.subj = localStorage.getItem("sat-fx-subj") || "selection"; FX.mode = localStorage.getItem("sat-fx-mode") || "classic"; } catch (_) {}
+async function fxOpen(path) {
+  $("fx").hidden = false;
+  if (path) { FX.subj = "build"; await fxReveal(path); return; }
+  await fxDraw();
+}
+async function fxShow(path, copy, archive) {
+  FX.sel = path; FX.copy = copy ?? null;
+  $("fxPrev").innerHTML = `<div class="muted">читаю…</div>`;
+  const f = await pvLoad(path, copy, archive);
+  if (FX.sel !== path) return;
+  $("fxPrev").innerHTML = pvHtml(f, false);
+  document.querySelectorAll("#fxTree .sel2").forEach(x => x.classList.remove("sel2"));
+  document.querySelectorAll(`#fxTree [data-gp="${CSS.escape(path.toLowerCase())}"]`).forEach(x => x.classList.add("sel2"));
+}
+// Open the build tree down to `path` and show it.
+async function fxReveal(path) {
+  FX.subj = "build"; FX.q = ""; $("fxQ").value = ""; FX.hits = null;
+  const parts = path.toLowerCase().split("/"); parts.pop();
+  for (let i = 1; i <= parts.length; i++) FX.vopen.add(parts.slice(0, i).join("/"));
+  await fxDraw(); await fxShow(path);
+  const el = document.querySelector(`#fxTree [data-gp="${CSS.escape(path.toLowerCase())}"]`); if (el) el.scrollIntoView({ block: "center" });
+}
+async function vfsKids(dir) {
+  if (FX.vkids.has(dir)) return FX.vkids.get(dir);
+  const { entries } = await query({ type: "vfs-dir", dir });
+  FX.vkids.set(dir, entries); return entries;
+}
+async function vfsHtml(dir, depth) {
+  const kids = await vfsKids(dir); let h = "";
+  for (const e of kids.slice(0, 3000)) {
+    const ind = `style="--d:${depth}"`;
+    if (e.dir) {
+      const open = FX.vopen.has(e.path.toLowerCase()), ico = FOLDER_ICON[e.name.toLowerCase()] || "📁";
+      h += `<div class="te dir${e.contested ? " con" : ""}" ${ind} data-vdir="${esc(e.path)}"><span class="tw">${open ? "▾" : "▸"}</span><span class="ic">${ico}</span><span class="nm">${esc(e.name)}</span>${e.contested ? `<span class="cp" title="файлов в конфликте">⚔${num(e.contested)}</span>` : ""}<span class="c">${num(e.files)}</span></div>`;
+      if (open) h += await vfsHtml(e.path, depth + 1);
+    } else {
+      h += `<div class="te fl${e.contested ? " con" : ""}${e.archived ? " inar" : ""}" ${ind} data-vfile="${esc(e.path)}" data-gp="${esc(e.path.toLowerCase())}"><span class="tw"></span><span class="ic">${fileIcon(e.name)}</span><span class="nm" title="${esc(e.path)}">${esc(e.name)}</span>` +
+        `${e.winner ? `<span class="wn" title="игра берёт копию этого мода">→ ${esc(e.winner)}</span>` : ""}${e.copies > 1 ? `<span class="cp" title="копий">×${e.copies}</span>` : ""}</div>`;
+    }
+  }
+  if (kids.length > 3000) h += `<div class="te" style="--d:${depth}"><span class="c">… ещё ${num(kids.length - 3000)} — воспользуйся поиском</span></div>`;
+  return h;
+}
+async function fxDraw() {
+  try { localStorage.setItem("sat-fx-subj", FX.subj); localStorage.setItem("sat-fx-mode", FX.mode); } catch (_) {}
+  document.querySelectorAll("#fxSubj button").forEach(b => b.classList.toggle("on", b.dataset.subj === FX.subj && !FX.hits));
+  $("fxModes").innerHTML = FX.subj === "selection" && !FX.hits ? TREE_MODES.map(([m, n, d]) => `<button data-fxmode="${m}" class="${FX.mode === m ? "on" : ""}" title="${d}">${n}</button>`).join("") : "";
+  const box = $("fxTree");
+  if (FX.hits) {
+    box.innerHTML = `<div class="muted" style="margin-bottom:4px">найдено ${num(FX.hits.total)}${FX.hits.total > FX.hits.paths.length ? `, показаны первые ${num(FX.hits.paths.length)}` : ""}</div>` +
+      FX.hits.paths.map(p => `<div class="fhit${FX.sel === p ? " sel2" : ""}" data-hit="${esc(p)}" data-gp="${esc(p.toLowerCase())}" title="${esc(p)}">${fileIcon(p)} ${esc(p)}</div>`).join("");
+    return;
+  }
+  if (FX.subj === "build") { box.innerHTML = `<div class="tree">${await vfsHtml("", 0)}</div>`; return; }
+  const { tree: t } = await query({ type: "file-tree", subject: { of: "selection", view: VIEW }, mode: FX.mode, opened: [...FX.opened], closed: [...FX.closed], limit: 6000 });
+  if (!t) { box.innerHTML = `<div class="muted">Выдели мод или несколько в списке — или переключись на «вся сборка».</div>`; return; }
+  box.innerHTML = `<div class="tmeta">${t.subject.length > 1 ? `${t.subject.length} модов` : esc(t.subject[0] || "")} · файлов ${num(t.files)} · в конфликтах ${num(t.conflicts)}</div>` +
+    `<div class="tree">${t.rows.map(r => treeRowHtml(r, t, false)).join("")}${t.hidden ? `<div class="te"><span class="c">… ещё ${num(t.hidden)} строк</span></div>` : ""}</div>`;
+}
+$("fxBtn").onclick = () => fxOpen();
+$("fxClose").onclick = () => { $("fx").hidden = true; };
+$("fxSubj").onclick = ev => { const b = ev.target.closest("[data-subj]"); if (!b) return; FX.subj = b.dataset.subj; FX.hits = null; FX.q = ""; $("fxQ").value = ""; fxDraw(); };
+$("fxModes").onclick = ev => { const b = ev.target.closest("[data-fxmode]"); if (!b) return; FX.mode = b.dataset.fxmode; FX.opened.clear(); FX.closed.clear(); fxDraw(); };
+let fxqt;
+$("fxQ").addEventListener("input", ev => {
+  clearTimeout(fxqt);
+  fxqt = setTimeout(async () => {
+    FX.q = ev.target.value.trim();
+    if (FX.q.length < 2) { FX.hits = null; return fxDraw(); }
+    const r = await query({ type: "find-paths", text: FX.q, limit: 2000 });
+    FX.hits = { paths: r.paths, total: r.total }; fxDraw();
+  }, 250);
+});
+$("fxTree").addEventListener("click", async ev => {
+  const h = ev.target.closest("[data-hit]"); if (h) return fxShow(h.dataset.hit);
+  const vd = ev.target.closest("[data-vdir]");
+  if (vd) { const p = vd.dataset.vdir.toLowerCase(); if (FX.vopen.has(p)) FX.vopen.delete(p); else FX.vopen.add(p); return fxDraw(); }
+  const vf = ev.target.closest("[data-vfile]"); if (vf) return fxShow(vf.dataset.vfile);
+  const d = ev.target.closest(".te.dir[data-dir]");
+  if (d) { const p = d.dataset.dir; if (d.dataset.open === "1") { FX.opened.delete(p); FX.closed.add(p); } else { FX.closed.delete(p); FX.opened.add(p); } return fxDraw(); }
+  const f = ev.target.closest(".te.fl[data-file]");
+  if (f) { const g = rowGame(f.dataset.file, !!f.dataset.arch); return fxShow(g.game, null, g.archive); }
+});
+$("fxPrev").addEventListener("click", ev => previewClicks(ev, "fx"));
+// pinned files: the header's drop-down
+$("fxPinBtn").onclick = async ev => {
+  ev.stopPropagation();
+  document.querySelectorAll(".fxmenu").forEach(x => x.remove());
+  const { files } = await query({ type: "pinned-files" });
+  const m = document.createElement("div"), r = $("fxPinBtn").getBoundingClientRect();
+  m.className = "fxmenu"; m.style.left = Math.max(8, r.right - 360) + "px"; m.style.top = r.bottom + 4 + "px";
+  m.innerHTML = `<div class="hd">Закреплённые файлы${files.length ? "" : " — пока нет: ☆ в предпросмотре"}</div>` +
+    files.map(f => `<div class="it${f.found ? "" : " gone"}" data-pinned="${esc(f.path)}" title="${f.found ? "открыть" : "в сборке такого файла нет"}"><span>${fileIcon(f.path)}</span><span class="p">${esc(f.path)}</span><span class="m">${esc(f.winner || "")}</span></div>`).join("") +
+    `<div class="it" data-pinned=""><span>🗂️</span><span class="p">Открыть проводник</span></div>`;
+  document.body.appendChild(m);
+  m.onclick = e => { const it = e.target.closest("[data-pinned]"); if (!it) return; m.remove(); fxOpen(it.dataset.pinned || null); };
+  setTimeout(() => document.addEventListener("click", () => m.remove(), { once: true }), 0);
+};
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("fx").hidden) { $("fx").hidden = true; ev.stopPropagation(); } }, true);
 
 // ---------------------------------------------------------------- decoration editor (monolith: summary block)
 const EMOJIS = "✨🔥⚔️🛡️🏹🐉🌲🏔️🌙☀️❄️💀👑💎🧪📜🗡️🏰🌊⚡🎯🧩🔧🎨".match(/\p{Extended_Pictographic}\uFE0F?/gu);

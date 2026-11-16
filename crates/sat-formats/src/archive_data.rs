@@ -176,10 +176,153 @@ fn ba2<R: Read + Seek>(
     Ok(())
 }
 
+// @sat:formats.archive-data.one
+/// The bytes of one entry for viewing (`@sat:formats.preview`): like [`read_entries`], and a BA2 DX10 texture comes
+/// back as a whole DDS file — the header rebuilt from the record (format, size, mips, cubemap), the chunks unpacked
+/// in order. Comparison keeps DX10 entries "unknown" ([`read_entries`]): a rebuilt header is not the author's.
+pub fn read_one<R: Read + Seek>(mut r: R, path: &str) -> Result<Option<Vec<u8>>> {
+    let want = crate::normalize_path(path);
+    let mut magic = [0u8; 12];
+    r.read_exact(&mut magic)?;
+    r.seek(SeekFrom::Start(0))?;
+    if &magic[0..4] == b"BTDX" && &magic[8..12] == b"DX10" {
+        return ba2_dx10_one(r, &want);
+    }
+    let mut out = None;
+    read_entries(r, |p| p == want, |_, b| out = b)?;
+    Ok(out)
+}
+
+fn ba2_dx10_one<R: Read + Seek>(mut r: R, want: &str) -> Result<Option<Vec<u8>>> {
+    let mut h = [0u8; 24];
+    r.read_exact(&mut h)?;
+    let version = u32::from_le_bytes(h[4..8].try_into().expect("4"));
+    let count = u32::from_le_bytes(h[12..16].try_into().expect("4")) as usize;
+    let names_at = u64::from_le_bytes(h[16..24].try_into().expect("8"));
+    let lz4 = match version {
+        2 => {
+            r.seek(SeekFrom::Current(8))?;
+            false
+        }
+        3 => {
+            let mut x = [0u8; 12];
+            r.read_exact(&mut x)?;
+            u32::from_le_bytes(x[8..12].try_into().expect("4")) == 3
+        }
+        _ => false,
+    };
+    let records_at = r.stream_position()?;
+    // names first: find the index
+    r.seek(SeekFrom::Start(names_at))?;
+    let mut index = None;
+    for i in 0..count {
+        let mut len = [0u8; 2];
+        r.read_exact(&mut len)?;
+        let mut name = vec![0u8; u16::from_le_bytes(len) as usize];
+        r.read_exact(&mut name)?;
+        if crate::normalize_path(&String::from_utf8_lossy(&name)) == want {
+            index = Some(i);
+            break;
+        }
+    }
+    let Some(index) = index else { return Ok(None) };
+    // records: 24 bytes each, then its chunks (24 bytes each)
+    r.seek(SeekFrom::Start(records_at))?;
+    let mut rec = [0u8; 24];
+    let mut chunks: Vec<(u64, u32, u32)> = Vec::new();
+    for i in 0..=index {
+        r.read_exact(&mut rec)?;
+        let n = rec[13] as usize;
+        let mut c = vec![0u8; 24 * n];
+        r.read_exact(&mut c)?;
+        if i == index {
+            for k in 0..n {
+                let at = k * 24;
+                chunks.push((
+                    u64::from_le_bytes(c[at..at + 8].try_into().expect("8")),
+                    u32::from_le_bytes(c[at + 8..at + 12].try_into().expect("4")),
+                    u32::from_le_bytes(c[at + 12..at + 16].try_into().expect("4")),
+                ));
+            }
+        }
+    }
+    if lz4 {
+        return Ok(None);
+    }
+    let height = u32::from(u16::from_le_bytes([rec[16], rec[17]]));
+    let width = u32::from(u16::from_le_bytes([rec[18], rec[19]]));
+    let mips = u32::from(rec[20]);
+    let format = u32::from(rec[21]);
+    let cube = u16::from_le_bytes([rec[22], rec[23]]) & 1 != 0;
+    let mut dds = dds_header(width, height, mips, format, cube);
+    for (offset, packed, full) in chunks {
+        let stored = if packed != 0 { packed } else { full };
+        if u64::from(stored) > MAX_ENTRY {
+            return Ok(None);
+        }
+        r.seek(SeekFrom::Start(offset))?;
+        let mut data = vec![0u8; stored as usize];
+        r.read_exact(&mut data)?;
+        match if packed != 0 {
+            unzlib(&data, u64::from(full))
+        } else {
+            Some(data)
+        } {
+            Some(d) => dds.extend_from_slice(&d),
+            None => return Ok(None),
+        }
+    }
+    Ok(Some(dds))
+}
+
+/// A DDS header with the DX10 extension.
+fn dds_header(w: u32, h: u32, mips: u32, dxgi: u32, cube: bool) -> Vec<u8> {
+    let mut b = vec![0u8; 148];
+    let put = |b: &mut [u8], at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    b[0..4].copy_from_slice(b"DDS ");
+    put(&mut b, 4, 124);
+    put(&mut b, 8, 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000);
+    put(&mut b, 12, h);
+    put(&mut b, 16, w);
+    put(&mut b, 28, mips.max(1));
+    put(&mut b, 76, 32);
+    put(&mut b, 80, 0x4);
+    b[84..88].copy_from_slice(b"DX10");
+    put(&mut b, 108, 0x1000 | 0x8 | 0x400000);
+    if cube {
+        put(&mut b, 112, 0xFE00);
+    }
+    put(&mut b, 128, dxgi);
+    put(&mut b, 132, 3);
+    put(&mut b, 136, if cube { 4 } else { 0 });
+    put(&mut b, 140, 1);
+    b
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::{Cursor, Write};
+
+    #[test]
+    fn one_entry_of_a_bsa_and_a_whole_dds_from_a_ba2_dx10() {
+        let b = bsa(105, &[("a.txt", b"hello", false)], false);
+        assert_eq!(
+            read_one(Cursor::new(&b), "D\\A.TXT").unwrap().as_deref(),
+            Some(&b"hello"[..])
+        );
+        assert_eq!(read_one(Cursor::new(&b), "d/none.txt").unwrap(), None);
+        let mut ba2 = crate::archive::fixtures::ba2_dx10(&[("textures/a.dds", 4, 4, 1, 71)]);
+        ba2.resize(ba2.len() + 4096, 0); // the fixture's chunk: 4096 bytes at offset 0
+        let dds = read_one(Cursor::new(&ba2), "textures/a.dds")
+            .unwrap()
+            .expect("a texture");
+        let info = crate::DdsInfo::parse(&dds).expect("a DDS header");
+        assert_eq!(
+            (info.width, info.height, info.mips, info.format.as_str()),
+            (4, 4, 1, "BC1")
+        );
+    }
 
     /// A BSA with one folder `d` and files given as (name, data, compressed), names embedded when `embed`.
     fn bsa(version: u32, files: &[(&str, &[u8], bool)], embed: bool) -> Vec<u8> {

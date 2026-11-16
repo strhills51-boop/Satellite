@@ -10,6 +10,7 @@ rustc-hash.workspace = true
 sat-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sat-formats.workspace = true
 thiserror.workspace = true
 
 [lints]

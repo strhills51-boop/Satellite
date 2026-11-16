@@ -66,6 +66,8 @@ pub struct Leaf {
     pub chain: u32,
     /// In the focused chain.
     pub focus: bool,
+    /// Packed in an archive (the tree shows the archive as a folder).
+    pub archived: bool,
 }
 
 /// What a row is.
@@ -95,6 +97,9 @@ pub struct Row {
     /// Conflict files of any state.
     pub conflicts: u32,
     pub focused: u32,
+    /// Packed in an archive (folders: files under it that are).
+    #[serde(default)]
+    pub archived: u32,
     /// Shared by every conflict file under it, else [`NONE`].
     pub winner: u32,
     pub chain: u32,
@@ -138,6 +143,7 @@ struct Sum {
     owned: u32,
     conflicts: u32,
     focused: u32,
+    archived: u32,
     /// NONE = none seen yet, NONE-1 = mixed
     winner: u32,
     chain: u32,
@@ -168,6 +174,9 @@ impl Sum {
         }
         if l.focus {
             self.focused += 1;
+        }
+        if l.archived {
+            self.archived += 1;
         }
     }
     fn shown(v: u32) -> u32 {
@@ -284,6 +293,7 @@ impl Ctx<'_, '_> {
             owned: n.sum.owned,
             conflicts: n.sum.conflicts,
             focused: n.sum.focused,
+            archived: n.sum.archived,
             winner: Sum::shown(n.sum.winner),
             chain: Sum::shown(n.sum.chain),
             state: State::Plain,
@@ -307,6 +317,7 @@ impl Ctx<'_, '_> {
             owned: s.owned,
             conflicts: s.conflicts,
             focused: s.focused,
+            archived: s.archived,
             winner: if l.state.conflict() { l.winner } else { NONE },
             chain: if l.state.conflict() { l.chain } else { NONE },
             state: l.state,
@@ -420,6 +431,7 @@ impl Ctx<'_, '_> {
                     owned: 0,
                     conflicts: 0,
                     focused: 0,
+                    archived: 0,
                     winner: NONE,
                     chain: NONE,
                     state: State::Plain,
@@ -494,6 +506,7 @@ mod tests {
             winner,
             chain: if state == State::Plain { NONE } else { 1 },
             focus: false,
+            archived: false,
         }
     }
 

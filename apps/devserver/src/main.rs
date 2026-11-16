@@ -101,6 +101,7 @@ fn load_offline(at: &std::path::Path) -> Result<App, String> {
     app.set_chain_identities(p.chain_identities.clone());
     app.set_chain_layout(p.chain_layout.clone());
     app.set_chain_lineage(p.chain_lineage.clone());
+    app.set_pinned_files(p.pinned_files.clone());
     for e in app.set_sticker_rules(&p.sticker_rules) {
         eprintln!("{e}");
     }
@@ -158,6 +159,7 @@ fn load(args: &[String]) -> Result<App, String> {
     let mut chain_identities = Vec::new();
     let mut chain_layout = Default::default();
     let mut chain_lineage = Default::default();
+    let mut pinned_files = Vec::new();
     // the project file; the early layout is read as it is (the sandbox converts nothing)
     let opened = if project_file.exists() {
         sat_stll::Stll::open(&project_file)
@@ -189,6 +191,7 @@ fn load(args: &[String]) -> Result<App, String> {
             chain_identities = p.chain_identities.clone();
             chain_layout = p.chain_layout.clone();
             chain_lineage = p.chain_lineage.clone();
+            pinned_files = p.pinned_files.clone();
             p.book().0
         }
         _ => {
@@ -273,6 +276,7 @@ fn load(args: &[String]) -> Result<App, String> {
     app.set_chain_identities(chain_identities);
     app.set_chain_layout(chain_layout);
     app.set_chain_lineage(chain_lineage);
+    app.set_pinned_files(pinned_files);
     // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps; what is missing is read
     // off the request loop (a first run reads a lot) — until then copies are "not compared"
     {
@@ -322,6 +326,14 @@ fn load(args: &[String]) -> Result<App, String> {
             };
             std::fs::read(dir.join(rel)).ok()
         }));
+        // the file explorer reads copies of files, loose or packed (`@sat:scan.fetch`)
+        let folders = sat_scan::fetch::Folders {
+            mods: inst.mods_dir.clone(),
+            overwrite: inst.overwrite_dir.clone(),
+        };
+        app.set_preview_source(std::sync::Arc::new(
+            move |m: &str, rel: &str, arch: Option<&str>| sat_scan::fetch::preview(&folders, m, rel, arch),
+        ));
         let rt = sat_scan::game_runtime(&inst.game_path);
         if let Some(v) = rt.version {
             eprintln!("game: {}.{}.{}.{}", v.0, v.1, v.2, v.3);

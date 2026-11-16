@@ -92,6 +92,9 @@ pub struct Project {
     /// Members of chains the user touched, so his work follows changed chains (`@sat:lineage`).
     #[serde(default, skip_serializing_if = "crate::lineage::ChainLineage::is_empty")]
     pub chain_lineage: crate::lineage::ChainLineage,
+    /// Files the user pinned for quick access in the explorer (game paths).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pinned_files: Vec<String>,
     /// Conditional stickers (`@sat:sticker-rules`): a sticker on every mod an expression holds for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sticker_rules: Vec<crate::sticker_rules::StickerRule>,
@@ -159,6 +162,7 @@ impl Project {
             chain_identities: Vec::new(),
             chain_layout: Default::default(),
             chain_lineage: Default::default(),
+            pinned_files: Vec::new(),
             sources: BTreeMap::new(),
             factories: Vec::new(),
             patches: Vec::new(),

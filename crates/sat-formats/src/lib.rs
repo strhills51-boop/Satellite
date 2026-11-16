@@ -13,6 +13,7 @@ pub mod fomod;
 pub mod ini;
 pub mod pe;
 pub mod plugin;
+pub mod preview;
 mod read;
 
 pub use archive::{ArchiveEntry, ArchiveKind, ArchiveManifest, read_archive};

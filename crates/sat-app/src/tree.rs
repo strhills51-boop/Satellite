@@ -10,6 +10,9 @@
 //! selection with three modes; a path is won when the subject is its winner, lost when another mod is; the active
 //! chain's files are lit (focus layer v486/v488). Several selected mods are one subject: a path is won when its
 //! winner is one of them, lost when one of them has it and someone else wins.
+//!
+//! A mod's archives show as folders of its tree (`Name.bsa/…`), their files under them as the archive holds them —
+//! the explorer shows what is on disk; the game path of such a file is the part after the archive.
 
 use serde::{Deserialize, Serialize};
 
@@ -141,6 +144,7 @@ impl App {
                             winner: w,
                             chain: g,
                             focus: focus_head == Some(g),
+                            archived: false,
                         });
                     }
                 }
@@ -166,39 +170,65 @@ impl App {
                     .map(|&k| self.session.book().name(k).to_string())
                     .collect();
                 let units: Vec<ModId> = raw.iter().map(|&m| ow.units().rep(m)).collect();
-                let mut paths: Vec<PathId> = raw
+                // every copy the mods have: loose by its path, packed under its archive as a folder
+                // (`CreaturePhoneme.bsa/sound/…`); the archive file itself is that folder, not a file
+                let mut seen: rustc_hash::FxHashSet<String> = Default::default();
+                let archive_names: rustc_hash::FxHashSet<String> = raw
                     .iter()
                     .flat_map(|&m| {
                         table
-                            .mod_providers(m)
+                            .archives()
                             .iter()
-                            .map(|&i| table.path_of_provider(i as usize))
+                            .filter(move |a| a.owner == m)
+                            .map(|a| a.file_name.to_lowercase())
                     })
                     .collect();
-                paths.sort_unstable();
-                paths.dedup();
-                for p in paths {
-                    let (state, winner, chain) = match ow.path_chain(p) {
-                        Some(c) => {
-                            let st = ow.chain_mods(c);
-                            let state = if units.contains(&st[0]) {
-                                State::Win
-                            } else if st.iter().any(|m| units.contains(m)) {
-                                State::Lose
-                            } else {
-                                State::Owned
-                            };
-                            (state, win_id(st[0]), head_of(p).unwrap_or(filetree::NONE))
+                for &m in &raw {
+                    for &i in table.mod_providers(m) {
+                        let i = i as usize;
+                        let p = table.path_of_provider(i);
+                        let game = table.path_string(p);
+                        let (path, archived) = match table.source(i) {
+                            sat_core::table::Source::Loose => {
+                                if archive_names.contains(&game.to_lowercase()) {
+                                    continue;
+                                }
+                                (game, false)
+                            }
+                            sat_core::table::Source::Archive(a) => {
+                                let an = table
+                                    .archives()
+                                    .get(a.idx())
+                                    .map_or("архив", |a| a.file_name.as_str());
+                                (format!("{an}/{game}"), true)
+                            }
+                        };
+                        if !seen.insert(path.to_lowercase()) {
+                            continue;
                         }
-                        None => (State::Plain, filetree::NONE, filetree::NONE),
-                    };
-                    leaves.push(Leaf {
-                        path: table.path_string(p),
-                        state,
-                        winner,
-                        chain,
-                        focus: focus_head.is_some() && chain == focus_head.unwrap_or(filetree::NONE),
-                    });
+                        let (state, winner, chain) = match ow.path_chain(p) {
+                            Some(c) => {
+                                let st = ow.chain_mods(c);
+                                let state = if units.contains(&st[0]) {
+                                    State::Win
+                                } else if st.iter().any(|m| units.contains(m)) {
+                                    State::Lose
+                                } else {
+                                    State::Owned
+                                };
+                                (state, win_id(st[0]), head_of(p).unwrap_or(filetree::NONE))
+                            }
+                            None => (State::Plain, filetree::NONE, filetree::NONE),
+                        };
+                        leaves.push(Leaf {
+                            path,
+                            state,
+                            winner,
+                            chain,
+                            focus: focus_head.is_some() && chain == focus_head.unwrap_or(filetree::NONE),
+                            archived,
+                        });
+                    }
                 }
             }
         }
