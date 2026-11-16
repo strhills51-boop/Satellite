@@ -9,33 +9,64 @@
      an event, the page re-reads only the rows it shows and repaints only rows whose content changed. -->
 <style>
 :root {
-  /* monolith tokens (docs/UI-PARITY.md §3) */
-  --bg: #10141b; --bg2: #161c25; --panel: #1b2230; --pop: #1f2733; --line: #344155; --fg: #e7edf7; --muted: #99a8bc;
-  --primary: #2457a8; --primary-line: #2b69ca; --accent: #65a8ff; --accent2: #9ac6ff; --ok: #22c55e;
-  --win: rgb(67, 142, 96); --lose: rgb(181, 82, 82); --miss: rgba(72, 84, 101, .94);
-  --w-txt: #86efac; --l-txt: #fca5a5; --m-txt: #fcd34d; --x-txt: #c4b5fd;
-  --black: #0b0d10; --red: #ef4444; --yellow: #f59e0b; --white: #94a3b8; --blue: #65a8ff; --green: #22c55e;
-  --row: 44px; --ui: Inter, "Segoe UI", system-ui, sans-serif; --mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
+  /* the owner's UI Laboratory v7 (ADR 0020 §3): blue accent as in the monolith; window names kept */
+  --bg: #0c111b; --bg2: #0e1520; --panel: #121b29; --surface2: #172231; --pop: #1a2737; --hover: #223246;
+  --line: #283647; --line-soft: #1e2b3c; --fg: #e9f0f8; --muted: #9baabd; --subtle: #72849b;
+  --accent: #6caaff; --accent-weak: rgba(108,170,255,.12); --accent-border: rgba(108,170,255,.38); --accent2: #9ac6ff;
+  --primary: #3a6fc0; --primary-line: var(--accent-border); --ok: #56d5a0; --signal: #67ffbc;
+  --win: rgb(67, 142, 96); --lose: rgb(181, 82, 82); --miss: #3a4757;
+  --w-txt: #56d5a0; --l-txt: #f18894; --m-txt: #f6c279; --x-txt: #ae98ff;
+  --black: #0b0d10; --red: #f18894; --yellow: #f6c279; --white: #94a3b8; --blue: #6caaff; --green: #56d5a0;
+  --shadow: 0 16px 48px rgba(0,0,0,.24); --scroll-thumb: #34485d; --scroll-hot: #657f9b;
+  --row: 44px; --ui: Inter, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; --mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace;
   color-scheme: dark;
 }
 :root[data-theme="light"] {
-  --bg: #eef1f5; --bg2: #e6eaf0; --panel: #ffffff; --pop: #f6f8fb; --line: #d3d9e2; --fg: #1b2230; --muted: #5f6b7d;
-  --w-txt: #1f7a45; --l-txt: #b42323; --m-txt: #a16207; --x-txt: #6d28d9; --black: #2b2f36; --white: #9aa3b2; color-scheme: light;
+  --bg: #f0f3f8; --bg2: #f7f9fc; --panel: #ffffff; --surface2: #f6f8fc; --pop: #f0f5fc; --hover: #e8eef7;
+  --line: #d6e0eb; --line-soft: #e8edf3; --fg: #202c3e; --muted: #596b7e; --subtle: #78899c;
+  --accent: #3479d4; --accent-weak: rgba(52,121,212,.09); --accent-border: rgba(52,121,212,.3); --accent2: #3479d4; --primary: #3479d4;
+  --ok: #138e65; --signal: #007f80; --miss: #c3cdd9;
+  --w-txt: #138e65; --l-txt: #cf5264; --m-txt: #b47c20; --x-txt: #7853bb; --black: #2b2f36; --white: #9aa3b2;
+  --shadow: 0 16px 36px rgba(25,48,76,.10); --scroll-thumb: #adbdcf; --scroll-hot: #748da8; color-scheme: light;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
-body { background: linear-gradient(var(--bg), var(--bg2)); color: var(--fg); font: 14px/1.35 var(--ui); display: grid;
-  grid-template-rows: auto 1fr auto; height: 100vh; }
-button, input, select { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; }
-button { cursor: pointer; } button:hover { border-color: var(--primary-line); }
+body { background: var(--bg); color: var(--fg); font: 13px/1.4 var(--ui); display: grid;
+  grid-template-rows: auto 1fr; height: 100vh; }
+/* lab controls: buttons are unframed areas that light up on hover; fields are quiet wells with an accent ring */
+button, input, select { font: inherit; color: var(--fg); }
+button { cursor: pointer; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 5px 10px; color: var(--muted); font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px; transition: background .16s, color .16s, box-shadow .16s; }
+button:hover:not(:disabled) { background: var(--hover); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line-soft); }
+button:disabled { opacity: .38; cursor: not-allowed; }
+button.pri { color: var(--accent); } button.pri:hover:not(:disabled) { background: var(--accent-weak); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-border); }
+input, select { background: var(--surface2); border: 1px solid var(--line); border-radius: 9px; padding: 5px 10px; outline: none; transition: border-color .15s, box-shadow .15s; }
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+input::placeholder { color: var(--subtle); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.brand { font-weight: 700; }
-.pill { font: 600 11px var(--ui); letter-spacing: .08em; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: #fff; }
-.pipeline { display: flex; align-items: center; gap: 4px; }
-.pipeline > span { border: 1px solid var(--ok); border-radius: 10px; padding: 3px 10px; font-size: 13px; }
-#syncBtn { border-color: var(--ok); font-size: 13px; padding: 3px 10px; display: inline-flex; gap: 6px; align-items: center; }
-#syncBtn.wait { border-color: var(--m-txt); } #syncDot:not(:empty) { font: 11px var(--mono); color: var(--m-txt); }
+input:focus-visible, select:focus-visible { outline: none; }
+.si { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; flex: none; }
+/* scrollbars (lab) */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+::-webkit-scrollbar { width: 7px; height: 7px; } ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 12px; } ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hot); }
+/* mode switch (ADR 0020 §1): one container, the active tooth lifted with an accent underline */
+.tooth { display: inline-flex; gap: 3px; padding: 3px; border-radius: 11px; background: color-mix(in srgb, var(--surface2) 60%, transparent); }
+.tooth button { padding: 4px 11px; font-size: 11px; border-radius: 8px; }
+.tooth button.on { background: var(--pop); color: var(--fg); box-shadow: 0 1px 7px rgba(0,0,0,.18), inset 0 -2px 0 var(--accent); }
+/* the faint "i" of a context (guides, ADR 0020 §2) */
+.inf { width: 18px; height: 18px; padding: 0; border-radius: 50%; justify-content: center; font: 10px var(--mono); color: var(--subtle); opacity: .62; }
+.inf:hover { opacity: 1; }
+header { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; background: var(--bg2); }
+.brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: .065em; font-size: 12px; margin-right: 10px; }
+.brand svg { width: 26px; height: 26px; }
+.pipeline { display: flex; align-items: center; gap: 2px; }
+.pipeline > span { padding: 5px 10px; color: var(--muted); font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
+.pipeline i { color: var(--subtle); font-style: normal; }
+/* a status dot per stage: ready — signal, waits — warn */
+.pipeline .st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 40%, transparent); }
+#syncBtn.wait::before { background: var(--m-txt); } #syncDot:not(:empty) { font: 11px var(--mono); color: var(--m-txt); }
 #sy { position: fixed; top: 28px; bottom: 28px; right: 28px; width: min(760px, calc(100vw - 32px)); z-index: 36; display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
 #sy[hidden] { display: none; }
@@ -54,9 +85,8 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; borde
 .syc { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 13px; display: grid; gap: 2px; }
 .syc.ok { border-color: var(--ok); } .syc.bad { border-color: var(--l-txt); } .syc small { color: var(--muted); font: 11px var(--mono); word-break: break-all; } .syp .bl { color: var(--l-txt); } .syp .nt { color: var(--muted); }
 #sy .foot { border-top: 1px solid var(--line); padding: 8px 14px; display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); }
-#passBtn { border-color: var(--ok); font-size: 13px; padding: 3px 10px; display: inline-flex; gap: 6px; align-items: center; }
 #passDot:not(:empty) { font: 11px var(--mono); color: var(--muted); }
-#passBtn.run #passDot { color: var(--accent); } #passBtn.bad { border-color: var(--l-txt); }
+#passBtn.run #passDot { color: var(--accent); } #passBtn.run::before { background: var(--accent); } #passBtn.bad::before { background: var(--l-txt); }
 #passPanel { position: absolute; z-index: 40; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
   padding: 12px; width: min(420px, calc(100vw - 32px)); font-size: 13px; display: grid; gap: 10px; }
 #passPanel[hidden] { display: none; }
@@ -80,27 +110,36 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; borde
 #passPanel .stages .now { color: var(--fg); border-color: var(--accent); } #passPanel .stages .past { color: var(--ok); }
 #passPanel .facts { font: 12px var(--mono); color: var(--muted); display: grid; gap: 2px; } #passPanel .facts b { color: var(--fg); font-weight: 500; }
 #passPanel .warn { color: var(--l-txt); }
-.pipeline i { color: var(--muted); font-style: normal; }
-.sandbox { margin-left: auto; color: var(--muted); font-size: 12px; }
-.sandbox.dirty { color: var(--m-txt); } .sandbox.bad { color: var(--l-txt); }
-#saveBtn.dirty { border-color: var(--m-txt); }
+.sandbox { font: 600 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--subtle); border: 1px solid var(--line); padding: 3px 7px; border-radius: 7px; }
+.sandbox.dirty { color: var(--m-txt); border-color: color-mix(in srgb, var(--m-txt) 40%, transparent); } .sandbox.bad { color: var(--l-txt); border-color: color-mix(in srgb, var(--l-txt) 40%, transparent); }
+.sandbox.ok { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 30%, transparent); }
+#saveBtn.dirty { color: var(--accent); }
+/* build indicators (ADR 0020 §5): right edge of the header, hover — the full list */
+#stats { margin-left: auto; display: flex; align-items: center; gap: 12px; font: 10px var(--mono); color: var(--muted); }
+#stats > span { position: relative; cursor: default; letter-spacing: .04em; }
+#stats b { color: var(--fg); font-weight: 650; } #stats .warn b { color: var(--m-txt); } #stats .bad b { color: var(--l-txt); }
+#stats .tip { display: none; position: absolute; z-index: 45; right: 0; top: calc(100% + 8px); min-width: 210px; background: var(--pop); border: 1px solid var(--line);
+  padding: 10px 12px; border-radius: 9px; box-shadow: var(--shadow); line-height: 1.8; white-space: nowrap; font-size: 11px; letter-spacing: 0; text-transform: none; }
+#stats > span:hover .tip { display: block; }
 main { display: grid; grid-template-columns: 220px minmax(0, 1fr) 380px; min-height: 0; }
 section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
-section h2 { margin: 0; padding: 10px 12px 6px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
-section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
-#tiles { overflow-y: auto; padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
-.tile { border: 1px solid var(--line); background: var(--panel); border-radius: 14px; padding: 8px 10px; min-height: 64px; cursor: pointer;
-  display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; }
-.tile:hover, .tile.cur { border-color: var(--primary-line); }
-.tile .ctr { font: 11px var(--mono); color: var(--muted); }
-.tile .on { font: 11px var(--mono); color: var(--ok); text-align: right; }
-.tile b { grid-column: 1 / 3; align-self: end; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+section { border-right-color: var(--line-soft); }
+section h2 { margin: 0; padding: 12px 12px 8px; font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--subtle); display: flex; gap: 8px; align-items: center; }
+section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
+#tiles { overflow-y: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 7px; }
+/* separator tiles (lab): raised gradient, small mono head, name at the bottom */
+.tile { border: 1px solid var(--line); background: linear-gradient(145deg, var(--pop), var(--surface2)); border-radius: 12px; padding: 9px 11px; min-height: 62px; cursor: pointer;
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; transition: border-color .15s, background .15s; }
+.tile:hover, .tile.cur { border-color: var(--accent-border); }
+.tile .ctr { font: 10px var(--mono); color: var(--subtle); }
+.tile .on { font: 10px var(--mono); color: var(--ok); text-align: right; }
+.tile b { grid-column: 1 / 3; align-self: end; font-size: 12px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tools { display: flex; gap: 8px; padding: 0 10px 8px; align-items: center; }
 .tools input { flex: 1; min-width: 0; }
 #err { color: var(--l-txt); font-size: 12px; }
-#list { flex: 1; overflow-y: auto; overflow-anchor: none; position: relative; outline: none; margin: 0 10px 10px; border: 1px solid var(--line);
-  border-radius: 10px; background: var(--panel); }
-#list:focus { border-color: var(--primary-line); }
+#list { flex: 1; overflow-y: auto; overflow-anchor: none; position: relative; outline: none; margin: 0 10px 10px; border: 1px solid var(--line-soft);
+  border-radius: 13px; background: var(--panel); }
+#list:focus { border-color: var(--accent-border); }
 #spacer { width: 1px; }
 #layer { position: sticky; top: 0; height: 0; margin: 0 6px; }
 .row { position: absolute; left: 0; top: 0; height: var(--row); border: 1px solid var(--line); border-radius: 8px; cursor: default; user-select: none;
@@ -127,7 +166,7 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .owpill b { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--h) 70% 60%); }
 .counters .w { color: var(--w-txt); } .counters .l { color: var(--l-txt); } .counters .m { color: var(--m-txt); } .counters .x { color: var(--x-txt); font-weight: 600; }
 .prio { color: var(--muted); }
-.row.sep { background: var(--bg2); font-weight: 600; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+.row.sep { background: var(--surface2); font-weight: 650; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
 .row.sep .size { margin-left: auto; font: 11px var(--mono); color: var(--muted); font-weight: 400; }
 .row.foreign .name { font-style: italic; color: var(--muted); }
 /* card style (ADR 0012): the look is inline per card; the watermark is a pseudo-element fed by variables */
@@ -173,11 +212,10 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .row.focus::before { top: 2px; left: 2px; border-right: 0; border-bottom: 0; }
 .row.focus::after { bottom: 2px; right: 2px; border-left: 0; border-top: 0; }
 #summary { overflow-y: auto; padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 10px; border-right: 0; }
-.block { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 8px 10px 10px; }
-.block.ok { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
-.block h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; display: flex; gap: 8px; align-items: center; }
-.block h3::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
-.block.empty h3::before { background: var(--miss); }
+.block { border: 1px solid var(--line); border-radius: 13px; background: var(--panel); padding: 10px 12px 12px; }
+.block h3 { margin: 0 0 8px; font: 700 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.block h3::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 35%, transparent); }
+.block.empty h3::before { background: transparent; border: 1px solid var(--subtle); box-shadow: none; }
 .muted { color: var(--muted); font-size: 12px; }
 /* summary conflicts block (monolith): chain list with icon, generated name and a "done" toggle; participants grouped
    by separator, the row background is the teeth (one segment per listed chain), dashed amber edge, focused mod green */
@@ -451,19 +489,31 @@ table.fxtab { width: 100%; border-collapse: collapse; font-size: 12px; } .fxtab 
 #ctStatus { padding: 6px 14px; border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 18px; }
 #ctStatus b { color: var(--fg); font-weight: 500; }
 .ctbtn { font-size: 11px; padding: 1px 8px; border-radius: 999px; margin-left: auto; }
-footer { display: flex; gap: 14px; flex-wrap: wrap; padding: 6px 14px; border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
-footer b { color: var(--accent2); font-weight: 500; }
 @media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) 340px; } #tilesec { display: none; } }
 </style>
 </head>
 <body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg"><symbol id="ic-x" viewBox="0 0 24 24"><path d="M5 5 19 19M19 5 5 19"/></symbol><symbol id="ic-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2m0-14-2 2M7 17l-2 2"/></symbol><symbol id="ic-moon" viewBox="0 0 24 24"><path d="M20 16a9 9 0 0 1-12-12 9 9 0 1 0 12 12"/></symbol><symbol id="ic-folder" viewBox="0 0 24 24"><path d="M2 6h8l2 3h10v12H2z"/></symbol><symbol id="ic-save" viewBox="0 0 24 24"><path d="M4 3h14l3 3v15H4zM7 3v7h10V3M7 21v-8h10v8"/></symbol><symbol id="ic-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M6 9a7 7 0 0 1 12-2l2 4M4 13l2 4a7 7 0 0 0 12-2"/></symbol><symbol id="ic-play" viewBox="0 0 24 24"><path d="m7 4 14 8-14 8z"/></symbol><symbol id="sat-glyph-orbit" viewBox="0 0 64 64">
+  <g fill="none" stroke="#bdc3cb" stroke-linecap="round">
+    <path d="M14.1 45.8C4.1 34.4 9.1 18.3 23 12.8c9.2-3.7 19.7-1.4 26.8 5.1" stroke-width="2.9"/>
+    <path d="M53 23.6C59.8 40.5 46.7 55 32.3 54.7c-5.2-.1-10.1-1.9-14.1-5.2" stroke-width="2.9" opacity=".72"/>
+    <path d="M11 32.4c9.5-12.3 30.5-18.9 44.9-14.1M9.3 45.6c14 3.1 34.2-2.9 44.4-14.7" stroke-width="1.5" opacity=".43"/>
+  </g>
+  <path d="M24 28.5 32 23l8 5.5v8L32 42l-8-5.5Z" fill="#181d25" stroke="#bdc3cb" stroke-width="2"/>
+  <path d="M32 23v-5.4m8 14.9h6m-14 9.5v5.2m-8-15h-5.1" fill="none" stroke="#b5bdc7" stroke-width="1.7" stroke-linecap="round" opacity=".8"/>
+  <circle cx="32" cy="32.5" r="3.5" fill="#6effc4"/>
+  <circle cx="50.3" cy="18.2" r="4.7" fill="#181d25" stroke="#6effc4" stroke-width="2.4"/>
+  <circle cx="13.8" cy="45.8" r="2.4" fill="#c2c7ce"/>
+  <circle cx="54" cy="31.2" r="2.1" fill="#c2c7ce" opacity=".8"/>
+</symbol></svg>
 <header>
-  <span class="brand">Satellite</span><span class="pill">NG</span>
-  <div class="pipeline" aria-label="Конвейер"><button id="passBtn" title="Пробег: прочитать папку mods заново — поверхность (подписи и сверка) или полный">Пробег<span id="passDot"></span></button><i>→</i><span>Конфликты</span><i>→</i><button id="syncBtn" title="Синхронизация: расхождения папки mods с проектом, ответы и план фиксации">Sync<span id="syncDot"></span></button></div>
+  <span class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#sat-glyph-orbit"/></svg>SATELLITE</span>
+  <div class="pipeline" aria-label="Конвейер"><button id="passBtn" class="st" title="Пробег: прочитать папку mods заново — поверхность (подписи и сверка) или полный">Пробег<span id="passDot"></span></button><i>→</i><span class="st">Конфликты</span><i>→</i><button id="syncBtn" class="st" title="Синхронизация: расхождения папки mods с проектом, ответы и план фиксации">Sync<span id="syncDot"></span></button></div>
   <button id="recBtn" title="Конфликты: файлы и записи плагинов">Конфликты</button>
-  <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр">Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
-  <button id="theme" title="Светлая / тёмная">◐</button>
-  <span class="sandbox" id="projState">песочница: изменения живут в памяти и никуда не пишутся</span><button id="saveBtn" hidden title="Сохранить проект (Ctrl+S)">Сохранить</button>
+  <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр"><svg class="si"><use href="#ic-folder"/></svg>Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
+  <div id="stats"></div>
+  <span class="sandbox" id="projState" title="Песочница: изменения живут в памяти и никуда не пишутся">песочница</span><button id="saveBtn" class="pri" hidden title="Сохранить проект (Ctrl+S)"><svg class="si"><use href="#ic-save"/></svg><span>Сохранить</span></button>
+  <button id="theme" title="Светлая / тёмная"><svg class="si"><use href="#ic-sun"/></svg></button>
 </header>
 <main>
   <section id="tilesec"><h2>Разделители <small id="sepcount"></small></h2><div id="tiles"></div></section>
@@ -471,7 +521,7 @@ footer b { color: var(--accent2); font-weight: 500; }
     <h2>Моды <small id="modcount"></small></h2>
     <div class="tools"><input id="filter" type="search" placeholder="Фильтр по имени" aria-label="Фильтр по имени">
       <select id="badgeModel" aria-label="Модель бейджей"><option value="classic">Коллекция цепочек</option><option value="summary">OW N</option></select>
-      <select id="cols" aria-label="Колонки"><option value="-1">Кирпичики</option><option value="340">Поток · 340</option><option value="260">Поток · 260</option><option value="0">Одна колонка</option></select>
+      <span class="tooth" id="cols" role="radiogroup" aria-label="Вид списка"><button data-v="-1">Кирпичики</button><button data-v="340">Поток</button><button data-v="0">Строки</button></span>
       <select id="density" aria-label="Плотность"><option value="3">Плотно · 3</option><option value="6">Обычно · 6</option><option value="12">Свободно · 12</option></select>
       <span id="err" role="status"></span></div>
     <div id="list" tabindex="0" aria-label="Список модов"><div id="layer"></div><div id="spacer"></div></div>
@@ -485,10 +535,9 @@ footer b { color: var(--accent2); font-weight: 500; }
     <div class="block empty" id="bPrev"><h3>Предпросмотр</h3><div class="muted">Нажми на файл в проводнике.</div></div>
   </section>
 </main>
-<footer id="stats">загрузка…</footer>
 <div id="passPanel" hidden role="dialog" aria-label="Пробег"></div>
 <div id="sy" hidden role="dialog" aria-label="Синхронизация">
-  <div class="top"><div class="t1"><b>Синхронизация</b><button id="sySurface" title="Перечитать подписи папок и сверить с проектом (секунды)">Поверхность</button><button id="syClose">Закрыть</button></div>
+  <div class="top"><div class="t1"><b>Синхронизация</b><button id="sySurface" title="Перечитать подписи папок и сверить с проектом (секунды)">Поверхность</button><button id="syClose" title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></div>
     <div class="t2" id="syInfo"></div></div>
   <div id="syBody"></div>
   <div class="foot"><button id="syCommit" disabled>Зафиксировать…</button><span id="syFoot"></span></div>
@@ -497,7 +546,7 @@ footer b { color: var(--accent2); font-weight: 500; }
 <div id="palette" hidden></div>
 <div id="rec" hidden role="dialog" aria-label="Конфликты записей">
   <div class="top">
-    <div class="t1"><b>Записи плагинов</b><button id="recClose">Закрыть</button></div>
+    <div class="t1"><b>Записи плагинов</b><button id="recClose" title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></div>
     <div class="t2"><input id="recPlugin" type="search" placeholder="Плагин (пусто — все)" aria-label="Плагин">
       <label><input id="recOnly" type="checkbox" checked> только конфликты (запись правят два плагина и больше)</label><span id="recStats"></span></div>
   </div>
@@ -509,13 +558,13 @@ footer b { color: var(--accent2); font-weight: 500; }
     <span class="tmodes" id="fxModes"></span>
     <span class="seg" id="fxView" title="Вид проводника"></span>
     <input type="search" id="fxQ" placeholder="Поиск по путям всей сборки (от 2 символов)">
-    <button id="fxClose">Закрыть</button></div>
+    <button id="fxClose" title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></div>
   <div class="fxb"><div class="fxt" id="fxTree"></div><div class="fxp" id="fxPrev"><div class="muted">Выбери файл слева.</div></div></div>
 </div>
 <div id="ct" class="m-both" hidden role="dialog" aria-label="Таблица конфликтов">
   <div class="top">
     <div class="t1"><span class="tabs" id="ctTabs"></span>
-      <b id="ctTitle"></b><span class="modes"><button class="tab" data-mode="cards">Карточки</button><button class="tab" data-mode="table">Таблица</button><button class="tab cur" data-mode="both">2 области</button></span><button id="ctList" hidden title="Все цепочки записей списком, с правками">Списком</button><button id="ctClose">Закрыть</button></div>
+      <b id="ctTitle"></b><span class="modes"><button class="tab" data-mode="cards">Карточки</button><button class="tab" data-mode="table">Таблица</button><button class="tab cur" data-mode="both">2 области</button></span><button id="ctList" hidden title="Все цепочки записей списком, с правками">Списком</button><button id="ctClose" title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></div>
     <div class="t2"><span>Контекст:</span><select id="ctCtx"></select>
       <select id="ctOrder"><option value="chain">Релевантность цепочке</option><option value="strength">Сила конфликта</option><option value="activity">Активность вокруг выбранной цепочки</option></select>
       <button id="ctAdvBtn" title="Мастер порядка перезаписи: куда поставить моды контекста">Порядок</button>
@@ -749,14 +798,18 @@ async function sync(follow) {
   if (again) { again = false; sync(false); }
 }
 
+/** Build indicators (ADR 0020 §5): what needs attention stands out; hover — the full list. */
 async function totals() {
   const t = await query({ type: "totals" }), o = t.overwrite, p = t.plugins;
+  const item = (k, v, tip, cls = "") => `<span class="${cls}" tabindex="0">${k} <b>${num(v)}</b><span class="tip">${tip}</span></span>`;
+  const over = p.overflow_full + p.overflow_light;
   $("stats").innerHTML = [
-    `конфликтных путей <b>${num(o.conflict_paths)}</b>`, `цепочек <b>${num(o.normalized)}</b> <span title="точных стеков">(точных ${num(o.chains)})</span>`, `контекстов <b>${o.contexts}</b>`,
-    `X <b>${o.fully_overridden}</b>`, `плагинов <b>${p.active_full}</b> полных + <b>${p.active_light}</b> лёгких`,
-    p.overflow_full + p.overflow_light ? `сверх лимита <b>${p.overflow_full}/${p.overflow_light}</b>` : "",
-    `в нескольких модах <b>${p.versioned}</b>`, `без мастеров <b>${p.with_missing_masters}</b>`,
-  ].filter(Boolean).map(s => `<span>${s}</span>`).join("");
+    item("ПУТИ", o.conflict_paths, `конфликтных путей ${num(o.conflict_paths)}<br>цепочек ${num(o.normalized)} (точных ${num(o.chains)})<br>контекстов ${o.contexts}`),
+    o.fully_overridden ? item("X", o.fully_overridden, "модов не видно в игре: всё перекрыто", "warn") : "",
+    item("ESP", p.active_full + p.active_light, `полных ${p.active_full} · лёгких ${p.active_light}<br>в нескольких модах ${p.versioned}`),
+    over ? item("ЛИМИТ", over, `сверх лимита: полных ${p.overflow_full}, лёгких ${p.overflow_light}`, "bad") : "",
+    p.with_missing_masters ? item("МАСТЕРА", p.with_missing_masters, "плагинов без мастеров", "bad") : "",
+  ].join("");
 }
 
 async function tiles() {
@@ -2402,8 +2455,9 @@ $("filter").addEventListener("input", ev => {
 });
 $("badgeModel").value = badgeModel; $("density").value = String(density);
 const repaint = () => { cards.forEach(el => { el._sig = null; }); sync(false); };
-$("cols").value = String(cols);
-$("cols").onchange = ev => { cols = +ev.target.value; try { localStorage.setItem("sat-cols2", cols); } catch (_) {} list.classList.toggle("bricks", cols < 0); cards.forEach(el => { el._sig = null; }); sync(true); };
+const colsShow = () => $("cols").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === cols));
+$("cols").onclick = ev => { const b = ev.target.closest("button"); if (!b) return; cols = +b.dataset.v; colsShow(); try { localStorage.setItem("sat-cols2", cols); } catch (_) {} list.classList.toggle("bricks", cols < 0); cards.forEach(el => { el._sig = null; }); sync(true); };
+colsShow();
 list.classList.toggle("bricks", cols < 0);
 // fonts arrive late: measure again with the real ones
 if (document.fonts) document.fonts.ready.then(() => { if (brickM) { brickM = null; if (cols < 0) sync(false); } });
@@ -2413,8 +2467,12 @@ $("theme").onclick = () => {
   const r = document.documentElement;
   r.dataset.theme = r.dataset.theme === "light" ? "dark" : "light";
   try { localStorage.setItem("sat-theme", r.dataset.theme); } catch (_) {}
+  themeIcon();
 };
+/** The theme button shows where it leads: the sun in the dark, the moon in the light. */
+function themeIcon() { $("theme").querySelector("use").setAttribute("href", document.documentElement.dataset.theme === "light" ? "#ic-moon" : "#ic-sun"); }
 try { const t = localStorage.getItem("sat-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+themeIcon();
 
 // ---------------------------------------------------------------- record layer (@sat:app.records)
 let recSeq = 0, recTimer = 0;
@@ -2693,13 +2751,12 @@ async function projPoll() {
   PROJ = st;
   const el = $("projState"), b = $("saveBtn");
   b.hidden = !st.writable;
-  if (!st.writable) { el.textContent = "песочница: изменения живут в памяти и никуда не пишутся"; el.className = "sandbox"; return; }
-  el.className = "sandbox" + (st.error ? " bad" : st.dirty ? " dirty" : "");
-  el.title = st.path;
-  el.textContent = st.saving ? "сохраняется…" : st.error ? (st.changed_outside ? "файл проекта изменён вне окна — сохранение перезапишет его" : "не сохранено: " + st.error)
-    : st.dirty ? "● не сохранено" : "проект сохранён";
+  if (!st.writable) { el.textContent = "песочница"; el.title = "Песочница: изменения живут в памяти и никуда не пишутся"; el.className = "sandbox"; return; }
+  el.className = "sandbox" + (st.error ? " bad" : st.dirty ? " dirty" : " ok");
+  el.textContent = st.saving ? "сохраняется" : st.error ? (st.changed_outside ? "изменён вне окна" : "ошибка") : st.dirty ? "не сохранено" : "сохранено";
+  el.title = st.path + (st.error ? (st.changed_outside ? "\nФайл проекта изменён вне окна — сохранение перезапишет его" : "\n" + st.error) : "");
   b.classList.toggle("dirty", st.dirty);
-  b.textContent = st.changed_outside ? "Перезаписать" : "Сохранить";
+  b.querySelector("span").textContent = st.changed_outside ? "Перезаписать" : "Сохранить";
   if (st.saving) projTimer = setTimeout(projPoll, 300);
 }
 async function projSave() {
