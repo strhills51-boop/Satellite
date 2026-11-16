@@ -15,7 +15,7 @@ use super::book::{OrderBook, ViewId};
 use super::seq::Key;
 
 /// Viewport and defaults of a view's flow layout (pixels).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowParams {
     pub width: u32,
     pub card_width: u32,
@@ -37,10 +37,14 @@ pub struct FlowParams {
 /// average glyph width is enough, a name that does not fit is cut, ADR 0020 §6). A line is read left to right,
 /// lines top to bottom; a full line shares what is left of it among its cards, the last line of a block keeps
 /// the natural widths.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Natural {
-    /// Average glyph width of a name, in tenths of a pixel.
+    /// Width of a glyph the table below does not have, in tenths of a pixel.
     pub glyph10: u32,
+    /// Widths of the printable ASCII glyphs `' '..='~'` in the window's font, tenths of a pixel (the window measures
+    /// them once); empty — every glyph is `glyph10`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub glyphs: Vec<u16>,
     /// Everything besides the name: padding, indicator, room for badges and counters.
     pub chrome: u32,
     /// The common minimum width of every container.
@@ -50,10 +54,14 @@ pub struct Natural {
 impl Natural {
     /// `extra` — what else the container holds besides its name (badges, counters), as the caller measures it.
     fn width(&self, name: &str, extra: u32, max: u32) -> u32 {
-        let chars = name.chars().count() as u32;
-        (self.chrome + extra + (chars * self.glyph10).div_ceil(10))
-            .max(self.min)
-            .min(max)
+        let text: u32 = name
+            .chars()
+            .map(|c| {
+                let i = (c as u32).wrapping_sub(32) as usize;
+                self.glyphs.get(i).map_or(self.glyph10, |&w| u32::from(w))
+            })
+            .sum();
+        (self.chrome + extra + text.div_ceil(10)).max(self.min).min(max)
     }
 }
 
@@ -437,7 +445,7 @@ impl OrderBook {
             let w = if full {
                 p.width
             } else {
-                match (st.and_then(|s| s.width), p.natural) {
+                match (st.and_then(|s| s.width), &p.natural) {
                     (Some(w), _) => u32::from(w).min(p.width),
                     (None, Some(n)) => n.width(self.name(k), extra(k), p.width),
                     (None, None) => cw,
@@ -707,7 +715,7 @@ mod tests {
         assert_eq!(first.height, 8 + 40 + 4);
         // spare room: a block's height is a multiple of the reserve, and a small growth stays inside it
         let r = FlowParams { reserve: 64, ..P };
-        let before = b.flow_index(MAIN, r);
+        let before = b.flow_index(MAIN, r.clone());
         assert_eq!(before.total_height % 64, 0);
         b.set_style(
             &[keys[0]],
@@ -755,12 +763,13 @@ mod tests {
             gap: 6,
             reserve: 0,
             natural: Some(Natural {
+                glyphs: Vec::new(),
                 glyph10: 70,
                 chrome: 40,
                 min: 50,
             }),
         };
-        let idx = b.flow_index(MAIN, p);
+        let idx = b.flow_index(MAIN, p.clone());
         let lines = b.flow_lines(MAIN, &idx, 0, idx.total_height);
         let cards: Vec<&Placed> = lines
             .iter()

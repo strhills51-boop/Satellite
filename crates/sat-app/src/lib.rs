@@ -512,7 +512,39 @@ pub enum Query {
         flow: FlowParams,
         #[serde(default)]
         badges: u8,
+        /// Bricks: how wide the window draws badges and counters (it measures its own font once).
+        #[serde(default)]
+        measures: Option<BrickMeasures>,
     },
+}
+
+/// Bricks' extras of a view: what they were measured with (badge density, the window's measures) and the width of
+/// badges and counters per mod.
+type BrickExtras = ((u8, Option<BrickMeasures>), std::collections::HashMap<Key, u32>);
+
+/// What the window measured of its badges and counters, tenths of a pixel (`@sat:app.bricks`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct BrickMeasures {
+    /// One glyph of the counters' font (monospace).
+    pub digit10: u32,
+    /// Between two counters.
+    pub counter_gap10: u32,
+    /// A context badge without its chains (dot, padding, border).
+    pub context10: u32,
+    /// One chain icon.
+    pub chain10: u32,
+    /// The «+N» of a context with more chains.
+    pub more10: u32,
+}
+
+impl BrickMeasures {
+    const FALLBACK: Self = Self {
+        digit10: 60,
+        counter_gap10: 60,
+        context10: 140,
+        chain10: 150,
+        more10: 200,
+    };
 }
 
 // @sat:app.patch-style
@@ -968,7 +1000,8 @@ pub struct App {
     /// Flow index per view, valid for one book revision and one set of parameters.
     flows: std::collections::HashMap<ViewId, FlowIndex>,
     /// Bricks: what each container holds besides its name, by view (`@sat:app.bricks`), built with its flow index.
-    brick_extra: std::collections::HashMap<ViewId, std::collections::HashMap<Key, u32>>,
+    /// Per view: what the extras were measured with (badge density, the window's measures) and the extras.
+    brick_extra: std::collections::HashMap<ViewId, BrickExtras>,
     /// Sorted columns of the context table that is open.
     open_context: Option<context::OpenContext>,
     /// Sync records and the folder names they were found against.
@@ -1552,28 +1585,40 @@ impl App {
     /// What each mod container holds besides its name, in pixels, for the bricks layout (ADR 0020 §6): its badges
     /// and counters as the window draws them (one line, 10 px digits). So a container is as wide as its content and
     /// nothing covers the name unless the line is short of room.
-    fn brick_extras(&mut self, view: ViewId, badges: u8) -> std::collections::HashMap<Key, u32> {
+    fn brick_extras(
+        &mut self,
+        view: ViewId,
+        badges: u8,
+        m: BrickMeasures,
+    ) -> std::collections::HashMap<Key, u32> {
         let len = self.session.book().row_count(view);
         let digits = |n: u32| n.to_string().len() as u32;
+        // counters as the window writes them: `W12`, `L3`, `M1`, `+40`, `2 esp`, `X`
         self.row_views(view, 0, len, badges)
             .into_iter()
             .filter(|r| r.kind == RowKind::Mod)
             .map(|r| {
                 let mut w = 0;
                 if let Some(c) = &r.counters {
+                    let mut shown = 0;
                     for (n, extra) in [(c.win, 1), (c.lose, 1), (c.mid, 1), (c.unique, 1), (c.plugins, 4)] {
                         if n > 0 {
-                            w += (digits(n) + extra) * 6 + 6;
+                            w += (digits(n) + extra) * m.digit10;
+                            shown += 1;
                         }
                     }
                     if c.x {
-                        w += 12;
+                        w += m.digit10;
+                        shown += 1;
                     }
+                    w += shown * m.counter_gap10;
                 }
                 for b in &r.badges {
-                    w += 14 + b.chains.len() as u32 * 15 + if b.more > 0 { 20 } else { 0 };
+                    w += m.context10
+                        + b.chains.len() as u32 * m.chain10
+                        + if b.more > 0 { m.more10 } else { 0 };
                 }
-                (r.key, w)
+                (r.key, w.div_ceil(10))
             })
             .collect()
     }
@@ -1683,26 +1728,30 @@ impl App {
                 height,
                 flow,
                 badges,
+                measures,
             } => {
                 let book = self.session.book();
                 let rev = book.revision();
                 let fresh = self
                     .flows
                     .get(&view)
-                    .is_some_and(|i| i.revision == rev && i.params == flow);
+                    .is_some_and(|i| i.revision == rev && i.params == flow)
+                    // natural widths depend on the badges shown and on how the window measures them
+                    && (flow.natural.is_none() || self.brick_extra.get(&view).is_some_and(|(k, _)| *k == (badges, measures)));
                 if !fresh {
                     let extra = if flow.natural.is_some() {
-                        self.brick_extras(view, badges)
+                        self.brick_extras(view, badges, measures.unwrap_or(BrickMeasures::FALLBACK))
                     } else {
                         Default::default()
                     };
                     let book = self.session.book();
-                    let idx = book.flow_index_by(view, flow, &|k| extra.get(&k).copied().unwrap_or(0));
+                    let idx =
+                        book.flow_index_by(view, flow.clone(), &|k| extra.get(&k).copied().unwrap_or(0));
                     self.flows.insert(view, idx);
-                    self.brick_extra.insert(view, extra);
+                    self.brick_extra.insert(view, ((badges, measures), extra));
                 }
                 let book = self.session.book();
-                let extra = &self.brick_extra[&view];
+                let extra = &self.brick_extra[&view].1;
                 let by = |k: Key| extra.get(&k).copied().unwrap_or(0);
                 let idx = &self.flows[&view];
                 let lines = book.flow_lines_by(view, idx, y, height, &by);
@@ -2757,6 +2806,7 @@ pub(crate) mod tests {
             height: 10_000,
             flow,
             badges: 3,
+            measures: None,
         };
         let Reply::Lines {
             lines,

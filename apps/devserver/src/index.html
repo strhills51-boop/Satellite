@@ -152,15 +152,17 @@ section h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .d1 .card { padding-left: 22px; }
 /* keyboard focus: two opposite corners (monolith) */
 /* bricks: the monolith's mod container (ADR 0020 §6) — transparent, thin contour, one line */
-#list.bricks .row:not(.sep) { background: transparent; border-color: var(--line); overflow: visible; border-radius: 7px; }
+#list.bricks .row:not(.sep) { background: transparent; border-color: var(--line); overflow: visible; border-radius: 0; }
 #list.bricks .row.sel:not(.sep) { background: color-mix(in srgb, var(--primary) 20%, transparent); }
 #list.bricks .row.sep { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 #list.bricks .row:not(.sep) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; padding: 0 5px 0 5px; column-gap: 6px; }
-#list.bricks .row > .lead { align-self: start; display: flex; align-items: center; gap: 4px; padding-top: 6px; min-width: 0; }
+#list.bricks .row > .lead { align-self: center; display: flex; align-items: center; gap: 4px; min-width: 0; }
+#list.bricks .row.tall > .lead { align-self: start; padding-top: 6px; }
 #list.bricks .row > .lead .toggle { margin: 0; width: 10px; height: 10px; flex: none; }
-#list.bricks .row > .lead .strip { margin-top: -1px; }
 #list.bricks .row:not(.sep) > .name { align-self: center; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: clip; padding: 0; grid-column: auto; }
-#list.bricks .row > .cnt { align-self: end; display: flex; gap: 6px; font: 10px var(--mono); color: var(--muted); padding-bottom: 2px; white-space: nowrap; }
+#list.bricks .row > .cnt { align-self: center; display: flex; gap: 6px; font: 10px var(--mono); color: var(--muted); white-space: nowrap; }
+#list.bricks .row.tall > .cnt { align-self: end; padding-bottom: 3px; }
+#list.bricks .row > * { line-height: 1; }
 #list.bricks .row > .cnt .w { color: var(--w-txt); } #list.bricks .row > .cnt .l { color: var(--l-txt); } #list.bricks .row > .cnt .m { color: var(--m-txt); }
 #list.bricks .row > .cnt .x { color: var(--x-txt); font-weight: 600; }
 #list.bricks .row .ctx { height: 14px; } #list.bricks .row .ico { width: 12px; height: 12px; flex-basis: 12px; font-size: 8px; }
@@ -554,10 +556,42 @@ function vtop() { return list.scrollTop * scale(); }
 function flowWidth() { return Math.max(200, list.clientWidth - 12); }
 // bricks (ADR 0020 §6, the owner's default): one-line containers as wide as their names, several in a line, read left
 // to right, lines top to bottom; the core places them (`@sat:order.flow.natural`)
-const BRICK = 28, BRICK_GAP = 9, BRICK_HEAD = 32;
+// no gaps, square corners; the spare room before a separator is vertical: one empty line per block (`reserve`)
+const BRICK = 26, BRICK_HEAD = 26; // a header is one line too: the spare room stays exactly one line
+let brickM = null;
+/** The window measures what the core cannot: the name font's glyphs (printable ASCII, tenths of a pixel), the
+ *  container's own chrome, the badges and the counters — so the core's widths match what is drawn. */
+function brickMeasures() {
+  if (brickM) return brickM;
+  const probe = document.createElement("div");
+  probe.className = "row mod on"; probe.style.cssText = "position:absolute;visibility:hidden;left:-9999px;top:0;width:auto;height:26px";
+  probe.innerHTML = `<span class="lead"><span class="toggle"></span></span><span class="name">x</span><span class="cnt"><span>0000000000</span><span>0</span></span>` +
+    `<span class="strip"><span class="ctx" style="--h:0"><b></b></span><span class="ctx" style="--h:0"><b></b><span class="ico">a</span></span><span class="ctx" style="--h:0"><b></b><i>+9</i></span></span>`;
+  list.appendChild(probe);
+  const w = el => el.getBoundingClientRect().width;
+  const name = probe.querySelector(".name"), cnt = probe.querySelector(".cnt").children, ctx = probe.querySelectorAll(".ctx");
+  const cv = document.createElement("canvas").getContext("2d");
+  cv.font = getComputedStyle(name).font;
+  const glyphs = [];
+  for (let c = 32; c < 127; c++) glyphs.push(Math.round(cv.measureText(String.fromCharCode(c)).width * 10));
+  const cs = getComputedStyle(probe);
+  const px = v => parseFloat(v) || 0;
+  // padding, borders, the two column gaps, the toggle
+  const chrome = Math.ceil(px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth) + 2 * px(cs.columnGap) + w(probe.querySelector(".toggle"))) + 2;
+  const gap = px(getComputedStyle(probe.querySelector(".lead")).columnGap);
+  brickM = {
+    natural: { glyph10: Math.round(cv.measureText("ж").width * 10), glyphs, chrome, min: 50 },
+    measures: {
+      digit10: Math.ceil(w(cnt[0])) /* ten digits wide = one digit in tenths */, counter_gap10: Math.ceil(px(getComputedStyle(probe.querySelector(".cnt")).columnGap) * 10),
+      context10: Math.ceil((w(ctx[0]) + gap) * 10), chain10: Math.ceil((w(ctx[1]) - w(ctx[0])) * 10), more10: Math.ceil((w(ctx[2]) - w(ctx[0])) * 10),
+    },
+  };
+  probe.remove();
+  return brickM;
+}
 function flow() {
   const w = flowWidth();
-  if (cols < 0) return { width: w, card_width: w, card_height: BRICK, header_height: BRICK_HEAD, gap: BRICK_GAP, natural: { glyph10: 80, chrome: 40, min: 50 } };
+  if (cols < 0) return { width: w, card_width: w, card_height: BRICK, header_height: BRICK_HEAD, gap: 0, reserve: BRICK, natural: brickMeasures().natural };
   return { width: w, card_width: cols || w, card_height: ROW, header_height: ROW + GAP, gap: GAP };
 }
 /** Position only: scrolling moves cards without rewriting them. */
@@ -570,7 +604,7 @@ function cardEl(key) {
 
 /** Writes a row element only when what it shows changed. */
 function paint(el, r) {
-  const sig = r ? JSON.stringify(r) : "";
+  const sig = r ? JSON.stringify(r) + (el._tall ? "T" : "") : "";
   if (el._sig === sig) return;
   el._sig = sig; el._row = r;
   if (!r) { el.hidden = true; return; }
@@ -587,6 +621,7 @@ function paint(el, r) {
     return;
   }
   cls.push(r.kind, `d${Math.min(r.depth, 1)}`, r.enabled ? "on" : "off");
+  if (el._tall) cls.push("tall");
   el.className = cls.join(" ");
   const c = r.counters;
   const counters = c ? [
@@ -603,7 +638,8 @@ function paint(el, r) {
     // growing left over the name; stickers above the top-left corner, one contour per sticker around the container
     const stk = [...((r.marks && r.marks.stickers) || []), ...(r.rule_stickers || [])];
     if (stk.length) {
-      const rings = stk.map((n, i) => `0 0 0 ${2 * (i + 1)}px hsl(${hue(n)} 62% 58% / ${i ? .55 : .8})`);
+      // inside the contour: no gaps between bricks to spill into
+      const rings = stk.map((n, i) => `inset 0 0 0 ${2 * (i + 1)}px hsl(${hue(n)} 62% 58% / ${i ? .6 : .85})`);
       el.style.boxShadow = [el.style.boxShadow, ...rings].filter(Boolean).join(",");
     }
     el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm +
@@ -680,7 +716,7 @@ async function sync(follow) {
   try {
     // overscan: a screen and a half above and two below, so scrolling moves cards already here (no wait)
     const h = list.clientHeight, vt0 = vtop(), y0 = Math.max(0, Math.floor(vt0 - h * 1.5));
-    const rep = await query({ type: "lines", view: VIEW, y: y0, height: Math.ceil(h * 4.5), flow: flow(), badges: density });
+    const rep = await query({ type: "lines", view: VIEW, y: y0, height: Math.ceil(h * 4.5), flow: flow(), badges: density, measures: cols < 0 ? brickMeasures().measures : null });
     fetched = { y0, y1: y0 + Math.ceil(h * 4.5) };
     len = rep.len; total = rep.total_height;
     spacer.style.height = Math.min(total, MAXPX) + "px";
@@ -699,7 +735,9 @@ async function sync(follow) {
       seen.add(r.key);
       r.index = c.index;
       el._lx = c.x; el._ly = l.y + (c.dy || 0);
-      const pos = [`translate(${c.x}px,${Math.round(el._ly - vt)}px)`, c.width + "px", (l.header ? (cols < 0 ? BRICK_HEAD - 4 : ROW) : c.height) + "px"];
+      const b1 = cols < 0 && !l.header ? 1 : 0; // bricks: neighbours share one contour line
+      const pos = [`translate(${c.x}px,${Math.round(el._ly - vt)}px)`, (c.width + b1) + "px", (l.header ? (cols < 0 ? BRICK_HEAD - 4 : ROW) : c.height + b1) + "px"];
+      el._tall = cols < 0 && !l.header && c.height > BRICK;
       if (!el._pos || el._pos.join() !== pos.join()) { el._pos = pos; place(el); }
       paint(el, r);
       if (r.focused) focused = r;
@@ -2367,6 +2405,8 @@ const repaint = () => { cards.forEach(el => { el._sig = null; }); sync(false); }
 $("cols").value = String(cols);
 $("cols").onchange = ev => { cols = +ev.target.value; try { localStorage.setItem("sat-cols2", cols); } catch (_) {} list.classList.toggle("bricks", cols < 0); cards.forEach(el => { el._sig = null; }); sync(true); };
 list.classList.toggle("bricks", cols < 0);
+// fonts arrive late: measure again with the real ones
+if (document.fonts) document.fonts.ready.then(() => { if (brickM) { brickM = null; if (cols < 0) sync(false); } });
 $("badgeModel").onchange = ev => { badgeModel = ev.target.value; try { localStorage.setItem("sat-badges", badgeModel); } catch (_) {} repaint(); };
 $("density").onchange = ev => { density = +ev.target.value; try { localStorage.setItem("sat-density", density); } catch (_) {} repaint(); };
 $("theme").onclick = () => {
