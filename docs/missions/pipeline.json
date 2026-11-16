@@ -1,32 +1,19 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e4b60bf0:abe6c17b",
- "revision": 20,
+ "revision": 21,
  "status": "active",
  "createdAt": "2026-11-16T14:14:58Z",
- "updatedAt": "2026-11-16T15:18:29Z",
+ "updatedAt": "2026-11-16T15:30:52Z",
  "mission": {
   "direction": "Полная связка «синхронизация → обработка → фиксация» (бывш. «скан → конфликты → синк») — самая большая и сложная часть Satellite. Оформить правильно: пробег анализов и синхронизация — из окна, а не через CLI/PowerShell; обработка — решения над проекциями с сохранением в проект; фиксация — план изменений с предпросмотром → запись в менеджер и на диск одним поколением → проверка → откат при ошибке. Стратегическими шагами (владелец, 2026-11-16; PHILOSOPHY «Техпроцесс», «Спутник: только представления и фиксации»).",
   "reminder": "Каждая фаза владеет своей истиной (ADR 0010): ни один шаг не делает работу другого. Devserver — песочница, ничего не пишет; запись только фиксацией. Семантический слой: @sat: якоря, //! Owns:, MAP.md, tools/check-map.sh; править источники, без слоёв переопределения; сверяться с MAP до новых понятий; монолит — по анализу docs/semantic/monolith, не выдумывать. Галочки дорожной карты — в том же коммите. ADR — владельцу на просмотр до кода. Проверки владельцу — пачкой. Моды не коммитить, на машине владельца ничего не менять без просьбы."
  },
  "route": {
-  "activeDistanceId": "D8-reimport",
-  "activity": "CHANGE",
-  "deepeningStack": [
-   {
-    "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
-    "childDistanceId": "D8-reimport",
-    "returnPoint": {
-     "tacticalFocus": "Код и тест готовы: коммит, CI, печать; затем итог миссии: отчёт владельцу, проверки на его сборке пачкой (WAIT_OPERATOR или BLOCKING-вопрос).",
-     "posture": "ARCHITECT"
-    },
-    "openedAt": "2026-11-16T15:18:29Z"
-   }
-  ],
-  "returnPoint": {
-   "tacticalFocus": "Код и тест готовы: коммит, CI, печать; затем итог миссии: отчёт владельцу, проверки на его сборке пачкой (WAIT_OPERATOR или BLOCKING-вопрос).",
-   "posture": "ARCHITECT"
-  },
+  "activeDistanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+  "activity": "CLOSURE",
+  "deepeningStack": [],
+  "returnPoint": null,
   "tacticalFocus": "Код и тест готовы: коммит, CI, печать; затем итог миссии: отчёт владельцу, проверки на его сборке пачкой (WAIT_OPERATOR или BLOCKING-вопрос).",
   "scheduler": {
    "events": [
@@ -161,11 +148,11 @@
    "parentId": null,
    "objective": "Reconcile the still-open Mission after local Distance completion. Use durable Mission authority, accepted evidence, scheduler blockers and Strategic Frontier to activate, resume or create the next highest-leverage executable Distance. Do not redo sealed work and do not treat advisory focus as work authority.",
    "closureContract": "Leave this continuity Distance only by establishing successor executable Distance authority, sealing the Mission, or entering an explicit genuine external-prerequisite wait. It may not be sealed into an open Mission with no successor.",
-   "status": "suspended",
+   "status": "active",
    "reason": "SYSTEM_OPEN_MISSION_CONTINUITY",
    "summary": "",
    "createdAt": "2026-11-16T14:17:55Z",
-   "updatedAt": "2026-11-16T15:18:29Z",
+   "updatedAt": "2026-11-16T15:30:52Z",
    "sealedAt": null,
    "suspendedAt": "2026-11-16T15:18:29Z",
    "readyAt": "2026-11-16T14:17:55Z",
@@ -424,12 +411,12 @@
    "parentId": "mission-continuity:1a1e4b8bf0a:1f769663",
    "objective": "sat-cli analyze --reimport берёт из modlist.txt только канон и сохраняет всё остальное проекта (фабрики, патчи, идентичности и раскладку цепочек, закрепления, списки плагинов последнего пробега).",
    "closureContract": "Тест sat-home reimport_takes_the_canon_and_keeps_the_rest; CI.",
-   "status": "active",
+   "status": "sealed",
    "reason": "",
-   "summary": "",
+   "summary": "D8 «Переимпорт» запечатан.",
    "createdAt": "2026-11-16T15:18:29Z",
-   "updatedAt": "2026-11-16T15:18:29Z",
-   "sealedAt": null,
+   "updatedAt": "2026-11-16T15:30:52Z",
+   "sealedAt": "2026-11-16T15:30:52Z",
    "suspendedAt": null,
    "readyAt": null,
    "resumableAt": null,
@@ -440,7 +427,23 @@
    "resumeContract": "",
    "waitingOn": null,
    "schedulerReturn": null,
-   "evidence": null
+   "evidence": {
+    "items": [
+     {
+      "commit": "0c8826d"
+     },
+     {
+      "commit": "c6cc377"
+     },
+     {
+      "ci": "GitHub Actions run 43896059773 success (после падения fmt в 43894929418)"
+     },
+     {
+      "test": "sat-home reimport_takes_the_canon_and_keeps_the_rest"
+     }
+    ],
+    "at": "2026-11-16T15:30:52Z"
+   }
   }
  },
  "notes": [
@@ -785,6 +788,17 @@
    "artifacts": [],
    "distanceId": "D8-reimport",
    "summary": "Обещание D2: переимпорт терял разделы проекта — исправить отдельной Distance."
+  },
+  {
+   "id": "worklog:1a1e4fb88ef:93232683",
+   "revision": 21,
+   "at": "2026-11-16T15:30:52Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "mission-continuity:1a1e4b8bf0a:1f769663",
+   "summary": "D8 «Переимпорт» запечатан."
   }
  ],
  "humanRequests": {
@@ -937,13 +951,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": "2026-11-16T14:15:20Z"
  },
- "acceptanceSequence": 20,
+ "acceptanceSequence": 21,
  "lastControl": {
-  "at": "2026-11-16T15:18:29Z",
-  "revision": 20,
+  "at": "2026-11-16T15:30:52Z",
+  "revision": 21,
   "semanticChanged": true,
-  "acceptanceSequence": 20,
-  "modelSummary": "Обещание D2: переимпорт терял разделы проекта — исправить отдельной Distance."
+  "acceptanceSequence": 21,
+  "modelSummary": "D8 «Переимпорт» запечатан."
  },
  "hold": null,
  "completedAt": null
