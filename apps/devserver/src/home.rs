@@ -557,6 +557,11 @@ fn commit_gates(
             r.error = Some(error);
         }
     }
+    r.processed = done
+        .processed
+        .iter()
+        .map(|d| (d.id.clone(), d.files, d.promoted, d.error.clone()))
+        .collect();
     r.error = r
         .error
         .or_else(|| (!done.notes.is_empty()).then(|| done.notes.join("; ")));

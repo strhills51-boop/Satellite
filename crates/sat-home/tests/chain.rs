@@ -295,3 +295,92 @@ fn reimport_takes_the_canon_and_keeps_the_rest() {
     assert_eq!(o.project.patches.len(), 1);
     assert!(o.project.plugins_seen.is_some());
 }
+
+#[test]
+fn a_dirty_processor_runs_after_the_commit_and_its_output_is_collected() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    file(&base.join("mods/Anims/pandora_engine/patch.txt"), "p");
+    file(&base.join("mods/Armor/textures/a.dds"), "a");
+    file(&base.join("profiles/Default/modlist.txt"), "+Armor\n+Anims\n");
+    fs::create_dir_all(base.join("overwrite")).unwrap();
+    file(&base.join("tools/Pandora Behaviour Engine+.exe"), "exe");
+    let tool = base
+        .join("tools/Pandora Behaviour Engine+.exe")
+        .display()
+        .to_string()
+        .replace('\\', "/");
+    file(
+        &base.join("ModOrganizer.ini"),
+        &format!("[customExecutables]\nsize=1\n1\\title=Pandora\n1\\binary={tool}\n"),
+    );
+    let mut inst = Instance::from_dirs(
+        base.join("mods"),
+        base.join("profiles"),
+        base.join("overwrite"),
+        None,
+    );
+    inst.ini_path = base.join("ModOrganizer.ini");
+    assert!(run_once(&inst, true).1);
+
+    // the tool is found in MO2's list; its processor is taken into the project and turned on
+    let layout = Layout::of(&inst);
+    let (mut stll, mut p) = project::require(&layout.project_file).unwrap();
+    let tools: Vec<(String, String)> = sat_mo2::executables::read(&inst.ini_path)
+        .iter()
+        .map(|t| (t.title.clone(), t.file_name()))
+        .collect();
+    p.processors = sat_core::processor::detect(&tools, &[]);
+    assert_eq!(p.processors.len(), 1);
+    p.processors[0].enabled = true;
+    project::save(&mut stll, &p).unwrap();
+    drop(stll);
+
+    let (stll, p) = project::require(&layout.project_file).unwrap();
+    let full = plan::full(&inst, &layout, &p, &[]);
+    assert_eq!(full.processors.len(), 1, "never built: dirty");
+    assert!(
+        full.plan
+            .canon_after
+            .entries
+            .iter()
+            .any(|e| e.name == "Pandora Output"),
+        "the output is listed"
+    );
+    let done = sat_home::commit::run(&layout, stll, &p, &full, "t1").unwrap();
+    assert_eq!(done.report.outcome, Outcome::Committed);
+    assert!(done.processed.is_empty(), "no ModOrganizer.exe here: nothing ran");
+    assert!(
+        base.join("mods/Pandora Output").is_dir(),
+        "its folder is made for MO2 to list"
+    );
+
+    // the run itself, with a stand-in for MO2 and the tool: it writes to Overwrite
+    let ow = base.join("overwrite");
+    let fake = move |_: &sat_mo2::processors::Run| {
+        file(
+            &ow.join("meshes/actors/character/behaviors/0_master.hkx"),
+            "built",
+        );
+        Ok(())
+    };
+    let place = sat_mo2::processors::Place {
+        mods_dir: base.join("mods"),
+        overwrite_dir: base.join("overwrite"),
+        deleted_dir: base.join("deleted/t1"),
+    };
+    let mut notes = Vec::new();
+    let done = sat_home::commit::run_processors(&layout, &full, &place, &fake, &mut notes);
+    assert!(done[0].promoted, "{notes:?}");
+    assert!(
+        base.join("mods/Pandora Output/meshes/actors/character/behaviors/0_master.hkx")
+            .exists()
+    );
+    // recorded: the next plan finds it clean
+    let (_, p) = project::require(&layout.project_file).unwrap();
+    assert!(p.processors[0].built.is_some());
+    assert!(
+        plan::full(&inst, &layout, &p, &[]).processors.is_empty(),
+        "clean after the run"
+    );
+}

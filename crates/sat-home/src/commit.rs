@@ -18,6 +18,8 @@ pub struct Committed {
     pub report: Report,
     /// Problems after a successful commit that do not undo it (the version's project kept its facts…).
     pub notes: Vec<String>,
+    /// The processors run after the commit (`@sat:home.commit.processors`).
+    pub processed: Vec<sat_mo2::processors::Done>,
 }
 
 // @sat:home.commit.run
@@ -64,7 +66,83 @@ pub fn run(
             notes.push(format!("{}: facts not stripped: {e}", before.display()));
         }
     }
-    Ok(Committed { report, notes })
+    let processed = if report.outcome == Outcome::Committed && !f.processors.is_empty() {
+        processors(layout, f, stamp, &mut notes)
+    } else {
+        Vec::new()
+    };
+    Ok(Committed {
+        report,
+        notes,
+        processed,
+    })
+}
+
+// @sat:home.commit.processors
+/// The second phase of a commit (ADR 0021): with the profile written, each dirty processor's tool runs through MO2
+/// and its output is collected; a promoted run's fingerprint goes into the project file. MO2 open or not found —
+/// nothing runs (said in the notes), the processors stay dirty for the next commit.
+fn processors(
+    layout: &Layout,
+    f: &FullPlan,
+    stamp: &str,
+    notes: &mut Vec<String>,
+) -> Vec<sat_mo2::processors::Done> {
+    let Some((exe, profile)) = f.mo2.clone() else {
+        notes.push("processors: ModOrganizer.exe of this build not found — none ran".into());
+        return Vec::new();
+    };
+    if sat_mo2::processors::mo2_running() {
+        notes.push("processors: MO2 is open — close it and commit again to run them".into());
+        return Vec::new();
+    }
+    let place = sat_mo2::processors::Place {
+        mods_dir: layout.mods_dir.clone(),
+        overwrite_dir: f.overwrite_dir.clone(),
+        deleted_dir: layout.deleted_dir.join(stamp),
+    };
+    let launch = sat_mo2::processors::launcher(exe, profile);
+    run_processors(layout, f, &place, &launch, notes)
+}
+
+/// Runs the plan's processors with `launch` and records the promoted ones in the project file.
+pub fn run_processors(
+    layout: &Layout,
+    f: &FullPlan,
+    place: &sat_mo2::processors::Place,
+    launch: &dyn Fn(&sat_mo2::processors::Run) -> Result<(), String>,
+    notes: &mut Vec<String>,
+) -> Vec<sat_mo2::processors::Done> {
+    let done: Vec<_> = f
+        .processors
+        .iter()
+        .map(|(_, r)| sat_mo2::processors::run(place, r, launch))
+        .collect();
+    for d in &done {
+        if let Some(e) = &d.error {
+            notes.push(format!("processor {}: {e}", d.id));
+        }
+    }
+    if done.iter().any(|d| d.promoted) {
+        let saved = crate::project::open(&layout.project_file).and_then(|o| {
+            let (mut stll, mut p) = o.ok_or("the project file is gone")?;
+            for (d, (_, r)) in done.iter().zip(&f.processors) {
+                if let Some(x) = p
+                    .processors
+                    .iter_mut()
+                    .find(|x| x.id == r.id)
+                    .filter(|_| d.promoted)
+                {
+                    x.built = Some(r.fingerprint.clone());
+                }
+            }
+            crate::project::save(&mut stll, &p)
+        });
+        if let Err(e) = saved {
+            notes.push(format!("processors ran, but the project did not record it: {e}"));
+        }
+    }
+    done
 }
 
 // @sat:home.commit.fresh

@@ -184,6 +184,12 @@ pub fn commit(args: &[String]) -> Result<(), String> {
             }
         );
     }
+    for (_, r) in &full.processors {
+        println!(
+            "  after the commit: run {} through MO2 (\"{}\"), collect its Overwrite output into {}",
+            r.id, r.executable, r.output
+        );
+    }
     println!(
         "  modlist.txt: written from the project canon ({} entries); {} record(s) settled, {} ignored",
         p.canon_after.entries.len(),
@@ -207,6 +213,17 @@ pub fn commit(args: &[String]) -> Result<(), String> {
     println!("version: {}", report.version_dir.display());
     for n in &done.notes {
         eprintln!("{n}");
+    }
+    for d in &done.processed {
+        println!(
+            "processor {}: {}",
+            d.id,
+            if d.promoted {
+                format!("{} file(s) collected into its output", d.files)
+            } else {
+                d.error.clone().unwrap_or_else(|| "not promoted".into())
+            }
+        );
     }
     match report.outcome {
         Outcome::Committed => {

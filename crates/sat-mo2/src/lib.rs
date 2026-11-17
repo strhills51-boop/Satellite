@@ -19,6 +19,7 @@ pub mod install;
 pub mod instance;
 pub mod meta;
 pub mod patches;
+pub mod processors;
 pub mod profile;
 
 pub use instance::Instance;

@@ -38,6 +38,9 @@ pub struct CommitResult {
     /// The version folder (backups, intent, journal) and the steps done.
     pub version_dir: Option<String>,
     pub steps: usize,
+    /// Processors run after the commit: (id, files collected, promoted, why not).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub processed: Vec<(String, usize, bool, Option<String>)>,
     /// After a commit: mismatches the next run found (expected none).
     pub records_after: Option<usize>,
 }

@@ -27,6 +27,11 @@ pub struct FullPlan {
     pub sealed: Vec<usize>,
     /// The patches output: `Some(Some(fp))` written, `Some(None)` taken away, `None` untouched.
     pub patched: Option<Option<String>>,
+    /// Dirty processors to run after the commit wrote the profile, in order: (index in the project, the run).
+    pub processors: Vec<(usize, sat_mo2::processors::Run)>,
+    /// MO2 of this build and its profile, to launch the processors' tools through (`None` — not found).
+    pub mo2: Option<(std::path::PathBuf, String)>,
+    pub overwrite_dir: std::path::PathBuf,
     /// What the shell should say about the plan (skipped factories, plugin lists changed on both sides).
     pub notes: Vec<String>,
 }
@@ -43,6 +48,7 @@ pub fn full(inst: &Instance, layout: &Layout, project: &Project, confirmed: &[&s
     let mut notes = Vec::new();
     let (built, sealed) = factories(project, &disk, &mut plan, confirmed, &mut notes);
     let patched = patches(project, layout, &disk, &mut plan);
+    let processors = processors(inst, project, &disk, &mut plan, &mut notes);
     let plugins = plugin_files(layout, project, &plan, &mut notes);
     FullPlan {
         plan,
@@ -50,6 +56,9 @@ pub fn full(inst: &Instance, layout: &Layout, project: &Project, confirmed: &[&s
         built,
         sealed,
         patched,
+        processors,
+        mo2: sat_mo2::executables::mo2_exe(&inst.ini_path, &inst.base_dir).map(|e| (e, inst.profile.clone())),
+        overwrite_dir: inst.overwrite_dir.clone(),
         notes,
     }
 }
@@ -86,6 +95,142 @@ pub fn project_after(project: &Project, f: &FullPlan) -> Project {
         after.patches_built = fp.clone();
     }
     after
+}
+
+// @sat:home.plan.processors
+/// Dirty processors (`@sat:processor`), in their order: inputs are the enabled mods of the canon after the commit
+/// that hold one of the selector's folders (or plugins at their root), with their content signatures; the tool is
+/// found in MO2's list by its title. A dirty processor's output mod is put at the end of the canon (and its folder
+/// made) when absent, so MO2 lists it; the tool runs after the commit wrote the profile (`@sat:home.commit.run`).
+pub(crate) fn processors(
+    inst: &Instance,
+    project: &Project,
+    disk: &[String],
+    p: &mut Plan,
+    notes: &mut Vec<String>,
+) -> Vec<(usize, sat_mo2::processors::Run)> {
+    use sat_core::canon::{Entry, EntryKind};
+    use sat_core::processor::{dirty, fingerprint, order};
+    if !project.processors.iter().any(|x| x.enabled) {
+        return Vec::new();
+    }
+    let ord = match order(&project.processors) {
+        Ok(o) => o,
+        Err(cycle) => {
+            notes.push(format!(
+                "processors wait on each other ({}): none runs",
+                cycle.join(" → ")
+            ));
+            return Vec::new();
+        }
+    };
+    let tools = sat_mo2::executables::read(&inst.ini_path);
+    let on_disk = |n: &str| disk.iter().any(|d| d.eq_ignore_ascii_case(n));
+    let outputs: Vec<String> = project
+        .processors
+        .iter()
+        .map(|x| x.output.to_lowercase())
+        .collect();
+    let mut out = Vec::new();
+    for i in ord {
+        let proc = &project.processors[i];
+        if !proc.enabled {
+            continue;
+        }
+        let Some(tool) = tools
+            .iter()
+            .find(|t| t.title.eq_ignore_ascii_case(&proc.executable))
+        else {
+            notes.push(format!(
+                "processor {}: no tool «{}» in MO2",
+                proc.title, proc.executable
+            ));
+            continue;
+        };
+        let stamp = std::fs::metadata(&tool.binary).ok().map(|m| {
+            let t = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_secs());
+            (m.len(), t)
+        });
+        // its own output and the other processors' outputs it does not depend on are no inputs
+        let inputs: Vec<(String, Option<u64>)> = p
+            .canon_after
+            .entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::Mod && e.enabled)
+            .filter(|e| {
+                let n = e.name.to_lowercase();
+                !outputs.contains(&n)
+                    || proc.after.iter().any(|a| {
+                        project
+                            .processors
+                            .iter()
+                            .any(|x| &x.id == a && x.output.eq_ignore_ascii_case(&e.name))
+                    })
+            })
+            .filter(|e| {
+                let dir = inst.mods_dir.join(&e.name);
+                let plugins = proc.inputs.plugins
+                    && std::fs::read_dir(&dir).is_ok_and(|rd| {
+                        rd.flatten().any(|f| {
+                            let n = f.file_name().to_string_lossy().to_lowercase();
+                            n.ends_with(".esp") || n.ends_with(".esm") || n.ends_with(".esl")
+                        })
+                    });
+                proc.inputs.selects(|f| dir.join(f).is_dir(), plugins)
+            })
+            .map(|e| {
+                let sig = project
+                    .entities
+                    .id_of(&e.name)
+                    .and_then(|id| project.signatures.get(&id.0))
+                    .copied();
+                (e.name.clone(), sig)
+            })
+            .collect();
+        let fp = fingerprint(proc, &inputs, stamp);
+        if dirty(proc, &fp, on_disk(&proc.output)).is_none() {
+            continue;
+        }
+        if !p
+            .canon_after
+            .entries
+            .iter()
+            .any(|e| e.name.eq_ignore_ascii_case(&proc.output))
+        {
+            let mut entries = p.canon_after.entries.clone();
+            entries.push(Entry {
+                name: proc.output.clone(),
+                kind: EntryKind::Mod,
+                enabled: true,
+            });
+            p.canon_after = sat_core::canon::Modlist::new(entries);
+        }
+        if !on_disk(&proc.output)
+            && !p
+                .disk_ops
+                .iter()
+                .any(|o| matches!(o, DiskOp::Create { name, .. } if name.eq_ignore_ascii_case(&proc.output)))
+        {
+            p.disk_ops.push(DiskOp::Create {
+                name: proc.output.clone(),
+                kind: sat_core::sync::records::EntityKind::Mod,
+            });
+        }
+        out.push((
+            i,
+            sat_mo2::processors::Run {
+                id: proc.id.clone(),
+                executable: tool.title.clone(),
+                output: proc.output.clone(),
+                fingerprint: fp,
+            },
+        ));
+    }
+    out
 }
 
 // @sat:home.plan.plugins
