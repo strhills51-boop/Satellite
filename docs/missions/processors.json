@@ -1,33 +1,33 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e503fdbc:a56dcdc8",
- "revision": 4,
+ "revision": 6,
  "status": "active",
  "createdAt": "2026-11-16T15:40:06Z",
- "updatedAt": "2026-11-17T02:26:07Z",
+ "updatedAt": "2026-11-17T02:37:03Z",
  "mission": {
   "direction": "Процессоры — генераторы при фиксации (PHILOSOPHY «Файлы»: генераторы при фиксации; «Эволюция»: процессор запускает инструмент и выпускает сгенерированный мод, слой истины — канон через план; Фаза 3.5): Pandora/Nemesis, BodySlide, DynDOLOD/xLODGen как шаги плана фиксации поверх готовой связки ADR 0019 — по контракту монолита deployment-processor-descriptor.v1: селекторы входов, отпечаток входов, конфигурации и версии инструмента, исполнитель, проверка, промоушен с бэкапом и откатом, каскадная инвалидация, намерения dirty → planned → running → superseded/promoted. Отдельная миссия по решению владельца 2026-11-16.",
   "reminder": "ADR 0010: каждая фаза владеет своей истиной; процессор меняет сборку только через план фиксации. Монолит — по анализу docs/semantic/monolith (pass S01–S23), не выдумывать. Семантический слой: @sat:, //! Owns:, MAP.md, check-map; править источники. Галочки — в том же коммите. ADR — владельцу до кода. Проверки — пачкой. Песочница по умолчанию, запись — --write. Углубляться при столкновении с непредвиденным поведением объекта семантики (ошибка, проблема, конфликт), а не по заранее выдуманному плану."
  },
  "route": {
-  "activeDistanceId": "P1-audit-adr",
-  "activity": "RECON",
+  "activeDistanceId": "P4-window-block",
+  "activity": "CHANGE",
   "deepeningStack": [
    {
     "distanceId": "distance:1a1e503fdbc:f2ab6cc9",
-    "childDistanceId": "P1-audit-adr",
+    "childDistanceId": "P4-window-block",
     "returnPoint": {
-     "tacticalFocus": "Разведка: pass S01–S23 по deployment-processor; @sat:factory и @sat:mo2.bake в NG.",
+     "tacticalFocus": "Query::Processors / Command::SetProcessors в sat-app; инструменты MO2 — devserver читает ModOrganizer.ini.",
      "posture": "EXPLORE"
     },
-    "openedAt": "2026-11-16T15:40:06Z"
+    "openedAt": "2026-11-17T02:37:03Z"
    }
   ],
   "returnPoint": {
-   "tacticalFocus": "Разведка: pass S01–S23 по deployment-processor; @sat:factory и @sat:mo2.bake в NG.",
+   "tacticalFocus": "Query::Processors / Command::SetProcessors в sat-app; инструменты MO2 — devserver читает ModOrganizer.ini.",
    "posture": "EXPLORE"
   },
-  "tacticalFocus": "Разведка: pass S01–S23 по deployment-processor; @sat:factory и @sat:mo2.bake в NG.",
+  "tacticalFocus": "Query::Processors / Command::SetProcessors в sat-app; инструменты MO2 — devserver читает ModOrganizer.ini.",
   "scheduler": {
    "events": []
   }
@@ -42,9 +42,9 @@
    "reason": "",
    "summary": "",
    "createdAt": "2026-11-16T15:40:06Z",
-   "updatedAt": "2026-11-16T15:40:06Z",
+   "updatedAt": "2026-11-17T02:37:03Z",
    "sealedAt": null,
-   "suspendedAt": "2026-11-16T15:40:06Z",
+   "suspendedAt": "2026-11-17T02:37:03Z",
    "readyAt": null,
    "resumableAt": null,
    "resumedAt": null,
@@ -61,11 +61,47 @@
    "parentId": "distance:1a1e503fdbc:f2ab6cc9",
    "objective": "Аудит: контракт процессоров монолита (deployment-processor-descriptor.v1 и его жизненный цикл по pass S01–S23), что из него уже есть в NG (@sat:factory, @sat:mo2.bake, @sat:home.plan.*, @sat:jobs), что нужно от машины (пути инструментов, версии); ADR процессоров.",
    "closureContract": "Аудит и ADR в docs/adr закоммичены, check-map проходит; факты от владельца об инструментах получены (Human Inbox); владелец просмотрел ADR.",
+   "status": "sealed",
+   "reason": "",
+   "summary": "Аудит и ADR 0021 приняты (владелец: «как пожелаешь»); шаги 1–3 ADR сделаны: инструменты MO2, определение/отпечаток/порядок, запуск после фиксации через moshortcut и сбор Overwrite в мод-выход.",
+   "createdAt": "2026-11-16T15:40:06Z",
+   "updatedAt": "2026-11-17T02:36:58Z",
+   "sealedAt": "2026-11-17T02:36:58Z",
+   "suspendedAt": null,
+   "readyAt": null,
+   "resumableAt": null,
+   "resumedAt": null,
+   "resumePriority": "NORMAL",
+   "dependencyBlocking": false,
+   "strategicFrontId": null,
+   "resumeContract": "",
+   "waitingOn": null,
+   "schedulerReturn": null,
+   "evidence": {
+    "items": [
+     {
+      "commit": "7323176"
+     },
+     {
+      "test": "a_dirty_processor_runs_after_the_commit_and_its_output_is_collected"
+     },
+     {
+      "owner": "2026-11-17 03:25 «Справедливо, как пожелаешь»"
+     }
+    ],
+    "at": "2026-11-17T02:36:58Z"
+   }
+  },
+  "P4-window-block": {
+   "id": "P4-window-block",
+   "parentId": "distance:1a1e503fdbc:f2ab6cc9",
+   "objective": "Блок «Процессоры» в окне и в приложении: список процессоров проекта с состоянием (чистый / грязный и причина / нет инструмента / нет выхода), обнаружение по инструментам MO2 (пресеты), включить, настроить (инструмент, выход, кто раньше), сохранение в проект; запуск — только фиксацией.",
+   "closureContract": "Команды и запрос процессоров в sat-app с тестом; блок в окне проверен Playwright на синтетической сборке; коммит, CI зелёный.",
    "status": "active",
    "reason": "",
    "summary": "",
-   "createdAt": "2026-11-16T15:40:06Z",
-   "updatedAt": "2026-11-16T15:40:06Z",
+   "createdAt": "2026-11-17T02:37:03Z",
+   "updatedAt": "2026-11-17T02:37:03Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
@@ -135,6 +171,32 @@
    "artifacts": [],
    "distanceId": "P1-audit-adr",
    "summary": "Владелец снял паузу (2026-11-17 03:23): работать в своём направлении; ответ про выход генераторов получен."
+  },
+  {
+   "id": "worklog:1a1e75d5d15:1091d85b",
+   "revision": 5,
+   "at": "2026-11-17T02:36:58Z",
+   "action": "DISTANCE_SEALED",
+   "activity": "CLOSURE",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    "7323176",
+    "docs/adr/0021-processors.md",
+    "crates/sat-mo2/src/processors.rs"
+   ],
+   "distanceId": "distance:1a1e503fdbc:f2ab6cc9",
+   "summary": "Аудит и ADR 0021 приняты (владелец: «как пожелаешь»); шаги 1–3 ADR сделаны: инструменты MO2, определение/отпечаток/порядок, запуск после фиксации через moshortcut и сбор Overwrite в мод-выход."
+  },
+  {
+   "id": "worklog:1a1e75d71ab:3417dfe7",
+   "revision": 6,
+   "at": "2026-11-17T02:37:03Z",
+   "action": "DEEPEN",
+   "activity": "CHANGE",
+   "artifactEffect": "NONE",
+   "artifacts": [],
+   "distanceId": "P4-window-block",
+   "summary": "Шаг 4 ADR 0021: блок «Процессоры»."
   }
  ],
  "humanRequests": {
@@ -200,13 +262,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": null
  },
- "acceptanceSequence": 5,
+ "acceptanceSequence": 7,
  "lastControl": {
-  "at": "2026-11-17T02:26:07Z",
-  "revision": 4,
-  "semanticChanged": false,
-  "acceptanceSequence": 5,
-  "modelSummary": "Пауза снята: аудит контракта процессоров монолита и того, что есть в NG."
+  "at": "2026-11-17T02:37:03Z",
+  "revision": 6,
+  "semanticChanged": true,
+  "acceptanceSequence": 7,
+  "modelSummary": "Шаг 4 ADR 0021: блок «Процессоры»."
  },
  "hold": null,
  "completedAt": null
