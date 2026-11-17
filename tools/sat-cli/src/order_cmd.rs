@@ -46,7 +46,7 @@ fn after_block(book: &OrderBook, sep: Key) -> Option<Key> {
 
 // @sat:cli.order.run
 /// `sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]...
-/// [--remove-separator NAME]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--move MOD]... (--under SEPARATOR | --before
+/// [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--move MOD]... (--under SEPARATOR | --before
 /// ENTRY) [--into-group MOD --join MOD]... [--out-of-group MOD]... [--separators]`
 pub fn order(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
@@ -158,6 +158,22 @@ pub fn order(args: &[String]) -> Result<(), String> {
         book.regroup(g, &[], &[k]).map_err(|e| format!("{m}: {e}"))?;
         println!("{m} taken out of its group");
         changed = true;
+    }
+
+    for (flag, on) in [("--enable", true), ("--disable", false)] {
+        let keys = flag_values(args, flag)
+            .iter()
+            .map(|m| key(&book, m))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !keys.is_empty() {
+            book.set_enabled(&keys, Some(on)).map_err(|e| e.to_string())?;
+            println!(
+                "{} mod(s) {}",
+                keys.len(),
+                if on { "enabled" } else { "disabled" }
+            );
+            changed = true;
+        }
     }
 
     // notes and tags on mods: the window shows them on the card and in the mod's sheet
