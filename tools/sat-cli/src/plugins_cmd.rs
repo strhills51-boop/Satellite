@@ -62,7 +62,7 @@ fn list_of(stll: &mut sat_stll::Stll, project: &Project) -> PluginList {
 }
 
 /// `sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]...
-/// [--hide NAME]... [--show NAME]... [--cascade] [--list]`
+/// [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]`
 pub fn plugins(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
@@ -96,6 +96,23 @@ pub fn plugins(args: &[String]) -> Result<(), String> {
         for n in flag_values(args, flag) {
             changed |= project.plugins.set_blacklisted(n, on);
         }
+    }
+    // @sat:cli.plugins.drop-broken
+    // plugins that cannot load (a master missing or not active) are unchecked, and those that load only on them;
+    // nothing is turned on. One line per plugin: plugin, its mod, the masters it lacks (tab-separated).
+    if has(args, "--drop-broken") {
+        let (c, dropped) = sat_core::plugin_edit::drop_broken(&list, &project.plugins);
+        for d in &dropped {
+            let owner = list
+                .get(&d.plugin)
+                .and_then(|p| p.winner.map(|w| p.versions[w].owner))
+                .and_then(|m| project.canon.entries.iter().filter(|e| e.is_mod()).nth(m.idx()))
+                .map_or(String::new(), |e| e.name.clone());
+            println!("dropped\t{}\t{}\t{}", d.plugin, owner, d.lacks.join(", "));
+        }
+        eprintln!("{} plugin(s) cannot load and are unchecked", dropped.len());
+        changed |= c != project.plugins;
+        project.plugins = c;
     }
     if has(args, "--cascade") {
         list = list_of(&mut stll, &project);

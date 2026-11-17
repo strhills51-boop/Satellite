@@ -351,6 +351,62 @@ pub fn manager_files(list: &PluginList) -> ManagerFiles {
     f
 }
 
+// @sat:plugins.edit.broken
+/// A plugin that cannot load and why: the masters it lacks (missing, or themselves dropped).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dropped {
+    pub plugin: String,
+    pub lacks: Vec<String>,
+}
+
+/// Unchecks the active plugins that cannot load (a master missing or not active), and those that only load on
+/// them, repeated until nothing changes. Unlike [`cascade`] it turns nothing on: plugins the owner unchecked stay
+/// unchecked. Returns the new canon and what was dropped, in load order.
+pub fn drop_broken(list: &PluginList, canon: &PluginCanon) -> (PluginCanon, Vec<Dropped>) {
+    let mut on: FxHashSet<String> = list
+        .plugins
+        .iter()
+        .filter(|p| p.active || p.origin == Origin::Base)
+        .map(|p| plugin_key(&p.name))
+        .collect();
+    let mut dropped: Vec<Dropped> = Vec::new();
+    loop {
+        let mut changed = false;
+        for p in list
+            .plugins
+            .iter()
+            .filter(|p| p.active && p.origin != Origin::Base)
+        {
+            let k = plugin_key(&p.name);
+            if !on.contains(&k) {
+                continue;
+            }
+            let lacks: Vec<String> = p
+                .masters
+                .iter()
+                .filter(|m| !on.contains(&plugin_key(m)))
+                .cloned()
+                .collect();
+            if !lacks.is_empty() {
+                on.remove(&k);
+                dropped.push(Dropped {
+                    plugin: p.name.clone(),
+                    lacks,
+                });
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let mut out = canon.clone();
+    for d in &dropped {
+        out.set_checked(&d.plugin, false);
+    }
+    (out, dropped)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,6 +465,32 @@ mod tests {
         assert_eq!(mark("C.esp"), Some(false), "a master is missing");
         assert_eq!(mark("H.esp"), None, "hidden plugins keep their mark");
         assert_eq!(mark("D.esp"), None, "plugins of disabled mods keep their mark");
+    }
+
+    #[test]
+    fn broken_plugins_are_dropped_with_what_loads_only_on_them() {
+        let mut canon = PluginCanon::default();
+        for n in ["A.esp", "B.esp", "C.esp"] {
+            canon.set_checked(n, true);
+        }
+        let list = setup(&canon);
+        let (c, dropped) = drop_broken(&list, &canon);
+        let names: Vec<&str> = dropped.iter().map(|d| d.plugin.as_str()).collect();
+        assert_eq!(names, ["C.esp"], "A and B load");
+        assert_eq!(dropped[0].lacks, ["Missing.esm"]);
+        let mark = |n: &str| c.checked.iter().find(|(x, _)| x == n).map(|(_, m)| *m);
+        assert_eq!(mark("C.esp"), Some(false));
+        assert_eq!(mark("A.esp"), Some(true));
+        // A unchecked by the owner: B goes with it, A stays off and nothing is turned on
+        canon.set_checked("A.esp", false);
+        let list = setup(&canon);
+        let (c, dropped) = drop_broken(&list, &canon);
+        let names: Vec<&str> = dropped.iter().map(|d| d.plugin.as_str()).collect();
+        assert!(names.contains(&"B.esp") && names.contains(&"C.esp"), "{names:?}");
+        assert_eq!(
+            c.checked.iter().find(|(x, _)| x == "A.esp").map(|(_, m)| *m),
+            Some(false)
+        );
     }
 
     #[test]
