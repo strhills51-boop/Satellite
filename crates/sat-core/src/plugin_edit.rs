@@ -269,9 +269,12 @@ pub fn reconcile(
                 out.push((n.clone(), edited.unwrap_or(*m)));
                 placed.insert(k);
             }
+            // an unchecked mark the manager's file cannot carry (MO2's list format writes only active plugins:
+            // an unchecked one is simply absent) is kept too — dropping it would let `loadorder.txt` turn the
+            // plugin back on as implicit (seen on the owner's build after `--drop-broken`)
             for (n, m) in &project.checked {
                 let k = plugin_key(n);
-                if !placed.contains(&k) && was.get(&k) != Some(m) && !theirs.contains_key(&k) {
+                if !placed.contains(&k) && (was.get(&k) != Some(m) || !*m) && !theirs.contains_key(&k) {
                     out.push((n.clone(), *m));
                     placed.insert(k);
                 }
@@ -465,6 +468,30 @@ mod tests {
         assert_eq!(mark("C.esp"), Some(false), "a master is missing");
         assert_eq!(mark("H.esp"), None, "hidden plugins keep their mark");
         assert_eq!(mark("D.esp"), None, "plugins of disabled mods keep their mark");
+    }
+
+    #[test]
+    fn an_unchecked_plugin_stays_unchecked_when_the_manager_lists_only_active_ones() {
+        // after a commit: the project and what was written agree; MO2's list format leaves unchecked plugins out
+        let mut project = PluginCanon {
+            load_order: vec!["A.esp".into(), "B.esp".into()],
+            ..PluginCanon::default()
+        };
+        project.set_checked("A.esp", true);
+        project.set_checked("B.esp", false);
+        let seen = project.clone();
+        let mut disk = PluginCanon {
+            load_order: project.load_order.clone(),
+            ..PluginCanon::default()
+        };
+        disk.set_checked("A.esp", true);
+        let (c, r) = reconcile(&project, Some(&seen), &disk);
+        assert!(!r.conflict);
+        assert_eq!(
+            c.checked.iter().find(|(n, _)| n == "B.esp").map(|(_, m)| *m),
+            Some(false),
+            "not left to loadorder.txt, which would make it implicit (on)"
+        );
     }
 
     #[test]
