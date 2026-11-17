@@ -44,6 +44,8 @@ pub struct ScanOptions {
     pub read_dds_headers: bool,
     pub archives: bool,
     pub plugins: bool,
+    /// Per-plugin record counts during the scan (every plugin of every mod). Nothing reads them; kept for the cache
+    /// keys of earlier formats. The record layer is `@sat:scan.records`.
     pub record_scan: bool,
     /// Root-level file names (lowercase) excluded from the virtual file system, e.g. `meta.ini`.
     pub ignore_root_files: Vec<String>,

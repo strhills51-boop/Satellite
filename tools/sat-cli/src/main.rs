@@ -166,6 +166,11 @@ fn peak_rss_mib() -> Option<u64> {
 fn rss_mib() -> Option<u64> {
     memory_stats::memory_stats().map(|m| (m.physical_mem >> 20) as u64)
 }
+/// Memory the process holds, paged out or not (Windows: private bytes) — what a small machine runs out of; the
+/// resident set drops when Windows pages the process out.
+fn private_mib() -> Option<u64> {
+    memory_stats::memory_stats().map(|m| (m.virtual_mem >> 20) as u64)
+}
 
 #[derive(Serialize)]
 struct RootInfo {
@@ -414,7 +419,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
                     .unwrap_or_else(|| inst.profile_dir().join("satellite").join("cache")),
             ),
             force: has(args, "--force"),
-            record_scan: has(args, "--records"),
+            // `--records` is the record layer over the loaded plugins (`@sat:scan.records`), read after the scan. The
+            // scan's own per-plugin record counts read every plugin of every mod (disabled ones too) and change the
+            // scan cache's key, so the next run without them rescans: on the owner's 4 GB laptop the run paged
+            // itself to a standstill. Nothing uses those counts; they stay off.
+            record_scan: false,
             io_threads: flag_value(args, "--io-threads")
                 .map(|v| v.parse().map_err(|_| format!("--io-threads: not a number: {v}")))
                 .transpose()?
@@ -933,6 +942,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
             let chains = sat_core::records::chains(&ix);
             let stats = sat_core::records::plugin_stats(&ix);
             timings.insert("records", t.elapsed().as_millis());
+            eprintln!(
+                "records memory: resident {:?} MiB, held {:?} MiB",
+                rss_mib(),
+                private_mib()
+            );
             println!(
                 "records: {} in {} plugin(s), {} read now; overridden: {} (by one plugin: {}); conflicts (two or more plugins over a record): {} in {} chain(s); not read: {}",
                 ix.records(),
