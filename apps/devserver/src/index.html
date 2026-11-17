@@ -260,6 +260,16 @@ body.space #canvas > .wfr.on { border-color: var(--accent-border); }
 body.space #canvas > .wfr > span { position: absolute; top: -10px; left: 16px; padding: 0 8px; background: var(--bg); font-size: 12px; font-weight: 600; color: var(--muted); }
 body.space #canvas > .wfr.on > span { color: var(--accent); }
 section > .wr { display: none; } body.space section > .wr { display: block; }
+body.space #canvas > section.vwin { outline: none; }
+#canvas .vwin h2 { display: flex; gap: 6px; align-items: center; } #canvas .vwin .vwarea { margin-left: 6px; font-size: 11px; padding: 1px 6px; max-width: 220px; }
+#canvas .vwin .vwx { margin-left: auto; padding: 0 6px; }
+#canvas .vwin .vwf { margin: 6px 8px; font-size: 12px; padding: 3px 8px; }
+#canvas .vwin .vwrows { overflow: auto; flex: 1; padding: 0 6px 8px; font-size: 12px; }
+#canvas .vwin .vr { display: flex; gap: 7px; align-items: center; height: 24px; padding: 0 6px; border-radius: 5px; cursor: pointer; }
+#canvas .vwin .vr i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; } #canvas .vwin .vr.off i { background: var(--miss); } #canvas .vwin .vr.off span { opacity: .6; }
+#canvas .vwin .vr em { margin-left: auto; font: 10px var(--mono); color: var(--subtle); font-style: normal; }
+#canvas .vwin .vr:hover { background: var(--hover); } #canvas .vwin .vr.sel { background: var(--accent-weak); } #canvas .vwin .vr.foc { box-shadow: inset 0 0 0 1px var(--accent); }
+#canvas .vwin .vs { font: 600 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--subtle); padding: 8px 6px 2px; }
 section > h2.wonly { display: none; } body.space section > h2.wonly { display: flex; position: sticky; top: 0; z-index: 2; margin: -4px -10px 0; }
 #wsBox { position: fixed; z-index: 57; top: 52px; right: 0; bottom: 0; width: min(400px, 100vw); background: var(--bg2); border-left: 1px solid var(--line);
   box-shadow: var(--shadow); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; font-size: 12px; }
@@ -1549,11 +1559,13 @@ async function spaceMode(on) {
   if (on) {
     if (!SP.space) { try { ({ space: SP.space, own: SP.own } = await query({ type: "space" })); } catch (_) { return; } }
     for (const w of SP.space.windows) {
+      if (w.kind === "view") { await vwOpen(w); continue; }
       const sec = $(SP.panes[w.kind]); if (!sec) continue;
       cv.appendChild(sec); sec.dataset.win = w.id;
       if (!sec.querySelector(":scope > .wr")) { const r = document.createElement("span"); r.className = "wr"; sec.appendChild(r); }
     }
   } else {
+    for (const el of [...document.querySelectorAll("#canvas > section.vwin")]) { vwClose(el); }
     for (const id of ["tilesec", "modsec", "summary"]) main.appendChild($(id));
     for (const id of ["tilesec", "modsec", "summary"]) { const sec = $(id); sec.style.cssText = ""; }
   }
@@ -1564,7 +1576,7 @@ function spDraw() {
   const s = SP.space, c = s.camera, z = c.zoom / 100, cv = $("canvas");
   cv.style.transform = `translate(${-c.x * z}px, ${-c.y * z}px) scale(${z})`;
   for (const w of s.windows) {
-    const sec = $(SP.panes[w.kind]); if (!sec) continue;
+    const sec = w.kind === "view" ? document.querySelector(`#canvas > section[data-win="${w.id}"]`) : $(SP.panes[w.kind]); if (!sec) continue;
     Object.assign(sec.style, { left: w.x + "px", top: w.y + "px", width: w.w + "px", height: w.h + "px" });
     const h2 = sec.querySelector(":scope > h2");
     let tag = h2.querySelector(".wf");
@@ -1582,13 +1594,71 @@ function spDraw() {
     fr.innerHTML = `<span>${esc(f.name)}</span>`;
     cv.prepend(fr);
   }
-  $("marks").innerHTML = s.workflows.map((f, i) => `<button data-wf="${esc(f.id)}" class="${SP.cur === f.id ? "on" : ""}" title="Перелёт к воркфлоу${i < 9 ? " · Ctrl+" + (i + 1) : ""}"><kbd>^${i + 1}</kbd>${esc(f.name)}</button>`).join("") +
+  $("marks").innerHTML = `<button data-vwnew title="Новое окно-вид: ещё один список над тем же каноном">Окно +</button>` + s.workflows.map((f, i) => `<button data-wf="${esc(f.id)}" class="${SP.cur === f.id ? "on" : ""}" title="Перелёт к воркфлоу${i < 9 ? " · Ctrl+" + (i + 1) : ""}"><kbd>^${i + 1}</kbd>${esc(f.name)}</button>`).join("") +
     `<button data-wfnew title="Новый воркфлоу">+</button>`;
 }
 function spSave() {
   clearTimeout(SP.saveT);
   SP.saveT = setTimeout(() => command({ type: "set-space", space: SP.space }).then(() => { SP.own = true; }).catch(e => { $("err").textContent = e.message; }), 400);
 }
+// ---------------------------------------------------------------- view windows (ADR 0009 «один канон — много видов»)
+/** A view window: another list over the same canon with its own view in the core — its own name filter, its own
+ *  focus group (area), its own cursor. Rows are plain lines; a click aims the view's cursor, Alt+↑↓ moves the
+ *  selected mods (the same canon operation as in the main list); the main list follows every change. */
+const VW = new Map(); // window id → { view, el }
+async function vwOpen(w) {
+  let view;
+  try { ({ view } = await command({ type: "open-view" })); } catch (e) { $("err").textContent = e.message; return; }
+  const el = document.createElement("section"); el.className = "vwin"; el.dataset.win = w.id; el.tabIndex = -1;
+  el.innerHTML = `<h2>Вид<select class="vwarea" title="Фокус-группа вида"><option value="">весь список</option></select><button class="vwx" title="Закрыть окно">×</button></h2>` +
+    `<input class="vwf" placeholder="Фильтр" value="${esc(w.filter || "")}"><div class="vwrows"></div><span class="wr"></span>`;
+  $("canvas").appendChild(el);
+  VW.set(w.id, { view, el, w });
+  // the view's filter and area as the window keeps them
+  if (w.filter) await command({ type: "set-filter", view, filter: { text: w.filter, enabled: null, color: null, show_muted: false } }).catch(() => {});
+  if (w.area) await command({ type: "point-view", view, group: w.area }).catch(() => { delete w.area; });
+  await vwFill(w.id);
+}
+function vwClose(el) {
+  const v = VW.get(el.dataset.win); if (v) { command({ type: "close-view", view: v.view }).catch(() => {}); VW.delete(el.dataset.win); }
+  el.remove();
+}
+async function vwFill(id) {
+  const v = VW.get(id); if (!v) return;
+  let rep, groups;
+  try { [rep, groups] = await Promise.all([query({ type: "rows", view: v.view, start: 0, count: 400, badges: 0 }), query({ type: "focus-groups", view: v.view })]); } catch (_) { return; }
+  const sel = v.el.querySelector(".vwarea");
+  sel.innerHTML = `<option value="">весь список</option>` + groups.providers.map(p => `<optgroup label="${esc(p.title)}">${p.groups.map(g => `<option value="${esc(g.id)}"${v.w.area === g.id ? " selected" : ""}>${esc(g.name)} · ${g.count}</option>`).join("")}</optgroup>`).join("");
+  v.el.querySelector(".vwrows").innerHTML = rep.rows.map((r, i) => r.kind === "mod"
+    ? `<div class="vr${r.enabled ? "" : " off"}${r.focused ? " foc" : ""}${r.selected ? " sel" : ""}" data-k="${r.key}" data-row="${i}"><i></i><span>${esc(r.name)}</span>${r.counters ? `<em>${r.counters.lose ? "L" + r.counters.lose : ""}${r.counters.win ? " W" + r.counters.win : ""}</em>` : ""}</div>`
+    : `<div class="vs">${esc(r.name.replace(/_separator$/i, ""))}</div>`).join("") + (rep.len > rep.rows.length ? `<div class="vs">+${rep.len - rep.rows.length}</div>` : "");
+}
+const vwAll = () => Promise.all([...VW.keys()].map(vwFill));
+$("canvas").addEventListener("click", async ev => {
+  const el = ev.target.closest("section.vwin"); if (!el) return;
+  const v = VW.get(el.dataset.win);
+  if (ev.target.closest(".vwx")) { SP.space.windows = SP.space.windows.filter(w => w.id !== el.dataset.win); vwClose(el); spDraw(); spSave(); return; }
+  const r = ev.target.closest(".vr");
+  if (r) { await run({ type: "navigate", view: v.view, nav: { row: +r.dataset.row }, select: ev.shiftKey ? "extend" : ev.ctrlKey ? "toggle" : "replace" }); el.focus(); vwFill(el.dataset.win); }
+});
+$("canvas").addEventListener("change", async ev => {
+  const el = ev.target.closest("section.vwin"); if (!el || !ev.target.classList.contains("vwarea")) return;
+  const v = VW.get(el.dataset.win), g = ev.target.value || null;
+  await run({ type: "point-view", view: v.view, group: g }); if (g) v.w.area = g; else delete v.w.area; spSave(); vwFill(el.dataset.win);
+});
+$("canvas").addEventListener("input", ev => {
+  const el = ev.target.closest("section.vwin"); if (!el || !ev.target.classList.contains("vwf")) return;
+  const v = VW.get(el.dataset.win); v.w.filter = ev.target.value;
+  clearTimeout(v.ft); v.ft = setTimeout(async () => { await run({ type: "set-filter", view: v.view, filter: { text: v.w.filter, enabled: null, color: null, show_muted: false, area: null } }); if (v.w.area) await run({ type: "point-view", view: v.view, group: v.w.area }); spSave(); vwFill(el.dataset.win); }, 250);
+});
+$("canvas").addEventListener("keydown", async ev => {
+  const el = ev.target.closest("section.vwin"); if (!el || ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
+  const v = VW.get(el.dataset.win), chord = (ev.ctrlKey ? "Ctrl+" : "") + (ev.altKey ? "Alt+" : "") + (ev.shiftKey ? "Shift+" : "") + (ev.key === " " ? "Space" : ev.key);
+  if (!/Arrow|Space|Page|Home|End/.test(ev.key)) return;
+  ev.preventDefault(); ev.stopPropagation();
+  await run({ type: "key", view: v.view, chord }).catch(() => {}); vwFill(el.dataset.win);
+});
+
 /** Flies the camera to a workflow: its frame fits the viewport with a margin. */
 function spFly(id) {
   const s = SP.space, ws = s.windows.filter(w => w.workflow === id); if (!ws.length) return;
@@ -1608,6 +1678,12 @@ function spFly(id) {
 $("modeSw").onclick = ev => { const b = ev.target.closest("button"); if (b) spaceMode(b.dataset.m === "space"); };
 $("marks").onclick = ev => {
   const b = ev.target.closest("button"); if (!b || !SP.space) return;
+  if (b.dataset.vwnew !== undefined) {
+    // a new view window where the camera looks, a bit right and down
+    const c = SP.space.camera, id = "v" + Date.now().toString(36);
+    const w = { id, kind: "view", x: c.x + 80, y: c.y + 60, w: 420, h: 520, filter: "" };
+    SP.space.windows.push(w); vwOpen(w).then(() => { spDraw(); spSave(); }); return;
+  }
   if (b.dataset.wfnew !== undefined) {
     const n = SP.space.workflows.length + 1, id = "wf" + Date.now().toString(36);
     SP.space.workflows.push({ id, name: "Воркфлоу " + n });
@@ -3439,7 +3515,7 @@ async function run(c) {
     if (ev.type === "decided") { cards.forEach(el => { el._sig = null; }); await sync(false); if (shownKey !== null) detail(shownKey); return; }
     if (ev.type === "changed") {
       await sync(true);
-      decor(); metaBlocks();
+      decor(); metaBlocks(); if (VW.size) vwAll();
       if (ev.canon) { totals(); tiles(); if (shownKey !== null) detail(shownKey); }
       else { clearTimeout(TREE.t); TREE.t = setTimeout(treeDraw, 120); } // the selection may have moved
     }

@@ -8,7 +8,11 @@
 use serde::{Deserialize, Serialize};
 
 /// The kinds of windows a workspace can hold today: the panels of the classic screen.
-pub const KINDS: &[&str] = &["mods", "meta", "separators"];
+pub const KINDS: &[&str] = &["mods", "meta", "separators", "view"];
+
+/// Kinds a workspace may hold many of: a «view» is another list over the same canon (ADR 0009 «один канон — много
+/// видов»), with its own filter and focus group.
+pub const MANY: &[&str] = &["view"];
 
 // @sat:space.data
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +37,12 @@ pub struct SpaceWindow {
     /// The workflow (dock group) it belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow: Option<String>,
+    /// A view window: the focus group it is pointed at (`provider:name`, `@sat:app.focus`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub area: Option<String>,
+    /// A view window: its name filter.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub filter: String,
 }
 
 /// A named group of windows: a bookmark on top flies the camera to it.
@@ -100,7 +110,7 @@ impl Space {
         // a kind of panel exists once: the panels of the screen are moved, not copied
         let mut kinds = std::collections::HashSet::new();
         for w in &self.windows {
-            if !kinds.insert(w.kind.as_str()) {
+            if !MANY.contains(&w.kind.as_str()) && !kinds.insert(w.kind.as_str()) {
                 out.push(format!("kind {:?} twice", w.kind));
             }
         }
@@ -117,6 +127,8 @@ impl Space {
             w,
             h: 760,
             workflow: Some("main".into()),
+            area: None,
+            filter: String::new(),
         };
         Self {
             windows: vec![
