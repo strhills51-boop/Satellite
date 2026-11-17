@@ -240,6 +240,36 @@ pub fn dirty(p: &Processor, fp: &str, output_on_disk: bool) -> Option<Dirty> {
     }
 }
 
+// @sat:processor.status
+/// Where a processor stands against the build now (what the window shows).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum State {
+    /// Turned off: a commit does not run it.
+    Off,
+    /// Its tool is not among MO2's registered executables on this machine.
+    NoTool,
+    /// It is in a cycle of `after`: nothing runs.
+    Cycle { with: Vec<String> },
+    /// Built from the inputs as they are.
+    Clean,
+    /// A commit runs it.
+    Dirty { why: Dirty },
+}
+
+/// A processor's state with what it was assessed from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Status {
+    pub id: String,
+    #[serde(flatten)]
+    pub state: State,
+    /// The input mods, in order.
+    pub inputs: Vec<String>,
+    /// The fingerprint of the inputs now (empty when not assessed).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub fingerprint: String,
+}
+
 // @sat:processor.order
 /// The order to run processors in: each after the ones it names (unknown names ignored). A cycle is refused with
 /// the processors in it.

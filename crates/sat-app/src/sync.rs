@@ -123,6 +123,14 @@ impl App {
 pub trait PlanSource: Send + Sync + std::fmt::Debug {
     /// The plan of `project` against the build now; `confirmed` names steps the user confirmed.
     fn full_plan(&self, project: &sat_core::project::Project, confirmed: &[String]) -> (Plan, PlanExtras);
+    /// The processors of `project` against the build (`@sat:home.plan.processors.status`) and the tools MO2 has
+    /// registered (title, binary file name). Without a build — none.
+    fn processors(
+        &self,
+        _project: &sat_core::project::Project,
+    ) -> (Vec<sat_core::processor::Status>, Vec<(String, String)>) {
+        (Vec::new(), Vec::new())
+    }
 }
 
 /// What a commit writes besides the plan's operations.
@@ -137,6 +145,9 @@ pub struct PlanExtras {
     pub sealed: Vec<String>,
     /// The patches output: written (`Some(true)`), taken away (`Some(false)`), untouched.
     pub patches: Option<bool>,
+    /// Processors the commit runs after writing the profile (title, MO2 tool, output mod), in order.
+    #[serde(default)]
+    pub processors: Vec<(String, String, String)>,
     /// What the shell said about the plan (a factory whose group is gone, plugin lists changed on both sides).
     pub notes: Vec<String>,
 }

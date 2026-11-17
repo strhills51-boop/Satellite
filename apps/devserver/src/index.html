@@ -285,6 +285,18 @@ section > h2.wonly { display: none; } body.space section > h2.wonly { display: f
 #wsBox .wtrust { display: flex; gap: 6px; padding: 8px 14px 0; flex-wrap: wrap; } #wsBox .wtrust span { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--subtle); }
 #wsBox .wtrust span.on { border-color: var(--ok); color: var(--ok); } #wsBox .wtrust span.warn { border-color: var(--m-txt); color: var(--m-txt); }
 #wsBox .wact { display: flex; gap: 6px; justify-content: flex-end; padding: 10px 14px 14px; }
+#prBox { position: fixed; z-index: 57; top: 52px; right: 0; bottom: 0; width: min(460px, 100vw); background: var(--bg2); border-left: 1px solid var(--line);
+  box-shadow: var(--shadow); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; font-size: 12px; }
+#prBox header { display: flex; align-items: center; gap: 6px; padding: 12px 14px 8px; border-bottom: 1px solid var(--line-soft); } #prBox header b { font-size: 15px; } #prBox header [data-prx] { margin-left: auto; padding: 4px; }
+#prBox .plist { overflow: auto; padding: 10px 14px; display: grid; gap: 8px; align-content: start; }
+#prBox .pit { padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line-soft); background: var(--panel); display: grid; gap: 4px; }
+#prBox .pit .ph { display: flex; gap: 8px; align-items: center; } #prBox .pit .ph b { flex: 1; } #prBox .pit small { color: var(--muted); }
+#prBox .pst { font: 10px var(--mono); padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--subtle); white-space: nowrap; }
+#prBox .pst.clean { color: var(--ok); border-color: var(--ok); } #prBox .pst.dirty { color: var(--m-txt); border-color: var(--m-txt); } #prBox .pst.bad { color: var(--l-txt); border-color: var(--l-txt); }
+#prBox .pf { display: grid; grid-template-columns: 90px 1fr; gap: 4px 8px; align-items: center; } #prBox .pf span { color: var(--subtle); font-size: 11px; }
+#prBox .pf input, #prBox .pf select { font-size: 12px; min-width: 0; }
+#prBox .pfoot { display: grid; gap: 6px; padding: 10px 14px 14px; border-top: 1px solid var(--line-soft); }
+#prBox .pfoot div { display: flex; gap: 6px; justify-content: flex-end; align-items: center; } #prBox .pfoot .muted { font-size: 11px; }
 #bDon .donh { display: flex; gap: 8px; align-items: center; padding: 4px 0; cursor: pointer; font-size: 12px; }
 #bDon .fit { font: 10px var(--mono); padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); }
 #bDon .fit.ok { color: var(--ok); } #bDon .fit.warn { color: var(--m-txt); } #bDon .fit.bad { color: var(--l-txt); }
@@ -974,6 +986,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
   <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр"><svg class="si"><use href="#ic-folder"/></svg>Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
   <span class="tooth" id="modeSw" role="radiogroup" aria-label="Режим окна"><button data-m="classic">Классика</button><button data-m="space">Пространство</button></span>
   <nav id="marks" aria-label="Воркфлоу"></nav>
+  <button id="prBtn" title="Процессоры: генераторы сборки (Pandora, BodySlide, DynDOLOD…) — запускаются фиксацией">Процессоры</button>
   <button id="wsBtn" title="Мастерская: ресурсы — команды, клавиши, окна, анализаторы, счётчики, индикаторы, гайды">Мастерская</button>
   <div id="stats"></div>
   <span class="sandbox" id="projState" title="Песочница: изменения живут в памяти и никуда не пишутся">песочница</span><button id="saveBtn" class="pri" hidden title="Сохранить проект (Ctrl+S)"><svg class="si"><use href="#ic-save"/></svg><span>Сохранить</span></button>
@@ -1760,6 +1773,77 @@ spMain().addEventListener("wheel", ev => {
   spDraw(); spSave();
 }, { passive: false });
 try { if (localStorage.getItem("sat-mode") === "space") setTimeout(() => spaceMode(true), 200); else spaceMode(false); } catch (_) { spaceMode(false); }
+
+// ---------------------------------------------------------------- processors (ADR 0021, `@sat:app.processors`)
+/** The build's generators: each one a tool registered in MO2, the mods it reads, the mod its output is collected
+ *  into. The state is against the build now; a commit (only with --write) runs the dirty ones. Edits are local to
+ *  the panel until «Сохранить» (the project's processors, then — as everything — saved with the project). */
+const PR = { data: null, defs: [], open: null, err: "" };
+const PR_WHY = { "never-built": "ещё не собирался", "inputs-changed": "входы изменились", "output-missing": "нет мода-выхода" };
+function prState(v) {
+  const s = v.status;
+  if (!s) return ["нет сборки", ""];
+  if (s.state === "clean") return ["чистый", "clean"];
+  if (s.state === "dirty") return ["грязный: " + (PR_WHY[s.why] || s.why), "dirty"];
+  if (s.state === "no-tool") return ["нет инструмента в MO2", "bad"];
+  if (s.state === "cycle") return ["цикл: " + s.with.join(" → "), "bad"];
+  return ["выключен", ""];
+}
+async function procs(open) {
+  let box = $("prBox");
+  if (!box) { box = document.createElement("aside"); box.id = "prBox"; box.hidden = true; document.body.appendChild(box); box.onclick = prClick; }
+  if (open === false || (open === undefined && !box.hidden)) { box.hidden = true; return; }
+  try { PR.data = await query({ type: "processors" }); } catch (e) { $("err").textContent = e.message; return; }
+  PR.defs = PR.data.processors.map(v => { const d = { ...v }; delete d.status; return d; });
+  PR.err = ""; box.hidden = false; prDraw();
+}
+function prDraw() {
+  const box = $("prBox"), d = PR.data, tools = d.tools;
+  const field = (i, k, label, v, ph = "") => `<span>${label}</span><input data-pi="${i}" data-pk="${k}" value="${esc(v)}" placeholder="${esc(ph)}">`;
+  const items = PR.defs.map((p, i) => {
+    const v = d.processors.find(x => x.id === p.id) || {};
+    const [st, cls] = prState(v), ins = (v.status && v.status.inputs) || [];
+    const toolOpts = [...new Set([p.executable, ...tools])].filter(Boolean).map(t => `<option${t === p.executable ? " selected" : ""}>${esc(t)}</option>`).join("");
+    return `<div class="pit"><div class="ph"><input type="checkbox" data-pi="${i}" data-pk="enabled"${p.enabled ? " checked" : ""} title="Включён: фиксация запускает его, когда он грязный"><b>${esc(p.title)}</b><span class="pst ${cls}">${esc(st)}</span><button data-pe="${i}" title="Настроить">⋯</button></div>` +
+      `<small>${esc(p.executable)} → ${esc(p.output)} · входов ${ins.length}${ins.length ? `: ${esc(ins.slice(0, 4).join(", "))}${ins.length > 4 ? "…" : ""}` : ""}</small>` +
+      (PR.open === i ? `<div class="pf"><span>Инструмент</span><select data-pi="${i}" data-pk="executable">${toolOpts}</select>` +
+        field(i, "title", "Название", p.title) + field(i, "output", "Мод-выход", p.output) +
+        field(i, "folders", "Папки входов", (p.inputs.folders || []).join(", "), "meshes/actors/character/behaviors") +
+        `<span>Плагины</span><label><input type="checkbox" data-pi="${i}" data-pk="plugins"${p.inputs.plugins ? " checked" : ""}> мод с плагинами — вход</label>` +
+        field(i, "after", "После", (p.after || []).join(", "), "bodyslide") +
+        `<span></span><div><button data-pdel="${i}">Убрать</button></div></div>` : "") + `</div>`;
+  }).join("") || `<div class="muted">Процессоров нет. «Найти в MO2» — узнать генераторы среди инструментов, зарегистрированных в MO2.</div>`;
+  const found = d.presets.filter(p => p.tool && !PR.defs.some(x => x.id === p.id));
+  box.innerHTML = `<header><b>Процессоры</b>${guideBtn("processors")}<button data-prx title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></header>` +
+    `<div class="plist">${items}</div>` +
+    `<div class="pfoot"><span class="muted">${tools.length ? `инструментов в MO2: ${tools.length}` : "MO2 этой сборки не дал инструментов (или окно без сборки)"}${found.length ? ` · узнаю: ${esc(found.map(p => p.title + " (" + p.tool + ")").join(", "))}` : ""}</span>` +
+    `<div><span class="muted" id="prErr">${esc(PR.err)}</span><button data-pdet${found.length ? "" : " disabled"}>Найти в MO2</button><button data-pcancel>Отмена</button><button class="pri" data-psave>Сохранить</button></div>` +
+    `<span class="muted">Запуск — только фиксацией (окно с --write или sat-cli commit --apply), при закрытом MO2.</span></div>`;
+}
+function prRead() {
+  const box = $("prBox");
+  for (const el of box.querySelectorAll("[data-pi]")) {
+    const p = PR.defs[+el.dataset.pi], k = el.dataset.pk;
+    if (k === "enabled") p.enabled = el.checked;
+    else if (k === "plugins") p.inputs = { ...p.inputs, plugins: el.checked };
+    else if (k === "folders") p.inputs = { ...p.inputs, folders: el.value.split(",").map(x => x.trim().replace(/\\/g, "/")).filter(Boolean) };
+    else if (k === "after") p.after = el.value.split(",").map(x => x.trim()).filter(Boolean);
+    else p[k] = el.value.trim();
+  }
+}
+async function prClick(ev) {
+  if (ev.target.closest("[data-prx]") || ev.target.closest("[data-pcancel]")) return procs(false);
+  const e = ev.target.closest("[data-pe]"); if (e) { prRead(); PR.open = PR.open === +e.dataset.pe ? null : +e.dataset.pe; return prDraw(); }
+  const del = ev.target.closest("[data-pdel]"); if (del) { prRead(); PR.defs.splice(+del.dataset.pdel, 1); PR.open = null; return prDraw(); }
+  const save = async () => { prRead(); await command({ type: "set-processors", processors: PR.defs }); };
+  try {
+    if (ev.target.closest("[data-pdet]")) { await save(); await command({ type: "detect-processors" }); return procs(true); }
+    if (ev.target.closest("[data-psave]")) { await save(); return procs(true); }
+  } catch (err) { PR.err = err.message; prDraw(); }
+}
+$("prBtn").onclick = () => procs();
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("prBox") && !$("prBox").hidden) { ev.stopPropagation(); procs(false); } }, true);
+GUIDES.processors = ["Процессоры", "Генераторы сборки — Pandora, Nemesis, BodySlide, DynDOLOD, xLODGen, TexGen, Synthesis — как шаги фиксации.\n\nИнструмент берётся из зарегистрированных в MO2 (пути — на этой машине, в проекте только имя). Входы — моды, в которых есть нужные папки (или плагины); выход — свой мод, куда собирается всё, что инструмент записал в Overwrite за запуск.\n\nГрязный — входы, инструмент или настройки изменились с последней сборки, или выхода нет. Фиксация (только с --write, при закрытом MO2) запускает грязные по порядку «после»; старый выход уходит в deleted/ фиксации."];
 
 // ---------------------------------------------------------------- the Workshop (ADR 0020 §10, ADR 0011)
 /** The entry point for advanced users: the library of resources — what is registered (built-in, machine, project),
@@ -3863,6 +3947,7 @@ async function syLoad() {
     if (x.plugins_written || x.plugins_packed.length) ops.push(`plugins.txt / loadorder.txt: ${x.plugins_written ? "из проекта (его порядок, отметки, скрытые)" : "как есть"}${x.plugins_packed.length ? `, плюс ${esc(x.plugins_packed.join(", "))} включены в конце` : ""}`);
     for (const f of x.factories) ops.push(`фабрика: пересобрать ${esc(f)}`);
     for (const f of x.sealed) ops.push(`запечь и запечатать ${esc(f)}`);
+    for (const [t, tool, out] of x.processors || []) ops.push(`после фиксации: процессор ${esc(t)} — MO2 запустит «${esc(tool)}», новое из Overwrite соберётся в ${esc(out)}`);
   }
   ops.push(`modlist.txt: из канона проекта (${num(p.canon_after.entries.length)} записей); закрывается записей ${p.settles.length}, в игноре ${p.ignored}`);
   const plan = `<div class="syp">${ops.map(o => `<span>${o}</span>`).join("")}` +
@@ -3874,6 +3959,7 @@ async function syLoad() {
   const res = cv.state === "running" || cv.state === "requested" ? `<div class="syc">фиксация идёт… окно перечитает сборку, когда она закончится</div>`
     : L ? `<div class="syc ${L.state === "committed" ? "ok" : "bad"}"><b>Последняя фиксация: ${CS[L.state] || L.state}</b>` +
       (L.state === "committed" ? `<span>шагов ${L.steps}; сборка перечитана, расхождений после: ${L.records_after ?? "?"}</span>` : "") +
+      (L.processed || []).map(([id, n, ok, err]) => `<span class="${ok ? "" : "warn"}">процессор ${esc(id)}: ${ok ? `собрано файлов ${n}` : esc(err || "не продвинут")}</span>`).join("") +
       (L.error ? `<span>${esc(L.error)}</span>` : "") + (L.left.length ? `<span class="warn">не откатено: ${esc(L.left.join("; "))}</span>` : "") +
       (L.version_dir ? `<small>версия (бэкап, журнал): ${esc(L.version_dir)}</small>` : "") + `</div>` : "";
   $("syBody").innerHTML = res + `<div><h4>Расхождения</h4>${rows}</div><div><h4>План фиксации${x ? " — тот же, что выполнит sat-cli commit" : ""}</h4>${plan}</div>`;

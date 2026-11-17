@@ -98,10 +98,9 @@ pub fn project_after(project: &Project, f: &FullPlan) -> Project {
 }
 
 // @sat:home.plan.processors
-/// Dirty processors (`@sat:processor`), in their order: inputs are the enabled mods of the canon after the commit
-/// that hold one of the selector's folders (or plugins at their root), with their content signatures; the tool is
-/// found in MO2's list by its title. A dirty processor's output mod is put at the end of the canon (and its folder
-/// made) when absent, so MO2 lists it; the tool runs after the commit wrote the profile (`@sat:home.commit.run`).
+/// Dirty processors (`@sat:processor`), in their order (`assess`). A dirty processor's output mod is put at the end
+/// of the canon (and its folder made) when absent, so MO2 lists it; the tool runs after the commit wrote the profile
+/// (`@sat:home.commit.run`).
 pub(crate) fn processors(
     inst: &Instance,
     project: &Project,
@@ -110,21 +109,98 @@ pub(crate) fn processors(
     notes: &mut Vec<String>,
 ) -> Vec<(usize, sat_mo2::processors::Run)> {
     use sat_core::canon::{Entry, EntryKind};
-    use sat_core::processor::{dirty, fingerprint, order};
+    use sat_core::processor::State;
     if !project.processors.iter().any(|x| x.enabled) {
         return Vec::new();
     }
+    let tools = sat_mo2::executables::read(&inst.ini_path);
+    let mut out = Vec::new();
+    for (i, st, run) in assess(inst, project, &p.canon_after, disk, &tools) {
+        let proc = &project.processors[i];
+        match (&st.state, run) {
+            (State::Cycle { with }, _) => {
+                let n = format!("processors wait on each other ({}): none runs", with.join(" → "));
+                if !notes.contains(&n) {
+                    notes.push(n);
+                }
+            }
+            (State::NoTool, _) => notes.push(format!(
+                "processor {}: no tool «{}» in MO2",
+                proc.title, proc.executable
+            )),
+            (State::Dirty { .. }, Some(run)) => {
+                if !p
+                    .canon_after
+                    .entries
+                    .iter()
+                    .any(|e| e.name.eq_ignore_ascii_case(&proc.output))
+                {
+                    let mut entries = p.canon_after.entries.clone();
+                    entries.push(Entry {
+                        name: proc.output.clone(),
+                        kind: EntryKind::Mod,
+                        enabled: true,
+                    });
+                    p.canon_after = sat_core::canon::Modlist::new(entries);
+                }
+                let on_disk = disk.iter().any(|d| d.eq_ignore_ascii_case(&proc.output));
+                if !on_disk
+                    && !p
+                        .disk_ops
+                        .iter()
+                        .any(|o| matches!(o, DiskOp::Create { name, .. } if name.eq_ignore_ascii_case(&proc.output)))
+                {
+                    p.disk_ops.push(DiskOp::Create {
+                        name: proc.output.clone(),
+                        kind: sat_core::sync::records::EntityKind::Mod,
+                    });
+                }
+                out.push((i, run));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+// @sat:home.plan.processors.assess
+/// Every processor of the project against the build, in run order (a cycle — all of them, each `Cycle`): inputs
+/// are the enabled mods of `canon` that hold one of the selector's folders (or plugins at their root), with their
+/// content signatures — other processors' outputs only when this one runs after them; the tool is found in MO2's
+/// list by its title and identified by its binary's size and time. A dirty one comes with its run.
+pub fn assess(
+    inst: &Instance,
+    project: &Project,
+    canon: &sat_core::canon::Modlist,
+    disk: &[String],
+    tools: &[sat_mo2::executables::Executable],
+) -> Vec<(
+    usize,
+    sat_core::processor::Status,
+    Option<sat_mo2::processors::Run>,
+)> {
+    use sat_core::canon::EntryKind;
+    use sat_core::processor::{State, Status, dirty, fingerprint, order};
+    let status = |p: &sat_core::processor::Processor, state, inputs, fingerprint| Status {
+        id: p.id.clone(),
+        state,
+        inputs,
+        fingerprint,
+    };
     let ord = match order(&project.processors) {
         Ok(o) => o,
         Err(cycle) => {
-            notes.push(format!(
-                "processors wait on each other ({}): none runs",
-                cycle.join(" → ")
-            ));
-            return Vec::new();
+            return project
+                .processors
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let st = State::Cycle { with: cycle.clone() };
+                    (i, status(p, st, Vec::new(), String::new()), None)
+                })
+                .collect();
         }
     };
-    let tools = sat_mo2::executables::read(&inst.ini_path);
     let on_disk = |n: &str| disk.iter().any(|d| d.eq_ignore_ascii_case(n));
     let outputs: Vec<String> = project
         .processors
@@ -134,20 +210,10 @@ pub(crate) fn processors(
     let mut out = Vec::new();
     for i in ord {
         let proc = &project.processors[i];
-        if !proc.enabled {
-            continue;
-        }
-        let Some(tool) = tools
+        let tool = tools
             .iter()
-            .find(|t| t.title.eq_ignore_ascii_case(&proc.executable))
-        else {
-            notes.push(format!(
-                "processor {}: no tool «{}» in MO2",
-                proc.title, proc.executable
-            ));
-            continue;
-        };
-        let stamp = std::fs::metadata(&tool.binary).ok().map(|m| {
+            .find(|t| t.title.eq_ignore_ascii_case(&proc.executable));
+        let stamp = tool.and_then(|t| std::fs::metadata(&t.binary).ok()).map(|m| {
             let t = m
                 .modified()
                 .ok()
@@ -156,8 +222,7 @@ pub(crate) fn processors(
             (m.len(), t)
         });
         // its own output and the other processors' outputs it does not depend on are no inputs
-        let inputs: Vec<(String, Option<u64>)> = p
-            .canon_after
+        let inputs: Vec<(String, Option<u64>)> = canon
             .entries
             .iter()
             .filter(|e| e.kind == EntryKind::Mod && e.enabled)
@@ -192,45 +257,49 @@ pub(crate) fn processors(
             })
             .collect();
         let fp = fingerprint(proc, &inputs, stamp);
-        if dirty(proc, &fp, on_disk(&proc.output)).is_none() {
-            continue;
-        }
-        if !p
-            .canon_after
-            .entries
-            .iter()
-            .any(|e| e.name.eq_ignore_ascii_case(&proc.output))
-        {
-            let mut entries = p.canon_after.entries.clone();
-            entries.push(Entry {
-                name: proc.output.clone(),
-                kind: EntryKind::Mod,
-                enabled: true,
-            });
-            p.canon_after = sat_core::canon::Modlist::new(entries);
-        }
-        if !on_disk(&proc.output)
-            && !p
-                .disk_ops
-                .iter()
-                .any(|o| matches!(o, DiskOp::Create { name, .. } if name.eq_ignore_ascii_case(&proc.output)))
-        {
-            p.disk_ops.push(DiskOp::Create {
-                name: proc.output.clone(),
-                kind: sat_core::sync::records::EntityKind::Mod,
-            });
-        }
-        out.push((
-            i,
-            sat_mo2::processors::Run {
-                id: proc.id.clone(),
-                executable: tool.title.clone(),
-                output: proc.output.clone(),
-                fingerprint: fp,
-            },
-        ));
+        let names = inputs.into_iter().map(|(n, _)| n).collect();
+        let (state, run) = if !proc.enabled {
+            (State::Off, None)
+        } else if let Some(tool) = tool {
+            match dirty(proc, &fp, on_disk(&proc.output)) {
+                None => (State::Clean, None),
+                Some(why) => (
+                    State::Dirty { why },
+                    Some(sat_mo2::processors::Run {
+                        id: proc.id.clone(),
+                        executable: tool.title.clone(),
+                        output: proc.output.clone(),
+                        fingerprint: fp.clone(),
+                    }),
+                ),
+            }
+        } else {
+            (State::NoTool, None)
+        };
+        out.push((i, status(proc, state, names, fp), run));
     }
     out
+}
+
+// @sat:home.plan.processors.status
+/// The processors of `project` as the window shows them, with the tools MO2 has registered on this machine
+/// (title, binary file name) — for the presets to recognise.
+pub fn processor_status(
+    inst: &Instance,
+    project: &Project,
+) -> (Vec<sat_core::processor::Status>, Vec<(String, String)>) {
+    let tools = sat_mo2::executables::read(&inst.ini_path);
+    let disk = subfolders(&inst.mods_dir);
+    let mut st: Vec<(usize, sat_core::processor::Status)> =
+        assess(inst, project, &project.canon, &disk, &tools)
+            .into_iter()
+            .map(|(i, s, _)| (i, s))
+            .collect();
+    st.sort_by_key(|(i, _)| *i);
+    (
+        st.into_iter().map(|(_, s)| s).collect(),
+        tools.iter().map(|t| (t.title.clone(), t.file_name())).collect(),
+    )
 }
 
 // @sat:home.plan.plugins

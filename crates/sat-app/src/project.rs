@@ -74,6 +74,7 @@ impl App {
         self.set_sources(p.sources_by_name());
         problems.extend(self.set_counters(&p.counters));
         problems.extend(self.set_indicators(&p.indicators));
+        self.processors = p.processors.clone();
         self.space = p.space.clone().filter(|s| s.problems().is_empty());
         problems
     }
@@ -143,7 +144,7 @@ impl App {
 
     // @sat:app.project.store
     /// Writes the app's truth back into `p`: the canon and decoration of the book, settled chains, ignores, the
-    /// plugin canon, sync records with their decisions, tags, chain identities, layout and lineage, pins. Sections
+    /// plugin canon, sync records with their decisions, tags, chain identities, layout and lineage, pins, indicators, the workspace, processors. Sections
     /// the window does not edit (factories, patches, intents, rules, sources, facts) stay as `p` has them.
     pub fn store_project(&mut self, p: &mut Project) {
         let session = self.session();
@@ -159,6 +160,7 @@ impl App {
         p.pinned_files = self.pinned_files().to_vec();
         p.indicators = self.indicator_defs.clone();
         p.space = self.space.clone();
+        p.processors = self.processors.clone();
         let ids = &p.entities;
         p.patches = self
             .patches()

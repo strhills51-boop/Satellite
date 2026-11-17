@@ -22,6 +22,7 @@ mod participants;
 pub mod pass;
 pub mod patches;
 mod preview;
+pub mod processors;
 pub mod project;
 pub mod records;
 pub mod sheet;
@@ -175,6 +176,12 @@ pub enum Command {
     SetIndicators {
         defs: Vec<sat_core::counters::IndicatorDef>,
     },
+    /// Replace the project's processors (`@sat:app.processors.set`); repeated ids or outputs are refused.
+    SetProcessors {
+        processors: Vec<sat_core::processor::Processor>,
+    },
+    /// Add the processors the presets recognise among MO2's tools, turned off (`@sat:app.processors.detect`).
+    DetectProcessors,
     /// Change the buffer (`@sat:app.buffer`): areas of mods set aside to be placed later. One undo step each (placing
     /// is two: the move, then the area gone).
     Buffer {
@@ -692,6 +699,8 @@ pub enum Query {
     Space,
     /// The build indicators measured over the whole build (`@sat:app.indicators`).
     Indicators,
+    /// The project's processors with their states, MO2's tools and the presets (`@sat:app.processors.view`).
+    Processors,
     /// The buffer's areas.
     Buffer,
     /// The selection summary of a view.
@@ -1073,6 +1082,12 @@ pub enum Reply {
         /// The project has its own (otherwise `space` is the built-in one).
         own: bool,
     },
+    Processors {
+        processors: Vec<processors::ProcessorView>,
+        /// MO2's registered tools on this machine (titles).
+        tools: Vec<String>,
+        presets: Vec<processors::PresetView>,
+    },
     Indicators {
         indicators: Vec<sat_core::counters::IndicatorValue>,
         /// What they are made of (the built-in ones when the project has none).
@@ -1291,6 +1306,8 @@ pub struct App {
     indicator_defs: Vec<sat_core::counters::IndicatorDef>,
     /// The workspace (`@sat:app.space`); `None` — the classic screen.
     space: Option<sat_core::space::Space>,
+    /// The project's processors (`@sat:app.processors`).
+    processors: Vec<sat_core::processor::Processor>,
     /// Donor builds the shell read (`@sat:app.donors`), and bindings the window asked for.
     donors: std::collections::BTreeMap<String, DonorData>,
     donor_requests: Vec<(String, String)>,
@@ -1353,6 +1370,7 @@ impl App {
             indicators: sat_core::counters::Indicators::compile(&sat_core::counters::default_indicators()).0,
             indicator_defs: Vec::new(),
             space: None,
+            processors: Vec::new(),
             donors: Default::default(),
             donor_requests: Vec::new(),
             sources: Default::default(),
@@ -1434,6 +1452,14 @@ impl App {
                 }
                 self.space = space;
                 self.revision += 1;
+                return Ok(Event::Decided);
+            }
+            C::SetProcessors { processors } => {
+                self.set_processors(processors)?;
+                return Ok(Event::Decided);
+            }
+            C::DetectProcessors => {
+                self.detect_processors();
                 return Ok(Event::Decided);
             }
             C::SetIndicators { defs } => {
@@ -2722,6 +2748,14 @@ impl App {
                 own: self.space.is_some(),
                 space: self.space.clone().unwrap_or_else(sat_core::space::Space::classic),
             },
+            Query::Processors => {
+                let (processors, tools, presets) = self.processors_view();
+                Reply::Processors {
+                    processors,
+                    tools,
+                    presets,
+                }
+            }
             Query::Indicators => Reply::Indicators {
                 indicators: self.indicator_values(),
                 defs: if self.indicator_defs.is_empty() {

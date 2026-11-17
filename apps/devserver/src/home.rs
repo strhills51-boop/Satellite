@@ -482,9 +482,24 @@ impl sat_app::PlanSource for HomePlan {
                 .map(|&i| project.factories[i].output.clone())
                 .collect(),
             patches: f.patched.as_ref().map(Option::is_some),
+            processors: f
+                .processors
+                .iter()
+                .map(|(i, r)| {
+                    (
+                        project.processors[*i].title.clone(),
+                        r.executable.clone(),
+                        r.output.clone(),
+                    )
+                })
+                .collect(),
             notes: f.notes,
         };
         (f.plan, extras)
+    }
+
+    fn processors(&self, project: &Project) -> (Vec<sat_core::processor::Status>, Vec<(String, String)>) {
+        sat_home::plan::processor_status(&self.inst, project)
     }
 }
 
