@@ -42,6 +42,13 @@ impl Instance {
             {
                 return Self::load(global);
             }
+            // A portable MO2 whose base directory is a subfolder: X:\MO2\ModOrganizer.ini → base X:/MO2/SSE.
+            if p.is_dir()
+                && let Some(up) = p.parent().map(|d| d.join("ModOrganizer.ini"))
+                && names_base(&up, &p)
+            {
+                return Self::load(up);
+            }
             if p.is_dir() && p.join("mods").is_dir() && p.join("profiles").is_dir() {
                 let mut i = Self::from_dirs(p.join("mods"), p.join("profiles"), p.join("overwrite"), None);
                 i.game_path = find_game(PathBuf::new(), &p, &p, "");
@@ -326,17 +333,21 @@ fn global_ini_for(dir: &Path) -> Option<PathBuf> {
 }
 
 fn global_ini_in(root: &Path, dir: &Path) -> Option<PathBuf> {
-    let norm = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_lowercase();
-    let want = norm(&dir.to_string_lossy());
     std::fs::read_dir(root).ok()?.flatten().find_map(|e| {
         let ini_path = e.path().join("ModOrganizer.ini");
-        let ini = ini::parse(&read(&ini_path).ok()?);
-        let base = ini
-            .get("settings")?
-            .get("base_directory")
-            .map(|v| ini::unquote(v))?;
-        (norm(&base) == want).then_some(ini_path)
+        names_base(&ini_path, dir).then_some(ini_path)
     })
+}
+
+// @sat:mo2.instance.base
+/// Whether the ini at `ini_path` names `dir` as its base directory.
+fn names_base(ini_path: &Path, dir: &Path) -> bool {
+    let norm = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_lowercase();
+    let Ok(data) = read(ini_path) else { return false };
+    let ini = ini::parse(&data);
+    ini.get("settings")
+        .and_then(|s| s.get("base_directory"))
+        .is_some_and(|b| norm(&ini::unquote(b)) == norm(&dir.to_string_lossy()))
 }
 
 /// "; MO2 instances inside: …" for the subfolders of `dir` that are instances, else empty.
@@ -456,6 +467,29 @@ mod tests {
             "Skyrim Special Edition"
         );
         assert_eq!(game_folders("")[0], "Skyrim Special Edition");
+    }
+
+    #[test]
+    fn a_portable_mo2_one_level_up_is_found_by_its_base_directory() {
+        // the owner's layout: X:\MO2\ModOrganizer.exe + ModOrganizer.ini, base_directory=X:/MO2/SSE
+        let t = tempfile::tempdir().unwrap();
+        let mo2 = t.path().join("MO2");
+        let base = mo2.join("SSE");
+        for d in ["mods", "profiles/Default", "overwrite"] {
+            std::fs::create_dir_all(base.join(d)).unwrap();
+        }
+        std::fs::write(
+            mo2.join("ModOrganizer.ini"),
+            format!(
+                "[General]\ngameName=Skyrim Special Edition\nselected_profile=@ByteArray(Default)\n[Settings]\nbase_directory={}\n[customExecutables]\nsize=1\n1\\binary=C:/x/Pandora Behaviour Engine+.exe\n1\\title=Pandora Behaviour Engine+\n",
+                base.to_string_lossy().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+        let i = Instance::load(&base).unwrap();
+        assert_eq!(i.ini_path, mo2.join("ModOrganizer.ini"));
+        assert_eq!(i.mods_dir, base.join("mods"));
+        assert_eq!(crate::executables::read(&i.ini_path).len(), 1);
     }
 
     #[test]

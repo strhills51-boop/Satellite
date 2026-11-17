@@ -110,6 +110,19 @@ pub const PRESETS: &[Preset] = &[
         after: &[],
     },
     Preset {
+        id: "fnis",
+        title: "FNIS",
+        binaries: &["generatefnis"],
+        folders: &[
+            "meshes/actors/character/behaviors",
+            "meshes/actors/character/animations",
+            "tools/generatefnis_for_users",
+        ],
+        plugins: false,
+        output: "FNIS Output",
+        after: &[],
+    },
+    Preset {
         id: "texgen",
         title: "TexGen",
         binaries: &["texgen"],
