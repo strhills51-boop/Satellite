@@ -135,6 +135,49 @@ impl App {
             mods.iter().map(|m| m.0).filter(|&k| b.is_muted(k)).collect()
         };
         raw.push(("muted", "Приглушённое", vec![("приглушённые".into(), muted)]));
+        // conflict contexts: the mods of each context (the heaviest first)
+        {
+            let ow = self.session.overwrite();
+            let table = self.session.table().clone();
+            let names: std::collections::HashMap<String, Key> =
+                mods.iter().map(|(k, n, _)| (n.to_lowercase(), *k)).collect();
+            let items = self.contexts();
+            let mut cx: Groups = Vec::new();
+            for (item, c) in items.iter().zip({
+                let mut v: Vec<_> = ow.contexts().iter().collect();
+                v.sort_by_key(|c| std::cmp::Reverse((c.files, c.mods.len())));
+                v
+            }) {
+                let mut ks: Vec<Key> = c
+                    .mods
+                    .iter()
+                    .filter_map(|&m| names.get(&table.mod_name(m).to_lowercase()).copied())
+                    .collect();
+                ks.sort_by_key(|&k| self.session.book().pos(k));
+                cx.push((item.name.clone(), ks));
+            }
+            cx.truncate(40);
+            raw.push(("contexts", "Конфликты", cx));
+        }
+        // SYNC: entities whose folder and project disagree, waiting for a decision
+        {
+            use sat_core::sync::records::{Mismatch, Status};
+            let b = self.session.book();
+            let mut ks: Vec<Key> = self
+                .sync_records()
+                .iter()
+                .filter(|r| r.status == Status::Pending)
+                .filter_map(|r| match &r.mismatch {
+                    Mismatch::FsDeleted { project_name } | Mismatch::FsRenamed { project_name, .. } => {
+                        b.key_of(project_name)
+                    }
+                    Mismatch::FsCreated { .. } => None,
+                })
+                .collect();
+            ks.sort_by_key(|&k| b.pos(k));
+            ks.dedup();
+            raw.push(("sync", "SYNC", vec![("ждут решения".into(), ks)]));
+        }
         // saved filters: every build indicator's condition
         let defs = if self.indicator_defs.is_empty() {
             sat_core::counters::default_indicators()
