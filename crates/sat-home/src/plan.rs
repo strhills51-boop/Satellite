@@ -166,7 +166,7 @@ pub(crate) fn processors(
 // @sat:home.plan.processors.assess
 /// Every processor of the project against the build, in run order (a cycle — all of them, each `Cycle`): inputs
 /// are the enabled mods of `canon` that hold one of the selector's folders (or plugins at their root), with their
-/// content signatures — other processors' outputs only when this one runs after them; the tool is found in MO2's
+/// content signatures — other processors' outputs only when this one runs after them, never the mod the tool lives in; the tool is found in MO2's
 /// list by its title and identified by its binary's size and time. A dirty one comes with its run.
 pub fn assess(
     inst: &Instance,
@@ -221,11 +221,20 @@ pub fn assess(
                 .map_or(0, |d| d.as_secs());
             (m.len(), t)
         });
+        // the mod the tool itself lives in (the owner keeps generators in mods/) is no input: the tool writes its
+        // caches and logs there, which would keep it dirty forever
+        let home = tool.and_then(|t| {
+            let rel = t.binary.strip_prefix(&inst.mods_dir).ok()?;
+            rel.components()
+                .next()
+                .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        });
         // its own output and the other processors' outputs it does not depend on are no inputs
         let inputs: Vec<(String, Option<u64>)> = canon
             .entries
             .iter()
             .filter(|e| e.kind == EntryKind::Mod && e.enabled)
+            .filter(|e| home.as_deref() != Some(e.name.to_lowercase().as_str()))
             .filter(|e| {
                 let n = e.name.to_lowercase();
                 !outputs.contains(&n)

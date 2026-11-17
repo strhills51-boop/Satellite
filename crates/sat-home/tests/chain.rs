@@ -384,3 +384,49 @@ fn a_dirty_processor_runs_after_the_commit_and_its_output_is_collected() {
         "clean after the run"
     );
 }
+
+#[test]
+fn a_tool_kept_in_mods_is_not_an_input_of_its_own_processor() {
+    // the owner keeps generators in mods/: Pandora's folder holds Pandora_Engine, which it also writes caches into
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    file(&base.join("mods/Anims/pandora_engine/patch.txt"), "p");
+    file(&base.join("mods/Pandora Tool/Pandora_Engine/cache.bin"), "c");
+    file(&base.join("mods/Pandora Tool/pandora_engine/x.txt"), "x");
+    file(
+        &base.join("mods/Pandora Tool/Pandora Behaviour Engine+.exe"),
+        "exe",
+    );
+    file(
+        &base.join("profiles/Default/modlist.txt"),
+        "+Pandora Tool\n+Anims\n",
+    );
+    fs::create_dir_all(base.join("overwrite")).unwrap();
+    let tool = base
+        .join("mods/Pandora Tool/Pandora Behaviour Engine+.exe")
+        .display()
+        .to_string()
+        .replace('\\', "/");
+    file(
+        &base.join("ModOrganizer.ini"),
+        &format!("[customExecutables]\nsize=1\n1\\title=Pandora\n1\\binary={tool}\n"),
+    );
+    let mut inst = Instance::from_dirs(
+        base.join("mods"),
+        base.join("profiles"),
+        base.join("overwrite"),
+        None,
+    );
+    inst.ini_path = base.join("ModOrganizer.ini");
+    assert!(run_once(&inst, true).1);
+    let layout = Layout::of(&inst);
+    let (_, mut p) = project::require(&layout.project_file).unwrap();
+    let tools: Vec<(String, String)> = sat_mo2::executables::read(&inst.ini_path)
+        .iter()
+        .map(|t| (t.title.clone(), t.file_name()))
+        .collect();
+    p.processors = sat_core::processor::detect(&tools, &[]);
+    p.processors[0].enabled = true;
+    let (st, _) = plan::processor_status(&inst, &p);
+    assert_eq!(st[0].inputs, ["Anims"], "the tool's own mod is left out");
+}
