@@ -75,8 +75,7 @@ impl App {
             .collect();
         raw.push(("groups", "Лог-группы", groups));
         // tags and stickers
-        let (mut tags, mut stickers): (Vec<(String, Vec<Key>)>, Vec<(String, Vec<Key>)>) =
-            (Vec::new(), Vec::new());
+        let (mut tags, mut stickers): (Groups, Groups) = (Vec::new(), Vec::new());
         {
             let b = self.session().book();
             for (k, _, _) in &mods {
