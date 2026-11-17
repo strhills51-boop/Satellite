@@ -1,7 +1,7 @@
 //! `sat-cli order`: the mod order from the command line — service separators, filing mods. @sat:cli.order
 //!
 //! Owns: adding a separator to the project's canon (a service one such as `obsolete` or `review`: the commit makes
-//! its folder), moving mods to the end of a separator's block or before an entry, filing mods into a logical group
+//! its folder), renaming and removing one (the commit renames its folder or moves it to `deleted/`), moving mods to the end of a separator's block or before an entry, filing mods into a logical group
 //! or taking them out, and listing the separators with how many mods each holds. Everything goes into the project
 //! only; `sat-cli commit` writes `modlist.txt` and makes the folders.
 //! Not here: the order itself (`@sat:order.book`), the plan (`@sat:sync.plan`).
@@ -10,6 +10,7 @@
 
 use sat_core::canon::{Entry, EntryKind, SEPARATOR_SUFFIX};
 use sat_core::order::{Key, OrderBook};
+use sat_core::sync::records::{EntityKind, Mismatch, Resolution, SyncRecord};
 use sat_mo2::commit::Layout;
 
 use crate::{flag_value, flag_values, has, open_instance};
@@ -44,7 +45,8 @@ fn after_block(book: &OrderBook, sep: Key) -> Option<Key> {
 }
 
 // @sat:cli.order.run
-/// `sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--move MOD]... (--under SEPARATOR | --before
+/// `sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]...
+/// [--remove-separator NAME]... [--move MOD]... (--under SEPARATOR | --before
 /// ENTRY) [--into-group MOD --join MOD]... [--out-of-group MOD]... [--separators]`
 pub fn order(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
@@ -69,6 +71,50 @@ pub fn order(args: &[String]) -> Result<(), String> {
         book.insert_entries(std::slice::from_ref(&entry), at)
             .map_err(|e| e.to_string())?;
         println!("separator {} added", entry.name);
+        changed = true;
+    }
+
+    // renaming and removing a separator: the project changes now, the folder at the commit (a confirmed record)
+    for w in args.windows(3) {
+        if w[0] == "--rename-separator" {
+            let k = separator(&book, &w[1])?;
+            let old = book.name(k).to_string();
+            let base = w[2].trim();
+            let base = base.strip_suffix(SEPARATOR_SUFFIX).unwrap_or(base).trim();
+            if base.is_empty() || base.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
+                return Err(format!("--rename-separator {}: a folder name is needed", w[2]));
+            }
+            let new = format!("{base}{SEPARATOR_SUFFIX}");
+            book.rename(k, &new).map_err(|e| e.to_string())?;
+            project.entities.rename(&old, &new);
+            if inst.mods_dir.join(&old).is_dir() {
+                project.sync.push(SyncRecord::decided(
+                    EntityKind::Separator,
+                    Mismatch::FsRenamed {
+                        project_name: new.clone(),
+                        fs_name: old.clone(),
+                    },
+                    Resolution::RenameDiskToProject,
+                ));
+            }
+            println!("separator {old} renamed {new}");
+            changed = true;
+        }
+    }
+    for name in flag_values(args, "--remove-separator") {
+        let k = separator(&book, name)?;
+        let old = book.name(k).to_string();
+        book.remove_entries(&[k]).map_err(|e| e.to_string())?;
+        if inst.mods_dir.join(&old).is_dir() {
+            project.sync.push(SyncRecord::decided(
+                EntityKind::Separator,
+                Mismatch::FsCreated { fs_name: old.clone() },
+                Resolution::MoveToDeleted,
+            ));
+        }
+        println!(
+            "separator {old} removed (its mods join the block above; the folder goes to deleted/ at the commit)"
+        );
         changed = true;
     }
 

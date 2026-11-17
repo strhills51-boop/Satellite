@@ -138,6 +138,16 @@ impl Resolution {
 }
 
 impl SyncRecord {
+    // @sat:sync.records.decided
+    /// A record made by a decision in the project rather than found by a reconcile — a separator renamed or
+    /// removed in the window or the CLI: the disk follows at the commit, confirmed with its answer.
+    pub fn decided(entity: EntityKind, mismatch: Mismatch, resolution: Resolution) -> Self {
+        let mut r = Self::new(entity, mismatch);
+        r.status = Status::Confirmed;
+        r.resolution = Some(resolution);
+        r
+    }
+
     fn new(entity: EntityKind, mismatch: Mismatch) -> Self {
         let fingerprint = match &mismatch {
             Mismatch::FsCreated { fs_name } => format!("fs_created::{}::{}", entity.tag(), fp(fs_name)),
