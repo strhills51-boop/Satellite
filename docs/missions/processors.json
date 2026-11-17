@@ -1,35 +1,30 @@
 {
  "schema": "vibe-go-semantic-session/v1",
  "id": "semantic-session:1a1e503fdbc:a56dcdc8",
- "revision": 6,
+ "revision": 7,
  "status": "active",
  "createdAt": "2026-11-16T15:40:06Z",
- "updatedAt": "2026-11-17T02:37:03Z",
+ "updatedAt": "2026-11-17T02:52:21Z",
  "mission": {
   "direction": "Процессоры — генераторы при фиксации (PHILOSOPHY «Файлы»: генераторы при фиксации; «Эволюция»: процессор запускает инструмент и выпускает сгенерированный мод, слой истины — канон через план; Фаза 3.5): Pandora/Nemesis, BodySlide, DynDOLOD/xLODGen как шаги плана фиксации поверх готовой связки ADR 0019 — по контракту монолита deployment-processor-descriptor.v1: селекторы входов, отпечаток входов, конфигурации и версии инструмента, исполнитель, проверка, промоушен с бэкапом и откатом, каскадная инвалидация, намерения dirty → planned → running → superseded/promoted. Отдельная миссия по решению владельца 2026-11-16.",
   "reminder": "ADR 0010: каждая фаза владеет своей истиной; процессор меняет сборку только через план фиксации. Монолит — по анализу docs/semantic/monolith (pass S01–S23), не выдумывать. Семантический слой: @sat:, //! Owns:, MAP.md, check-map; править источники. Галочки — в том же коммите. ADR — владельцу до кода. Проверки — пачкой. Песочница по умолчанию, запись — --write. Углубляться при столкновении с непредвиденным поведением объекта семантики (ошибка, проблема, конфликт), а не по заранее выдуманному плану."
  },
  "route": {
-  "activeDistanceId": "P4-window-block",
-  "activity": "CHANGE",
-  "deepeningStack": [
-   {
-    "distanceId": "distance:1a1e503fdbc:f2ab6cc9",
-    "childDistanceId": "P4-window-block",
-    "returnPoint": {
-     "tacticalFocus": "Query::Processors / Command::SetProcessors в sat-app; инструменты MO2 — devserver читает ModOrganizer.ini.",
-     "posture": "EXPLORE"
-    },
-    "openedAt": "2026-11-17T02:37:03Z"
-   }
-  ],
-  "returnPoint": {
-   "tacticalFocus": "Query::Processors / Command::SetProcessors в sat-app; инструменты MO2 — devserver читает ModOrganizer.ini.",
-   "posture": "EXPLORE"
-  },
+  "activeDistanceId": "distance:1a1e503fdbc:f2ab6cc9",
+  "activity": "CLOSURE",
+  "deepeningStack": [],
+  "returnPoint": null,
   "tacticalFocus": "Query::Processors / Command::SetProcessors в sat-app; инструменты MO2 — devserver читает ModOrganizer.ini.",
   "scheduler": {
-   "events": []
+   "events": [
+    {
+     "type": "WAITING_ON_HUMAN",
+     "at": "2026-11-17T02:52:21Z",
+     "distanceId": "P4-window-block",
+     "requestId": "HRQ:1a1e76b72b7:d550d90c",
+     "reason": "Проверка на X:\\MO2\\SSE (при закрытом MO2): sat-cli processors X:\\MO2\\SSE --detect; затем --enable pandora (или то, что найдётся); sat-cli commit X:\\MO2\\SSE (сухой прогон) — показать вывод; по желанию --apply."
+    }
+   ]
   }
  },
  "distances": {
@@ -38,11 +33,11 @@
    "parentId": null,
    "objective": "Процессоры работают как шаги плана фиксации: грязный процессор виден в окне и CLI, фиксация запускает инструмент, проверяет и продвигает его выход в сгенерированный мод с бэкапом и откатом; первые процессоры — те, что владелец реально использует.",
    "closureContract": "ADR процессоров принят владельцем; контракт и первые процессоры запечатаны с тестами и CI; владелец прогнал их на своей сборке; галочки Фазы 3.5.",
-   "status": "suspended",
+   "status": "active",
    "reason": "",
    "summary": "",
    "createdAt": "2026-11-16T15:40:06Z",
-   "updatedAt": "2026-11-17T02:37:03Z",
+   "updatedAt": "2026-11-17T02:52:21Z",
    "sealedAt": null,
    "suspendedAt": "2026-11-17T02:37:03Z",
    "readyAt": null,
@@ -97,22 +92,52 @@
    "parentId": "distance:1a1e503fdbc:f2ab6cc9",
    "objective": "Блок «Процессоры» в окне и в приложении: список процессоров проекта с состоянием (чистый / грязный и причина / нет инструмента / нет выхода), обнаружение по инструментам MO2 (пресеты), включить, настроить (инструмент, выход, кто раньше), сохранение в проект; запуск — только фиксацией.",
    "closureContract": "Команды и запрос процессоров в sat-app с тестом; блок в окне проверен Playwright на синтетической сборке; коммит, CI зелёный.",
-   "status": "active",
+   "status": "waiting_on_human",
    "reason": "",
    "summary": "",
    "createdAt": "2026-11-17T02:37:03Z",
-   "updatedAt": "2026-11-17T02:37:03Z",
+   "updatedAt": "2026-11-17T02:52:21Z",
    "sealedAt": null,
    "suspendedAt": null,
    "readyAt": null,
    "resumableAt": null,
    "resumedAt": null,
-   "resumePriority": "NORMAL",
+   "resumePriority": "BLOCKING",
    "dependencyBlocking": false,
    "strategicFrontId": null,
    "resumeContract": "",
-   "waitingOn": null,
-   "schedulerReturn": null,
+   "waitingOn": {
+    "humanRequestIds": [
+     "HRQ:1a1e76b72b7:d550d90c"
+    ],
+    "humanStates": {
+     "HRQ:1a1e76b72b7:d550d90c": "OPEN"
+    },
+    "reason": "Проверка на X:\\MO2\\SSE (при закрытом MO2): sat-cli processors X:\\MO2\\SSE --detect; затем --enable pandora (или то, что найдётся); sat-cli commit X:\\MO2\\SSE (сухой прогон) — показать вывод; по желанию --apply.",
+    "resumeContract": "Вывод владельца разобран; найденные расхождения починены; первые процессоры на его сборке работают."
+   },
+   "schedulerReturn": {
+    "capturedAt": "2026-11-17T02:52:21Z",
+    "deepeningStack": [
+     {
+      "distanceId": "distance:1a1e503fdbc:f2ab6cc9",
+      "childDistanceId": "P4-window-block",
+      "returnPoint": {
+       "tacticalFocus": "Query::Processors / Command::SetProcessors в sat-app; инструменты MO2 — devserver читает ModOrganizer.ini.",
+       "posture": "EXPLORE"
+      },
+      "openedAt": "2026-11-17T02:37:03Z"
+     }
+    ],
+    "returnPoint": {
+     "tacticalFocus": "Query::Processors / Command::SetProcessors в sat-app; инструменты MO2 — devserver читает ModOrganizer.ini.",
+     "posture": "EXPLORE"
+    },
+    "tacticalFocus": "Ждём проверку владельца на его сборке.",
+    "resumeContract": "",
+    "objective": "Блок «Процессоры» в окне и в приложении: список процессоров проекта с состоянием (чистый / грязный и причина / нет инструмента / нет выхода), обнаружение по инструментам MO2 (пресеты), включить, настроить (инструмент, выход, кто раньше), сохранение в проект; запуск — только фиксацией.",
+    "closureContract": "Команды и запрос процессоров в sat-app с тестом; блок в окне проверен Playwright на синтетической сборке; коммит, CI зелёный."
+   },
    "evidence": null
   }
  },
@@ -197,6 +222,21 @@
    "artifacts": [],
    "distanceId": "P4-window-block",
    "summary": "Шаг 4 ADR 0021: блок «Процессоры»."
+  },
+  {
+   "id": "worklog:1a1e76b72b7:d3d81302",
+   "revision": 7,
+   "at": "2026-11-17T02:52:21Z",
+   "action": "RETURN",
+   "activity": "CLOSURE",
+   "artifactEffect": "ARTIFACT",
+   "artifacts": [
+    "a7daedd",
+    "ee0ccbf",
+    "5d6a1b7"
+   ],
+   "distanceId": "distance:1a1e503fdbc:f2ab6cc9",
+   "summary": "Блок «Процессоры» в окне и sat-cli processors: состояние, найти в MO2, включить, настроить; план фиксации окна показывает запуски."
   }
  ],
  "humanRequests": {
@@ -214,6 +254,20 @@
    "distance_id": "distance:1a1e503fdbc:f2ab6cc9",
    "answer": "Владелец 2026-11-17 03:16: «куда обычные генераторы кладут — вроде бы это overwrite, не?» — выход генераторов по умолчанию в Overwrite (как в MO2); набор инструментов и пути не названы.",
    "answeredAt": "2026-11-17T02:18:12Z"
+  },
+  "HRQ:1a1e76b72b7:d550d90c": {
+   "question": "Проверка на X:\\MO2\\SSE (при закрытом MO2): sat-cli processors X:\\MO2\\SSE --detect; затем --enable pandora (или то, что найдётся); sat-cli commit X:\\MO2\\SSE (сухой прогон) — показать вывод; по желанию --apply.",
+   "blocking_class": "BLOCKING",
+   "options": [
+    "вывод прислан",
+    "не сейчас"
+   ],
+   "recommended_option": "вывод прислан",
+   "resume_contract": "Вывод владельца разобран; найденные расхождения починены; первые процессоры на его сборке работают.",
+   "request_id": "HRQ:1a1e76b72b7:d550d90c",
+   "status": "OPEN",
+   "createdAt": "2026-11-17T02:52:21Z",
+   "distance_id": "P4-window-block"
   }
  },
  "activities": [
@@ -262,13 +316,13 @@
   "reviewAcceptanceSequence": 0,
   "reviewedAt": null
  },
- "acceptanceSequence": 7,
+ "acceptanceSequence": 8,
  "lastControl": {
-  "at": "2026-11-17T02:37:03Z",
-  "revision": 6,
+  "at": "2026-11-17T02:52:21Z",
+  "revision": 7,
   "semanticChanged": true,
-  "acceptanceSequence": 7,
-  "modelSummary": "Шаг 4 ADR 0021: блок «Процессоры»."
+  "acceptanceSequence": 8,
+  "modelSummary": "Блок «Процессоры» в окне и sat-cli processors: состояние, найти в MO2, включить, настроить; план фиксации окна показывает запуски."
  },
  "hold": null,
  "completedAt": null
