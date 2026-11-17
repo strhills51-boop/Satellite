@@ -755,7 +755,15 @@ pub fn dangerous(ix: &RecordIndex, rules: &RecordRules) -> DomainReport {
     }
     for (key, ps) in ix.contested_groups() {
         let Some(last) = ps.last() else { continue };
-        if !exclusive.contains(&last.signature) || ps.iter().filter(|p| !p.origin).count() < 2 {
+        let over: Vec<u32> = ps.iter().filter(|p| !p.origin).map(|p| p.plugin).collect();
+        if !exclusive.contains(&last.signature) || over.len() < 2 {
+            continue;
+        }
+        // the game's own masters editing one navmesh, or each overrider built on the one before it (a patch that
+        // carries the earlier edit): not two edits fighting over it
+        if over.iter().all(|&p| official(&ix.plugins[p as usize]))
+            || over.windows(2).all(|w| ix.knows(w[1], w[0]))
+        {
             continue;
         }
         let members: Vec<(u32, u8)> = ps

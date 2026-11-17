@@ -171,6 +171,11 @@ impl RecordIndex {
         })
     }
 
+    /// Whether plugin `later` (load-order index) has plugin `earlier` as a master: it was made with it in view.
+    pub fn knows(&self, later: u32, earlier: u32) -> bool {
+        self.plugin_masters[later as usize].contains(&self.plugin_origin[earlier as usize])
+    }
+
     fn group(&self, g: (u32, u32)) -> &[Entry] {
         &self.entries[g.0 as usize..(g.0 + g.1) as usize]
     }
