@@ -275,6 +275,19 @@ section > h2.wonly { display: none; } body.space section > h2.wonly { display: f
 #wsBox .wtrust { display: flex; gap: 6px; padding: 8px 14px 0; flex-wrap: wrap; } #wsBox .wtrust span { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--subtle); }
 #wsBox .wtrust span.on { border-color: var(--ok); color: var(--ok); } #wsBox .wtrust span.warn { border-color: var(--m-txt); color: var(--m-txt); }
 #wsBox .wact { display: flex; gap: 6px; justify-content: flex-end; padding: 10px 14px 14px; }
+#bDon .donh { display: flex; gap: 8px; align-items: center; padding: 4px 0; cursor: pointer; font-size: 12px; }
+#bDon .fit { font: 10px var(--mono); padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); }
+#bDon .fit.ok { color: var(--ok); } #bDon .fit.warn { color: var(--m-txt); } #bDon .fit.bad { color: var(--l-txt); }
+#bDon .donc { margin-left: auto; display: flex; gap: 4px; } #bDon .donc i { font: 10px var(--mono); font-style: normal; padding: 0 5px; border-radius: 5px; background: var(--surface2); }
+#bDon .donc .k-ready { color: var(--ok); } #bDon .donc .k-similar { color: var(--m-txt); } #bDon .donc .k-missing { color: var(--l-txt); }
+#bDon .dontabs { display: flex; flex-wrap: wrap; gap: 3px; margin: 4px 0; } #bDon .dontabs button { font-size: 10px; padding: 1px 7px; border-radius: 6px; }
+#bDon .dontabs button.on { background: var(--accent-weak); color: var(--fg); }
+#bDon .donlist { max-height: 220px; overflow: auto; display: grid; gap: 1px; font-size: 11px; }
+#bDon .donlist label { display: flex; gap: 6px; align-items: center; } #bDon .donlist label.off span { opacity: .6; }
+#bDon .donlist em { margin-left: auto; color: var(--subtle); font-style: normal; font-size: 10px; white-space: nowrap; }
+#bDon .donact { display: flex; gap: 6px; align-items: center; margin-top: 6px; } #bDon .donact select { flex: 1; min-width: 0; font-size: 11px; }
+#bDon .donact label { font-size: 11px; display: flex; gap: 3px; align-items: center; }
+#bDon .donadd { display: flex; gap: 4px; margin-top: 6px; } #bDon .donadd input { min-width: 0; font-size: 11px; padding: 3px 7px; } #bDon .donadd input:first-child { width: 70px; flex: none; } #bDon .donadd input:nth-child(2) { flex: 1; }
 /* the cloud: the mod's card at the mini level on hover */
 #cloud { position: fixed; z-index: 55; width: 300px; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
   background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; display: grid; gap: 8px; }
@@ -964,6 +977,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
     <h2 class="wonly">Метаинфа</h2>
     <div class="block empty" id="bSel"><h3>Выделение</h3></div>
     <div class="block empty" id="bBuf"><h3>Буфер</h3></div>
+    <div class="block empty" id="bDon"><h3>Доноры</h3></div>
     <div class="block empty" id="bMod"><h3>Мод</h3></div>
     <div class="block empty" id="bDecor"><h3>Декорация мода</h3></div>
     <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
@@ -1397,7 +1411,51 @@ list.addEventListener("scroll", cloudHide, { passive: true });
 /** «Выделение» — always on top: the selected mods, what tags and stickers they carry, what their counters add up to.
  *  «Буфер» — areas of mods set aside: drop on «+» — a new area, on an area — into it; an area goes into the list
  *  before the mod it is dropped on (or before the aimed one by its button). */
+// ---------------------------------------------------------------- donors (monolith ExternalDonorSession, ADR 0006)
+/** Another build bound on this machine: how its modlist fits its folder, its mods against the project by kind —
+ *  ready to take, already here, similar, missing, folders only. Taken mods become planned mods at the end of a
+ *  separator with an install from the donor; the commit copies the folder (or moves it, draining the donor). */
+const DON = { open: null, pick: new Set(), kind: "ready" };
+const DON_KINDS = [["ready", "готовы"], ["folder_only", "только папка"], ["similar", "похожие"], ["exist", "уже есть"], ["missing", "без папки"]];
+async function donorsBlock() {
+  let donors = [], tiles = [];
+  try { [{ donors }, { tiles }] = await Promise.all([query({ type: "donors" }), query({ type: "separators" })]); } catch (_) { return; }
+  const b = $("bDon");
+  b.className = donors.length ? "block ok" : "block empty";
+  const form = `<div class="donadd"><input id="donName" placeholder="имя"><input id="donPath" placeholder="папка mods донора"><button data-donbind>Связать</button></div>`;
+  const one = d => {
+    const v = d.validation, open = DON.open === d.name;
+    const head = `<div class="donh" data-donopen="${esc(d.name)}"><b>${esc(d.name)}</b>${v ? `<span class="fit ${v.score >= 80 ? "ok" : v.score >= 50 ? "warn" : "bad"}" title="совпадение списка и папки">${v.score}%</span>` : ""}` +
+      `<span class="donc">${DON_KINDS.filter(([k]) => d.counts[k]).map(([k, n]) => `<i class="k-${k}" title="${n}">${d.counts[k]}</i>`).join("")}</span></div>`;
+    if (!open) return head;
+    const list = d.candidates.filter(c => c.kind === DON.kind), takeable = DON.kind === "ready" || DON.kind === "folder_only";
+    return head + `<div class="dontabs">${DON_KINDS.map(([k, n]) => `<button data-donkind="${k}" class="${DON.kind === k ? "on" : ""}">${n} ${d.counts[k] || 0}</button>`).join("")}</div>` +
+      `<div class="donlist">${list.slice(0, 300).map(c => `<label class="${c.enabled ? "" : "off"}">${takeable ? `<input type="checkbox" data-donpick="${esc(c.name)}"${DON.pick.has(c.name) ? " checked" : ""}>` : ""}<span>${esc(c.name)}</span><em>${esc(c.source_separator)}</em></label>`).join("") || `<div class="muted">нет</div>`}</div>` +
+      (takeable ? `<div class="donact"><select id="donSep"><option value="">в разделитель донора</option>${tiles.map(t => `<option value="${t.key}">${esc(t.name)}</option>`).join("")}</select>` +
+        `<label title="забрать папку из донора, а не копировать"><input type="checkbox" id="donMove">вынуть</label><button class="pri" data-dontake="${esc(d.name)}">Взять ${DON.pick.size || ""}</button></div>` : "");
+  };
+  b.innerHTML = `<h3>Доноры${guideBtn("donors")}</h3>` + donors.map(one).join("") + form;
+}
+$("bDon").addEventListener("click", async ev => {
+  const o = ev.target.closest("[data-donopen]"), k = ev.target.closest("[data-donkind]"), p = ev.target.closest("[data-donpick]");
+  if (p) { p.checked ? DON.pick.add(p.dataset.donpick) : DON.pick.delete(p.dataset.donpick); const t = $("bDon").querySelector("[data-dontake]"); if (t) t.textContent = "Взять " + (DON.pick.size || ""); return; }
+  if (o) { DON.open = DON.open === o.dataset.donopen ? null : o.dataset.donopen; DON.pick.clear(); return donorsBlock(); }
+  if (k) { DON.kind = k.dataset.donkind; DON.pick.clear(); return donorsBlock(); }
+  if (ev.target.closest("[data-donbind]")) {
+    const name = $("donName").value.trim(), path = $("donPath").value.trim(); if (!name || !path) return;
+    await run({ type: "bind-donor", name, path }); setTimeout(donorsBlock, 600); return;
+  }
+  const t = ev.target.closest("[data-dontake]");
+  if (t && DON.pick.size) {
+    const sep = $("donSep").value;
+    await run({ type: "take-from-donor", donor: t.dataset.dontake, names: [...DON.pick], separator: sep === "" ? null : +sep, moved: $("donMove").checked });
+    DON.pick.clear(); donorsBlock();
+  }
+});
+GUIDES.donors = ["Доноры", "Другая сборка на этой машине: её папка mods (и modlist её профиля, если папка выше — сборка MO2). Путь живёт на машине, в проекте — только имя донора.\n\nПроцент — насколько список донора совпадает с его папкой. Моды донора против проекта: готовы (есть папка, в проекте нет), только папка, похожие (нужен взгляд), уже есть, без папки.\n\n«Взять» — моды встают запланированными в конец разделителя (донорского с тем же именем или выбранного) с установкой из донора; папку копирует фиксация, «вынуть» — забирает её из донора."];
+
 async function metaBlocks() {
+  donorsBlock();
   let sel, areas;
   try { [{ selection: sel }, { areas }] = await Promise.all([query({ type: "selection", view: VIEW }), query({ type: "buffer" })]); } catch (_) { return; }
   const b = $("bSel");

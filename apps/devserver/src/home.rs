@@ -148,6 +148,21 @@ impl Home {
         if let Some(mode) = app.take_pass_request() {
             self.start(app, mode);
         }
+        // a donor the window bound: kept on this machine, read at once
+        if let Some((name, path)) = app.take_donor_request() {
+            let dir = std::path::PathBuf::from(&path);
+            if !dir.is_dir() {
+                eprintln!("donor {name:?}: not a folder: {path}");
+            } else if !self.write {
+                // a sandbox writes nothing on the machine: the donor is read for this window only
+                app.set_donor(&name, crate::read_donor(&dir));
+            } else {
+                match sat_mo2::donors::bind(&self.inst.profile_dir(), &name, &dir) {
+                    Ok(()) => app.set_donor(&name, crate::read_donor(&dir)),
+                    Err(e) => eprintln!("donor {name:?}: {e}"),
+                }
+            }
+        }
         self.poll(app);
         None
     }

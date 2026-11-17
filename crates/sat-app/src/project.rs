@@ -186,6 +186,57 @@ mod tests {
     }
 
     #[test]
+    fn donor_mods_are_taken_as_planned_installs() {
+        let mut a = app_of(["A", "B"]);
+        let p = sat_core::project::Project::import(a.session().book().to_modlist());
+        a.load_project(&p, vec!["A".into(), "B".into()]);
+        a.set_donor(
+            "Old",
+            crate::DonorData {
+                mods_dir: "/old/mods".into(),
+                modlist: None,
+                folders: vec!["A".into(), "New One".into()],
+            },
+        );
+        let Reply::Donors { donors } = a.query(Query::Donors).unwrap() else {
+            panic!()
+        };
+        let kinds: Vec<_> = donors[0]
+            .candidates
+            .iter()
+            .map(|c| (c.name.as_str(), c.kind))
+            .collect();
+        assert!(kinds.contains(&("New One", sat_core::sync::donor::CandidateKind::FolderOnly)));
+        a.command(crate::Command::TakeFromDonor {
+            donor: "Old".into(),
+            names: vec!["New One".into()],
+            separator: None,
+            moved: true,
+        })
+        .unwrap();
+        let p = a.project().unwrap();
+        assert!(
+            p.canon.entries.iter().any(|e| e.name == "New One"),
+            "a planned mod in the canon"
+        );
+        let planned = p.planned();
+        assert_eq!(planned.len(), 1);
+        assert!(
+            matches!(&planned[0].source, sat_core::intent::Source::Donor { donor, folder, moved: true, .. } if donor == "Old" && folder == "New One")
+        );
+        // what is already in the project cannot be taken
+        assert!(
+            a.command(crate::Command::TakeFromDonor {
+                donor: "Old".into(),
+                names: vec!["A".into()],
+                separator: None,
+                moved: false,
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
     fn unsaved_changes_and_saving() {
         let mut a = app_of(["A", "B"]);
         let p = sat_core::project::Project::import(a.session().book().to_modlist());

@@ -143,6 +143,22 @@ pub enum Command {
         name: String,
         checked: bool,
     },
+    /// Bind a donor build to this machine by its mods folder (the shell does it and reads the donor).
+    BindDonor {
+        name: String,
+        path: String,
+    },
+    /// Take donor mods into the project as planned mods (`@sat:app.donors`): each goes to the end of `separator`
+    /// (none: the donor's separator of the same name, else the end of the list) with an install intent from the
+    /// donor's folder; the commit copies — or moves, draining the donor — the folder.
+    TakeFromDonor {
+        donor: String,
+        names: Vec<String>,
+        #[serde(default)]
+        separator: Option<Key>,
+        #[serde(default)]
+        moved: bool,
+    },
     /// Keep the workspace as the window left it (`@sat:app.space`); one with problems is refused. `None` — back
     /// to the classic screen.
     SetSpace {
@@ -303,6 +319,25 @@ pub enum BufferEdit {
         area: usize,
         before: Option<Key>,
     },
+}
+
+/// A donor build as the shell read it: its mods folder (for display), its modlist (may be empty), its folders.
+#[derive(Debug, Clone, Default)]
+pub struct DonorData {
+    pub mods_dir: String,
+    pub modlist: Option<sat_core::canon::Modlist>,
+    pub folders: Vec<String>,
+}
+
+/// A donor as the window shows it: the fit of its modlist to its folder, candidates against the project.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DonorView {
+    pub name: String,
+    pub mods_dir: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<sat_core::sync::donor::Validation>,
+    pub counts: std::collections::BTreeMap<String, usize>,
+    pub candidates: Vec<sat_core::sync::donor::Candidate>,
 }
 
 /// A resource as the Workshop lists it: its manifest, where it came from and what the policy decided.
@@ -640,6 +675,8 @@ pub enum Query {
     },
     /// Every registered resource with its policy decision — the Workshop's library (`@sat:app.workshop`).
     Resources,
+    /// Donor builds bound on this machine, matched against the project (`@sat:app.donors`).
+    Donors,
     /// The workspace (the built-in one when the project has none).
     Space,
     /// The build indicators measured over the whole build (`@sat:app.indicators`).
@@ -1006,6 +1043,9 @@ pub enum Reply {
     Separators {
         tiles: Vec<SeparatorTile>,
     },
+    Donors {
+        donors: Vec<DonorView>,
+    },
     Resources {
         resources: Vec<ResourceView>,
         /// The project's own data resources: counters on mod cards, sticker rules, build indicators.
@@ -1235,6 +1275,9 @@ pub struct App {
     indicator_defs: Vec<sat_core::counters::IndicatorDef>,
     /// The workspace (`@sat:app.space`); `None` — the classic screen.
     space: Option<sat_core::space::Space>,
+    /// Donor builds the shell read (`@sat:app.donors`), and bindings the window asked for.
+    donors: std::collections::BTreeMap<String, DonorData>,
+    donor_requests: Vec<(String, String)>,
     /// Where mods come from, by folded name (`@sat:source`).
     sources: std::collections::HashMap<String, sat_core::source::ModSource>,
     /// The project's own stickers by folded mod name (`planned`, `new`).
@@ -1294,6 +1337,8 @@ impl App {
             indicators: sat_core::counters::Indicators::compile(&sat_core::counters::default_indicators()).0,
             indicator_defs: Vec::new(),
             space: None,
+            donors: Default::default(),
+            donor_requests: Vec::new(),
             sources: Default::default(),
             domain_cache: Default::default(),
             domain_inputs: Default::default(),
@@ -1348,6 +1393,20 @@ impl App {
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             // @sat:app.marks
+            C::BindDonor { name, path } => {
+                let name = name.trim().to_string();
+                if name.is_empty() || path.trim().is_empty() {
+                    return Err(AppError::Expr("a donor needs a name and a mods folder".into()));
+                }
+                self.donor_requests.push((name, path.trim().to_string()));
+                return Ok(Event::Decided);
+            }
+            C::TakeFromDonor {
+                donor,
+                names,
+                separator,
+                moved,
+            } => self.take_from_donor(&donor, &names, separator, moved)?,
             // @sat:app.space
             C::SetSpace { space } => {
                 if let Some(e) = space.as_ref().and_then(|s| s.problems().into_iter().next()) {
@@ -1891,6 +1950,139 @@ impl App {
             }
         }
         rows
+    }
+
+    // @sat:app.donors
+    /// The shell read a donor build (at the start, or after a binding the window asked for).
+    pub fn set_donor(&mut self, name: &str, data: DonorData) {
+        self.donors.insert(name.to_string(), data);
+        self.revision += 1;
+    }
+
+    /// A binding the window asked for: (name, mods folder).
+    pub fn take_donor_request(&mut self) -> Option<(String, String)> {
+        (!self.donor_requests.is_empty()).then(|| self.donor_requests.remove(0))
+    }
+
+    /// The project's mods with their separators — what donor names are matched against.
+    fn donor_targets(&self) -> sat_core::sync::donor::TargetIndex {
+        let mut sep = "GLOBAL".to_string();
+        let mut out = Vec::new();
+        for (name, kind, _) in self.session.book().entries() {
+            match kind {
+                sat_core::canon::EntryKind::Separator => {
+                    sep = name
+                        .trim_end_matches(sat_core::canon::SEPARATOR_SUFFIX)
+                        .to_string();
+                }
+                sat_core::canon::EntryKind::Mod => out.push(sat_core::sync::donor::TargetMod {
+                    name: name.to_string(),
+                    separator: sep.clone(),
+                }),
+                sat_core::canon::EntryKind::Foreign => {}
+            }
+        }
+        sat_core::sync::donor::TargetIndex::new(out)
+    }
+
+    fn donor_views(&self) -> Vec<DonorView> {
+        use sat_core::sync::donor;
+        let target = self.donor_targets();
+        self.donors
+            .iter()
+            .map(|(name, d)| {
+                let list = d.modlist.clone().unwrap_or_default();
+                let candidates = donor::candidates(&list, &d.folders, &target);
+                let mut counts = std::collections::BTreeMap::new();
+                for c in &candidates {
+                    // the kind's own name (`folder_only`), as the candidates carry it
+                    let k = serde_json::to_value(c.kind)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_default();
+                    *counts.entry(k).or_insert(0) += 1;
+                }
+                DonorView {
+                    name: name.clone(),
+                    mods_dir: d.mods_dir.clone(),
+                    validation: d.modlist.as_ref().map(|l| donor::validate(l, &d.folders)),
+                    counts,
+                    candidates,
+                }
+            })
+            .collect()
+    }
+
+    fn take_from_donor(
+        &mut self,
+        donor_name: &str,
+        names: &[String],
+        separator: Option<Key>,
+        moved: bool,
+    ) -> Result<Option<order::Change>, AppError> {
+        use sat_core::canon::{Entry, EntryKind, SEPARATOR_SUFFIX};
+        use sat_core::sync::donor::CandidateKind;
+        let view = self
+            .donor_views()
+            .into_iter()
+            .find(|d| d.name == donor_name)
+            .ok_or_else(|| AppError::Expr(format!("no donor {donor_name:?}")))?;
+        let mut last = None;
+        for n in names {
+            let c = view
+                .candidates
+                .iter()
+                .find(|c| &c.name == n)
+                .ok_or_else(|| AppError::Expr(format!("{n}: not a candidate of {donor_name}")))?;
+            let folder = match (c.kind, &c.folder) {
+                (CandidateKind::Ready | CandidateKind::FolderOnly, Some(f)) => f.clone(),
+                _ => {
+                    return Err(AppError::Expr(
+                        format!("{n}: nothing to take ({:?})", c.kind).to_lowercase(),
+                    ));
+                }
+            };
+            // where it goes: the end of the chosen separator, or of the donor's separator of the same name
+            let before = {
+                let b = self.session.book();
+                let want = separator
+                    .map(|k| b.name(k).to_string())
+                    .unwrap_or_else(|| format!("{}{SEPARATOR_SUFFIX}", c.source_separator));
+                let entries: Vec<(String, EntryKind)> =
+                    b.entries().map(|(n, k, _)| (n.to_string(), k)).collect();
+                match entries
+                    .iter()
+                    .position(|(n, k)| *k == EntryKind::Separator && n.eq_ignore_ascii_case(&want))
+                {
+                    Some(at) => entries[at + 1..]
+                        .iter()
+                        .find(|(_, k)| *k == EntryKind::Separator)
+                        .and_then(|(n, _)| b.key_of(n)),
+                    None => None,
+                }
+            };
+            let entry = Entry {
+                name: c.name.clone(),
+                kind: EntryKind::Mod,
+                enabled: c.enabled,
+            };
+            last = self.session.command(|b| {
+                b.insert_entries(std::slice::from_ref(&entry), before)
+                    .map(|(_, ch)| Some(ch))
+            })?;
+            if let Some(p) = self.project_base.as_mut() {
+                let source = sat_core::intent::Source::Donor {
+                    donor: donor_name.to_string(),
+                    folder,
+                    files: None,
+                    bytes: None,
+                    moved,
+                };
+                p.plan_install(&c.name, source, None, None, c.enabled)
+                    .map_err(AppError::Expr)?;
+            }
+        }
+        Ok(last)
     }
 
     // @sat:app.indicators
@@ -2460,6 +2652,9 @@ impl App {
                     .map(Box::new),
             },
             // @sat:app.decoration
+            Query::Donors => Reply::Donors {
+                donors: self.donor_views(),
+            },
             // @sat:app.workshop
             Query::Resources => {
                 use sat_core::resource::Decision;

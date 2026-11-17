@@ -282,7 +282,36 @@ fn load(args: &[String], after_commit: bool) -> Result<(App, Option<home::Home>)
 /// Starts what the window reads off the request loop after facts arrive: content hashes of contested copies
 /// (`@sat:identical`, from the cache `analyze` keeps) and the record layer (`@sat:records`) with its fields. Until
 /// they arrive copies are "not compared" and the record layer is pending.
+// @sat:devserver.donors
+/// Reads a donor build by its mods folder: its folders, and its modlist when the folder above is an MO2 build
+/// (its selected profile's `modlist.txt`). Paths stay on this machine (`@sat:mo2.donors`).
+pub(crate) fn read_donor(mods_dir: &std::path::Path) -> sat_app::DonorData {
+    let mut folders: Vec<String> = std::fs::read_dir(mods_dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    folders.sort();
+    let modlist = mods_dir
+        .parent()
+        .and_then(|base| Instance::load(base).ok())
+        .and_then(|i| std::fs::read(i.profile_dir().join("modlist.txt")).ok())
+        .map(|b| sat_mo2::profile::parse_modlist(&b).0);
+    sat_app::DonorData {
+        mods_dir: mods_dir.display().to_string(),
+        modlist,
+        folders,
+    }
+}
+
 pub(crate) fn start_readers(inst: &Instance, app: &mut App) {
+    // donor builds this machine knows
+    for (name, dir) in sat_mo2::donors::load(&inst.profile_dir()) {
+        app.set_donor(&name, read_donor(&dir));
+    }
     // content of contested copies (`@sat:identical`), from the hash cache `analyze` keeps; what is missing is read
     // off the request loop (a first run reads a lot) — until then copies are "not compared"
     {
