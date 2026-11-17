@@ -191,6 +191,68 @@ pub fn archives(
     )
 }
 
+// @sat:conflict.game-copy
+/// Which copy of a path the game takes: loose files by mod order above every archive (when the pack says so),
+/// archives by the load position of their plugin; an archive without a loaded plugin does not load.
+struct GameOrder<'a> {
+    /// plugin stem → load position of an active plugin
+    loaded: FxHashMap<String, usize>,
+    rules: &'a crate::game::ArchiveRules,
+}
+
+impl<'a> GameOrder<'a> {
+    fn new(list: &PluginList, rules: &'a crate::game::ArchiveRules) -> Self {
+        let loaded = list
+            .plugins
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.active)
+            .map(|(i, p)| {
+                let n = p.name.to_lowercase();
+                (n.rsplit_once('.').map_or(n.clone(), |x| x.0.to_string()), i)
+            })
+            .collect();
+        Self { loaded, rules }
+    }
+
+    /// The load position of an archive copy; `None` — a loose copy, or an archive that does not load.
+    fn archive_pos(&self, table: &ProviderTable, i: usize) -> Option<usize> {
+        match table.source(i) {
+            Source::Archive(a) if self.rules.by_plugin => self
+                .loaded
+                .get(&GamePack::archive_stem(&table.archives()[a.0 as usize].file_name))
+                .copied(),
+            Source::Archive(_) => Some(0),
+            Source::Loose => None,
+        }
+    }
+
+    /// The copy the game takes among `copies` (all of active mods).
+    fn winner(
+        &self,
+        table: &ProviderTable,
+        prio: &Priorities,
+        copies: impl Iterator<Item = usize>,
+    ) -> Option<usize> {
+        copies
+            .filter_map(|i| {
+                if table.is_archive(i) {
+                    self.archive_pos(table, i).map(|pos| (i, (0u8, pos as i64)))
+                } else {
+                    Some((
+                        i,
+                        (
+                            u8::from(self.rules.loose_over_archive),
+                            i64::from(prio.get(table.owner(i))),
+                        ),
+                    ))
+                }
+            })
+            .max_by_key(|x| x.1)
+            .map(|x| x.0)
+    }
+}
+
 /// [`archives`] over candidate paths (a loose and an archive copy, or two archive copies, of different mods).
 pub fn archives_in(
     paths: &[PathId],
@@ -211,26 +273,8 @@ pub fn archives_in(
     let Some(rules) = &pack.archives else {
         return b.finish();
     };
-    // plugin stem → load position of an active plugin
-    let loaded: FxHashMap<String, usize> = list
-        .plugins
-        .iter()
-        .enumerate()
-        .filter(|(_, p)| p.active)
-        .map(|(i, p)| {
-            let n = p.name.to_lowercase();
-            (n.rsplit_once('.').map_or(n.clone(), |x| x.0.to_string()), i)
-        })
-        .collect();
-    let archive_pos = |i: usize| -> Option<usize> {
-        match table.source(i) {
-            Source::Archive(a) if rules.by_plugin => loaded
-                .get(&GamePack::archive_stem(&table.archives()[a.0 as usize].file_name))
-                .copied(),
-            Source::Archive(_) => Some(0),
-            Source::Loose => None,
-        }
-    };
+    let order = GameOrder::new(list, rules);
+    let archive_pos = |i: usize| order.archive_pos(table, i);
     // @sat:conflict.stacks.compute
     // paths whose copies come from the same mods the same way (loose / which archive) go the same way: computed
     // once per such stack, not per path
@@ -261,23 +305,7 @@ pub fn archives_in(
                         .iter()
                         .max_by_key(|&&i| (prio.get(table.owner(i)), !table.is_archive(i)))?;
                     // what the game takes: loose by mod order above every archive, archives by plugin order
-                    let game = active
-                        .iter()
-                        .filter_map(|&i| {
-                            if table.is_archive(i) {
-                                archive_pos(i).map(|pos| (i, (0u8, pos as i64)))
-                            } else {
-                                Some((
-                                    i,
-                                    (
-                                        u8::from(rules.loose_over_archive),
-                                        i64::from(prio.get(table.owner(i))),
-                                    ),
-                                ))
-                            }
-                        })
-                        .max_by_key(|x| x.1)
-                        .map(|x| x.0);
+                    let game = order.winner(table, prio, active.iter().copied());
                     let shown_mod = table.owner(shown);
                     if game.map(|g| table.owner(g)) == Some(shown_mod) {
                         return None;
@@ -818,6 +846,7 @@ pub fn facegen_in(
         return b.finish();
     };
     let record_sig = sig4(&fg.record);
+    let order = pack.archives.as_ref().map(|r| GameOrder::new(list, r));
     // the mod a loaded plugin comes from
     let plugin_mod = |name: &str| -> Option<ModId> {
         let p = list.get(name)?;
@@ -846,11 +875,15 @@ pub fn facegen_in(
         let Some(rec_mod) = plugin_mod(&ix.plugins[last.plugin as usize]) else {
             continue;
         };
-        let Some(face) = table
+        // the copy the game takes (a loose face file beats an archive one whatever the mod order)
+        let active = table
             .path_providers(p)
-            .filter(|&i| prio.is_active(table.owner(i)))
-            .max_by_key(|&i| (prio.get(table.owner(i)), !table.is_archive(i)))
-        else {
+            .filter(|&i| prio.is_active(table.owner(i)));
+        let face = match &order {
+            Some(o) => o.winner(table, prio, active),
+            None => active.max_by_key(|&i| (prio.get(table.owner(i)), !table.is_archive(i))),
+        };
+        let Some(face) = face else {
             continue;
         };
         let face_mod = table.owner(face);
@@ -1005,6 +1038,67 @@ mod tests {
         assert_eq!(ca.row(m), b"w", "the loose copy of the lower mod wins");
         // b.dds: High's Orphan.bsa has no plugin, Other.bsa has none either — nothing loads it
         assert!(r.chains.iter().any(|c| c.kind == "архив не грузится"));
+    }
+
+    #[test]
+    fn a_loose_face_file_beats_the_face_in_an_archive_of_a_higher_mod() {
+        use crate::facts::ArchiveFacts;
+        use sat_formats::{ArchiveEntry, ArchiveKind, ArchiveManifest};
+        let tint = "textures/actors/character/facegendata/facetint/skyrim.esm/00013bab.dds";
+        // an NPC overhaul: its plugin wins the NPC record, its face tint is loose
+        let npc = with_plugin("NPC Overhaul", &[tint], "Overhaul.esp", &["Skyrim.esm"]);
+        // a texture pack above it repacks the game's own archives, the vanilla tint among them
+        let pack_mod = |loose: bool| {
+            if loose {
+                return mk("Texture Pack", &[tint]);
+            }
+            let mut m = mk("Texture Pack", &[]);
+            m.archives.push(ArchiveFacts {
+                file_name: "Skyrim - Textures0.bsa".into(),
+                size: 10,
+                manifest: Some(ArchiveManifest {
+                    kind: ArchiveKind::Bsa { version: 105 },
+                    entries: vec![ArchiveEntry {
+                        path: tint.into(),
+                        size: 5,
+                        vram: 0,
+                    }],
+                }),
+                error: None,
+            });
+            m
+        };
+        let rec = |form_id: u32| RecordFact {
+            form_id,
+            signature: *b"NPC_",
+            hash: Some(u64::from(form_id)),
+            flags: 0,
+        };
+        let base = PluginRecords {
+            masters: vec![],
+            records: vec![rec(0x0001_3BAB)],
+        };
+        let over = PluginRecords {
+            masters: vec!["Skyrim.esm".into()],
+            records: vec![RecordFact {
+                hash: Some(7),
+                ..rec(0x0001_3BAB)
+            }],
+        };
+        let ix = RecordIndex::build(&[("Skyrim.esm".into(), &base), ("Overhaul.esp".into(), &over)]);
+        for loose in [false, true] {
+            let facts = [npc.clone(), pack_mod(loose)];
+            let table = ProviderTable::build(&facts);
+            let prio = Priorities(vec![0, 1]);
+            let list = list_of(&facts, &prio, &["Overhaul.esp"]);
+            let r = facegen(&ix, &table, &prio, &list, crate::game::active());
+            assert_eq!(
+                r.chains.is_empty(),
+                !loose,
+                "loose pack copy: {loose}; the game takes the loose tint over the archive one: {:?}",
+                r.counts
+            );
+        }
     }
 
     #[test]
