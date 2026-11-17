@@ -142,7 +142,8 @@ fn load(args: &[String], after_commit: bool) -> Result<(App, Option<home::Home>)
         },
     )?;
     // what is on disk now: unsaved changes are measured against it (none yet — the window must save first)
-    let mut on_disk = (write && opened.origin == sat_home::project::Origin::Stored).then(|| opened.project.clone());
+    let mut on_disk =
+        (write && opened.origin == sat_home::project::Origin::Stored).then(|| opened.project.clone());
     eprintln!("{}", opened.origin_line());
     let sat_home::project::Opened {
         mut stll,
