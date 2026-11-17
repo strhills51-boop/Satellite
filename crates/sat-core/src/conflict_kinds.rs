@@ -65,7 +65,8 @@ pub fn constraints_with(list: &PluginList, ix: Option<&RecordIndex>, pack: &Game
         .map(|(i, p)| (plugin_key(&p.name), i))
         .collect();
     for (i, p) in list.plugins.iter().enumerate() {
-        if !p.present || p.blacklisted {
+        // an unchecked plugin does not load: its missing masters break nothing (they come back with its mark)
+        if !p.present || p.blacklisted || !p.active {
             continue;
         }
         let me = b.participant(&p.name, None, i as i64);
@@ -77,9 +78,6 @@ pub fn constraints_with(list: &PluginList, ix: Option<&RecordIndex>, pack: &Game
                 Severity::Error,
                 true,
             );
-        }
-        if !p.active {
-            continue;
         }
         for m in &p.masters {
             if let Some(&mi) = pos.get(&plugin_key(m))
