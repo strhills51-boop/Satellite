@@ -261,6 +261,20 @@ body.space #canvas > .wfr > span { position: absolute; top: -10px; left: 16px; p
 body.space #canvas > .wfr.on > span { color: var(--accent); }
 section > .wr { display: none; } body.space section > .wr { display: block; }
 section > h2.wonly { display: none; } body.space section > h2.wonly { display: flex; position: sticky; top: 0; z-index: 2; margin: -4px -10px 0; }
+#wsBox { position: fixed; z-index: 57; top: 52px; right: 0; bottom: 0; width: min(400px, 100vw); background: var(--bg2); border-left: 1px solid var(--line);
+  box-shadow: var(--shadow); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; font-size: 12px; }
+#wsBox header { display: flex; align-items: center; gap: 6px; padding: 12px 14px 8px; } #wsBox header b { font-size: 15px; } #wsBox header [data-wsx] { margin-left: auto; padding: 4px; }
+#wsBox .wtabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 14px 10px; border-bottom: 1px solid var(--line-soft); }
+#wsBox .wtabs button { font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); } #wsBox .wtabs button i { font-style: normal; color: var(--subtle); font: 10px var(--mono); }
+#wsBox .wtabs button.on { border-color: var(--accent-border); color: var(--fg); background: var(--accent-weak); }
+#wsBox .wlib { overflow: auto; padding: 10px 14px; display: grid; gap: 6px; align-content: start; }
+#wsBox .wit { padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line-soft); background: var(--panel); display: grid; gap: 2px; cursor: pointer; }
+#wsBox .wit.on { border-color: var(--accent-border); } #wsBox .wit span { color: var(--muted); font-size: 11px; }
+#wsBox .wman { margin: 0 14px; padding: 8px 10px; border-radius: 8px; background: var(--panel); font: 11px/1.6 var(--mono); max-height: 30vh; overflow: auto; }
+#wsBox .wman div { display: flex; gap: 8px; } #wsBox .wman span { color: var(--subtle); min-width: 70px; } #wsBox .wman em { font-style: normal; color: var(--x-txt); overflow-wrap: anywhere; }
+#wsBox .wtrust { display: flex; gap: 6px; padding: 8px 14px 0; flex-wrap: wrap; } #wsBox .wtrust span { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--subtle); }
+#wsBox .wtrust span.on { border-color: var(--ok); color: var(--ok); } #wsBox .wtrust span.warn { border-color: var(--m-txt); color: var(--m-txt); }
+#wsBox .wact { display: flex; gap: 6px; justify-content: flex-end; padding: 10px 14px 14px; }
 /* the cloud: the mod's card at the mini level on hover */
 #cloud { position: fixed; z-index: 55; width: 300px; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
   background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; display: grid; gap: 8px; }
@@ -929,6 +943,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
   <span style="display:inline-flex"><button id="fxBtn" title="Проводник файлов: деревья, вся сборка, предпросмотр"><svg class="si"><use href="#ic-folder"/></svg>Проводник</button><button id="fxPinBtn" title="Закреплённые файлы">▾</button></span>
   <span class="tooth" id="modeSw" role="radiogroup" aria-label="Режим окна"><button data-m="classic">Классика</button><button data-m="space">Пространство</button></span>
   <nav id="marks" aria-label="Воркфлоу"></nav>
+  <button id="wsBtn" title="Мастерская: ресурсы — команды, клавиши, окна, анализаторы, счётчики, индикаторы, гайды">Мастерская</button>
   <div id="stats"></div>
   <span class="sandbox" id="projState" title="Песочница: изменения живут в памяти и никуда не пишутся">песочница</span><button id="saveBtn" class="pri" hidden title="Сохранить проект (Ctrl+S)"><svg class="si"><use href="#ic-save"/></svg><span>Сохранить</span></button>
   <button id="theme" title="Светлая / тёмная"><svg class="si"><use href="#ic-sun"/></svg></button>
@@ -1603,6 +1618,58 @@ spMain().addEventListener("wheel", ev => {
   spDraw(); spSave();
 }, { passive: false });
 try { if (localStorage.getItem("sat-mode") === "space") setTimeout(() => spaceMode(true), 200); else spaceMode(false); } catch (_) { spaceMode(false); }
+
+// ---------------------------------------------------------------- the Workshop (ADR 0020 §10, ADR 0011)
+/** The entry point for advanced users: the library of resources — what is registered (built-in, machine, project),
+ *  where it came from, what the policy decided — and the project's data resources (counters, indicators, guides).
+ *  A manifest can be copied as the start of an own resource; indicators are edited in place. */
+const WS = { tab: "command", sel: null, data: null };
+const WS_TABS = [["command", "Команды"], ["hotkey", "Клавиши"], ["window", "Окна"], ["analyzer", "Анализаторы"], ["focus-provider", "Фокус-группы"], ["preset", "Пресеты"],
+  ["counters", "Счётчики"], ["indicators", "Индикаторы"], ["guides", "Гайды"]];
+const WS_SRC = { "built-in": "встроенный", machine: "машина", project: "проект", network: "сеть" };
+async function workshop(open) {
+  let box = $("wsBox");
+  if (!box) { box = document.createElement("aside"); box.id = "wsBox"; box.hidden = true; document.body.appendChild(box); box.onclick = wsClick; }
+  if (open === false || (open === undefined && !box.hidden)) { box.hidden = true; return; }
+  try { WS.data = await query({ type: "resources" }); } catch (e) { $("err").textContent = e.message; return; }
+  box.hidden = false; wsDraw();
+}
+function wsItems() {
+  const d = WS.data;
+  if (WS.tab === "counters") return d.counters.map(c => ({ id: c.id, title: c.template, sub: "счётчик · проект", body: c }));
+  if (WS.tab === "indicators") return d.indicators.map(c => ({ id: c.id, title: c.label, sub: "индикатор · " + (c.when || "все моды") + (c.sum ? " · Σ " + c.sum : ""), body: c }));
+  if (WS.tab === "guides") return Object.entries(GUIDES).filter(([, g]) => g[0]).map(([k, g]) => ({ id: "guide." + k, title: g[0], sub: "гайд · окно", body: { id: "guide." + k, title: g[0], text: g[1] } }));
+  return d.resources.filter(r => r.manifest.kind === WS.tab).map(r => ({ id: r.manifest.id, title: r.manifest.title, sub: `${WS_SRC[r.source] || r.source} · ${r.status === "active" ? "активен" : r.status === "blocked" ? "заблокирован" : "ждёт одобрения"}`, body: r.manifest, r }));
+}
+function wsDraw() {
+  const box = $("wsBox"), items = wsItems(), cur = items.find(x => x.id === WS.sel) || items[0];
+  const count = k => k === "counters" ? WS.data.counters.length : k === "indicators" ? WS.data.indicators.length : k === "guides" ? Object.values(GUIDES).filter(g => g[0]).length : WS.data.resources.filter(r => r.manifest.kind === k).length;
+  const man = cur ? Object.entries(cur.body).filter(([, v]) => v !== "" && !(Array.isArray(v) && !v.length) && !(v && typeof v === "object" && !Array.isArray(v) && !Object.keys(v).length))
+    .map(([k, v]) => `<div><span>${esc(k)}</span><em>${esc(typeof v === "object" ? JSON.stringify(v) : String(v))}</em></div>`).join("") : "";
+  box.innerHTML = `<header><b>Мастерская</b>${guideBtn("workshop")}<button data-wsx title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></header>` +
+    `<div class="wtabs">${WS_TABS.map(([k, n]) => `<button data-wst="${k}" class="${WS.tab === k ? "on" : ""}">${n} <i>${count(k)}</i></button>`).join("")}</div>` +
+    `<div class="wlib">${items.map(x => `<div class="wit${cur && x.id === cur.id ? " on" : ""}" data-wsi="${esc(x.id)}"><b>${esc(x.title)}</b><span>${esc(x.sub)}</span></div>`).join("") || `<div class="muted">пусто</div>`}</div>` +
+    (cur ? `<div class="wman">${man}</div>` + (cur.r ? `<div class="wtrust">${["built-in", "machine", "project"].map(k => `<span class="${cur.r.source === k ? "on" : ""}">${WS_SRC[k]}</span>`).join("")}${(cur.r.waiting || []).length ? `<span class="warn">ждёт: ${esc(cur.r.waiting.join(", "))}</span>` : ""}</div>` : "") +
+      `<div class="wact"><button data-wscopy>Копировать манифест</button>${WS.tab === "indicators" ? `<button class="pri" data-wsind>Изменить</button>` : ""}${WS.tab === "guides" ? `<button class="pri" data-wsguide="${esc(cur.id.slice(6))}">Открыть</button>` : ""}</div>` : "");
+}
+async function wsClick(ev) {
+  const t = ev.target.closest("[data-wst]"), i = ev.target.closest("[data-wsi]");
+  if (ev.target.closest("[data-wsx]")) return workshop(false);
+  if (t) { WS.tab = t.dataset.wst; WS.sel = null; return wsDraw(); }
+  if (i) { WS.sel = i.dataset.wsi; return wsDraw(); }
+  if (ev.target.closest("[data-wsind]")) { workshop(false); return indEditor(); }
+  const g = ev.target.closest("[data-wsguide]"); if (g) return showGuide(g.dataset.wsguide);
+  if (ev.target.closest("[data-wscopy]")) {
+    const cur = wsItems().find(x => x.id === WS.sel) || wsItems()[0]; if (!cur) return;
+    // the copy is the start of an own resource: a user namespace, the first version
+    const m = { ...cur.body, id: "my." + String(cur.id).split(".").slice(1).join(".") };
+    if (m.version !== undefined) m.version = "0.1.0";
+    try { await navigator.clipboard.writeText(JSON.stringify(m, null, 2)); ev.target.textContent = "Скопировано"; } catch (_) { ev.target.textContent = "Буфер обмена недоступен"; }
+  }
+}
+$("wsBtn").onclick = () => workshop();
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("wsBox") && !$("wsBox").hidden) { ev.stopPropagation(); workshop(false); } }, true);
+GUIDES.workshop = ["Мастерская", "Библиотека ресурсов: всё, что расширяет Satellite, входит ресурсом — команды, клавиши, окна, анализаторы, поставщики фокус-групп, пресеты; и данные проекта — счётчики, индикаторы, гайды.\n\nДоверие зависит только от того, откуда ресурс пришёл: встроенный — доверен; с машины, из проекта, из сети — ждёт твоего одобрения его возможностей.\n\n«Копировать манифест» — заготовка своего ресурса (своё пространство имён, версия 0.1.0)."];
 
 /** A stable hue of a name (stickers without a colour of their own). */
 function hue(s) { let h = 0; for (const c of String(s).toLowerCase()) h = (h * 31 + c.codePointAt(0)) % 360; return h; }

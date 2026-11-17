@@ -305,6 +305,18 @@ pub enum BufferEdit {
     },
 }
 
+/// A resource as the Workshop lists it: its manifest, where it came from and what the policy decided.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceView {
+    pub manifest: sat_core::resource::Manifest,
+    pub source: sat_core::resource::Source,
+    /// `active`, `needs-approval` or `blocked`.
+    pub status: String,
+    /// Capabilities waiting for approval, or the missing dependencies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waiting: Vec<String>,
+}
+
 /// The buffer as the window shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BufferAreaView {
@@ -626,6 +638,8 @@ pub enum Query {
         #[serde(default = "thumb_side")]
         side: u32,
     },
+    /// Every registered resource with its policy decision — the Workshop's library (`@sat:app.workshop`).
+    Resources,
     /// The workspace (the built-in one when the project has none).
     Space,
     /// The build indicators measured over the whole build (`@sat:app.indicators`).
@@ -991,6 +1005,12 @@ pub enum Reply {
     },
     Separators {
         tiles: Vec<SeparatorTile>,
+    },
+    Resources {
+        resources: Vec<ResourceView>,
+        /// The project's own data resources: counters on mod cards, sticker rules, build indicators.
+        counters: Vec<sat_core::counters::CounterDef>,
+        indicators: Vec<sat_core::counters::IndicatorDef>,
     },
     Space {
         space: sat_core::space::Space,
@@ -2440,6 +2460,45 @@ impl App {
                     .map(Box::new),
             },
             // @sat:app.decoration
+            // @sat:app.workshop
+            Query::Resources => {
+                use sat_core::resource::Decision;
+                let mut resources: Vec<ResourceView> = self
+                    .registry
+                    .entries()
+                    .map(|e| {
+                        let (status, waiting) = match &e.decision {
+                            Decision::Active(_) => ("active", Vec::new()),
+                            Decision::NeedsApproval(c) => {
+                                ("needs-approval", c.iter().map(|x| format!("{x:?}")).collect())
+                            }
+                            Decision::Blocked(ids) => ("blocked", ids.clone()),
+                        };
+                        ResourceView {
+                            manifest: e.manifest.clone(),
+                            source: e.source,
+                            status: status.into(),
+                            waiting,
+                        }
+                    })
+                    .collect();
+                resources.sort_by(|a, b| {
+                    (a.manifest.kind, &a.manifest.id).cmp(&(b.manifest.kind, &b.manifest.id))
+                });
+                Reply::Resources {
+                    resources,
+                    counters: self
+                        .project_base
+                        .as_ref()
+                        .map(|p| p.counters.clone())
+                        .unwrap_or_default(),
+                    indicators: if self.indicator_defs.is_empty() {
+                        sat_core::counters::default_indicators()
+                    } else {
+                        self.indicator_defs.clone()
+                    },
+                }
+            }
             Query::Space => Reply::Space {
                 own: self.space.is_some(),
                 space: self.space.clone().unwrap_or_else(sat_core::space::Space::classic),
