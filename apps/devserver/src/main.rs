@@ -142,7 +142,7 @@ fn load(args: &[String], after_commit: bool) -> Result<(App, Option<home::Home>)
         },
     )?;
     // what is on disk now: unsaved changes are measured against it (none yet — the window must save first)
-    let mut on_disk = (opened.origin == sat_home::project::Origin::Stored).then(|| opened.project.clone());
+    let mut on_disk = (write && opened.origin == sat_home::project::Origin::Stored).then(|| opened.project.clone());
     eprintln!("{}", opened.origin_line());
     let sat_home::project::Opened {
         mut stll,
@@ -263,7 +263,9 @@ fn load(args: &[String], after_commit: bool) -> Result<(App, Option<home::Home>)
         layout: sat_mo2::commit::Layout::of(&inst),
         inst: inst.clone(),
     }));
-    if let Some(p) = on_disk {
+    // a sandbox never saves: it keeps no second copy of the project to compare with (tens of MB on a big build,
+    // on a 4 GB laptop that is paging)
+    if write && let Some(p) = on_disk {
         app.project_saved(p);
     }
     if write {
