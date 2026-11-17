@@ -725,3 +725,48 @@ fn nested_separators_collapse_move_and_keep_their_levels() {
     b.undo(); // the level
     assert_eq!(b.level(k(&b, "B_separator")), 0);
 }
+
+#[test]
+fn mods_are_filed_into_a_group_and_taken_out() {
+    let names = ["A_separator", "a1", "a2", "a3", "a4", "a5"];
+    let list = Modlist::new(
+        names
+            .iter()
+            .map(|n| Entry {
+                name: n.to_string(),
+                kind: if n.ends_with("_separator") {
+                    EntryKind::Separator
+                } else {
+                    EntryKind::Mod
+                },
+                enabled: true,
+            })
+            .collect(),
+    );
+    let mut b = OrderBook::from_modlist(&list);
+    let k = |b: &OrderBook, n: &str| b.key_of(n).unwrap();
+    let (g, _) = b.create_group("obsolete", &[k(&b, "a2"), k(&b, "a3")]).unwrap();
+    let members = |b: &OrderBook| {
+        let mut m: Vec<String> = ["a1", "a2", "a3", "a4", "a5"]
+            .iter()
+            .filter(|n| b.group_id_of(b.key_of(n).unwrap()) == Some(g))
+            .map(|n| n.to_string())
+            .collect();
+        m.sort();
+        m
+    };
+    // one not next to it does not join (move it there first); a neighbour does
+    assert!(b.regroup(g, &[k(&b, "a5")], &[]).is_err());
+    assert!(b.regroup(g, &[k(&b, "a4")], &[]).unwrap().is_some());
+    assert_eq!(members(&b), ["a2", "a3", "a4"]);
+    // the middle cannot leave, an end can
+    assert!(b.regroup(g, &[], &[k(&b, "a3")]).is_err());
+    b.regroup(g, &[], &[k(&b, "a2")]).unwrap();
+    assert_eq!(members(&b), ["a3", "a4"]);
+    // two at least
+    assert!(b.regroup(g, &[], &[k(&b, "a3")]).is_err());
+    // undone step by step
+    b.undo();
+    b.undo();
+    assert_eq!(members(&b), ["a2", "a3"]);
+}

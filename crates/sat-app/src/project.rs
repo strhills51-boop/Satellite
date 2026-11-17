@@ -263,6 +263,52 @@ mod tests {
     }
 
     #[test]
+    fn a_service_separator_is_added_to_the_canon() {
+        let mut a = app_of(["A", "B"]);
+        let p = sat_core::project::Project::import(a.session().book().to_modlist());
+        a.load_project(&p, Vec::new());
+        let before = a.session().book().key_of("A");
+        a.command(Command::AddSeparator {
+            name: "obsolete".into(),
+            before,
+        })
+        .unwrap();
+        let names: Vec<String> = a
+            .session()
+            .book()
+            .to_modlist()
+            .entries
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        let at = names.iter().position(|n| n == "obsolete_separator").unwrap();
+        assert_eq!(names[at + 1], "A");
+        // the suffix is not doubled; a taken name and a bad folder name are refused
+        assert!(
+            a.command(Command::AddSeparator {
+                name: "obsolete_separator".into(),
+                before: None
+            })
+            .is_err()
+        );
+        assert!(
+            a.command(Command::AddSeparator {
+                name: "a/b".into(),
+                before: None
+            })
+            .is_err()
+        );
+        assert!(
+            a.project()
+                .unwrap()
+                .canon
+                .entries
+                .iter()
+                .any(|e| e.name == "obsolete_separator")
+        );
+    }
+
+    #[test]
     fn the_cursor_does_not_move_cards() {
         // the flow index is kept while only the cursor moves (a rebuild per key press was slow on a big build)
         let mut a = app_of(["A", "B"]);

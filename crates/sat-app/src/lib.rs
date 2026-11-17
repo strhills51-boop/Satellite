@@ -90,6 +90,13 @@ pub enum Command {
     Reorder {
         keys: Vec<Key>,
     },
+    /// A new separator in the canon right before `before` (`None` — at the end): a service separator such as
+    /// `obsolete` or `review` to file mods under (`@sat:app.separator.add`). Its folder is made by the commit.
+    AddSeparator {
+        name: String,
+        #[serde(default)]
+        before: Option<Key>,
+    },
     Move {
         keys: Vec<Key>,
         before: Option<Key>,
@@ -191,6 +198,15 @@ pub enum Command {
     CreateGroup {
         name: String,
         keys: Vec<Key>,
+    },
+    /// File mods into the logical group of `member` or take them out (`@sat:order.book.regroup`): the group stays
+    /// contiguous, so a mod joins next to it and only its first or last members leave.
+    Regroup {
+        member: Key,
+        #[serde(default)]
+        add: Vec<Key>,
+        #[serde(default)]
+        remove: Vec<Key>,
     },
     /// Dissolve the logical group of an entry; its members stay where they are.
     DissolveGroup {
@@ -1425,6 +1441,26 @@ impl App {
                 let items = self.reorder_items(&keys);
                 self.session.command(|b| b.place_keys(&items))?
             }
+            // @sat:app.separator.add
+            C::AddSeparator { name, before } => {
+                use sat_core::canon::{Entry, EntryKind, SEPARATOR_SUFFIX};
+                let base = name.trim();
+                let base = base.strip_suffix(SEPARATOR_SUFFIX).unwrap_or(base).trim();
+                if base.is_empty() || base.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
+                    return Err(AppError::Expr(format!(
+                        "separator name {name:?}: a folder name is needed (no / \\ : * ? \" < > |)"
+                    )));
+                }
+                let entry = Entry {
+                    name: format!("{base}{SEPARATOR_SUFFIX}"),
+                    kind: EntryKind::Separator,
+                    enabled: false,
+                };
+                self.session.command(|b| {
+                    b.insert_entries(std::slice::from_ref(&entry), before)
+                        .map(|(_, ch)| Some(ch))
+                })?
+            }
             C::SetEnabled { keys, enabled } => self.session.command(|b| b.set_enabled(&keys, enabled))?,
             C::SetColor { keys, color } => self.session.command(|b| b.set_color(&keys, color))?,
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
@@ -1524,6 +1560,10 @@ impl App {
             C::CreateGroup { name, keys } => self
                 .session
                 .command(|b| b.create_group(&name, &keys).map(|(_, c)| Some(c)))?,
+            C::Regroup { member, add, remove } => self.session.command(|b| match b.group_id_of(member) {
+                Some(g) => b.regroup(g, &add, &remove),
+                None => Err(OrderError::Group("not in a logical group")),
+            })?,
             C::DissolveGroup { key } => self.session.command(|b| match b.group_id_of(key) {
                 Some(g) => b.dissolve_group(g),
                 None => Ok(None),

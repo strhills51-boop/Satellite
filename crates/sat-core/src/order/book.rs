@@ -204,6 +204,11 @@ enum Op {
         collapsed: bool,
     },
     Dissolve(GroupId),
+    /// A group's members replaced (mods filed into it or taken out); its name and id stay.
+    Regroup {
+        id: GroupId,
+        members: Vec<Key>,
+    },
     /// Puts entries that are not in the list (new or taken) before `before`.
     Put {
         keys: Vec<Key>,
@@ -1049,6 +1054,47 @@ impl OrderBook {
         Ok((id, change))
     }
 
+    // @sat:order.book.regroup
+    /// Files mods into a logical group (`add`) or takes them out: the group stays contiguous and of two mods or more,
+    /// so a mod joins next to it (move it there first) and only its first or last members leave.
+    pub fn regroup(&mut self, g: GroupId, add: &[Key], remove: &[Key]) -> Result<Option<Change>, OrderError> {
+        let Some(gr) = self.groups.get(g as usize).and_then(Option::as_ref) else {
+            return Err(OrderError::Group("no such group"));
+        };
+        for &k in add.iter().chain(remove) {
+            self.check_key(k)?;
+        }
+        let mut members: Vec<Key> = gr
+            .members
+            .iter()
+            .copied()
+            .filter(|k| !remove.contains(k))
+            .collect();
+        for &k in add {
+            let it = &self.items[k as usize];
+            if it.kind != EntryKind::Mod {
+                return Err(OrderError::Group("only mods can be grouped"));
+            }
+            match it.group {
+                Some(x) if x == g => {}
+                Some(_) => return Err(OrderError::Group("a mod of another group")),
+                None => members.push(k),
+            }
+        }
+        members.sort_by_key(|&k| self.seq.pos(k));
+        members.dedup();
+        if members.len() < 2 {
+            return Err(OrderError::Group("need at least two mods"));
+        }
+        let (lo, hi) = (self.seq.pos(members[0]), self.seq.pos(members[members.len() - 1]));
+        if hi - lo + 1 != members.len() {
+            return Err(OrderError::Group(
+                "the group would not be contiguous: move the mod next to it first",
+            ));
+        }
+        self.apply_recorded(Op::Regroup { id: g, members })
+    }
+
     /// Monolith rule (44353): at least two mods, contiguous (for a new group), not in another group. Returns members in canon order.
     fn group_rule(&self, keys: &[Key], contiguous: bool) -> Result<Vec<Key>, &'static str> {
         let mut members: Vec<Key> = keys.to_vec();
@@ -1422,6 +1468,25 @@ impl OrderBook {
                 p.truth(Truth::Canon, [*k]);
                 self.after_content_change(HashSet::from([*k]), p);
                 Some(Op::Rename(*k, old))
+            }
+            Op::Regroup { id, members } => {
+                let g = self.groups[*id as usize].as_mut().expect("group exists");
+                let old = std::mem::replace(&mut g.members, members.clone());
+                for &k in &old {
+                    self.items[k as usize].group = None;
+                }
+                for &k in members {
+                    self.items[k as usize].group = Some(*id);
+                }
+                self.recheck_group(*id);
+                let touched: Vec<Key> = old.iter().chain(members).copied().collect();
+                self.reweigh(touched.clone(), |_| true, p);
+                p.truth(Truth::Decoration, touched.iter().copied());
+                p.truth(Truth::Groups, touched.iter().copied());
+                Some(Op::Regroup {
+                    id: *id,
+                    members: old,
+                })
             }
             Op::Dissolve(id) => {
                 let g = self.groups[*id as usize].take().expect("group exists");

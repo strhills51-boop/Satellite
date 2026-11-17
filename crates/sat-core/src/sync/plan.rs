@@ -262,6 +262,28 @@ pub fn plan_with(
             }),
         }
     }
+    // @sat:sync.plan.separators
+    // a separator the project has and the disk does not — one added in the window (a service separator such as
+    // `obsolete`) — is made: in MO2 a separator is an empty folder. One a sync record speaks of is the record's.
+    let spoken: HashSet<String> = records
+        .iter()
+        .flat_map(|r| match &r.mismatch {
+            Mismatch::FsDeleted { project_name } => vec![project_name.to_lowercase()],
+            Mismatch::FsRenamed {
+                project_name,
+                fs_name,
+            } => vec![project_name.to_lowercase(), fs_name.to_lowercase()],
+            Mismatch::FsCreated { fs_name } => vec![fs_name.to_lowercase()],
+        })
+        .collect();
+    for e in &canon.entries {
+        if e.kind == EntryKind::Separator && !disk_has(&e.name) && !spoken.contains(&e.name.to_lowercase()) {
+            p.disk_ops.push(DiskOp::Create {
+                name: e.name.clone(),
+                kind: EntityKind::Separator,
+            });
+        }
+    }
     p.canon_after = apply_canon(canon, &p.project_ops, &mut p.blockers);
     p.disk_ops = order_disk(std::mem::take(&mut p.disk_ops), disk, &mut p.blockers);
     p
@@ -490,6 +512,28 @@ mod tests {
             ]
         );
         assert_eq!((p.settles.len(), p.ignored), (5, 1));
+    }
+
+    #[test]
+    fn a_separator_added_in_the_window_gets_its_folder() {
+        // `obsolete` was added in the window: the project has it, the disk not yet
+        let c = canon(&["S_separator", "A", "obsolete_separator", "Gone_separator"]);
+        let recs = vec![rec(
+            EntityKind::Separator,
+            deleted("Gone_separator"),
+            C,
+            Some(Resolution::RemoveFromProject),
+        )];
+        let p = plan(&c, &recs, &disk(&["S_separator", "A"]));
+        assert!(!p.blocked(), "{:?}", p.blockers);
+        assert_eq!(
+            p.disk_ops,
+            [DiskOp::Create {
+                name: "obsolete_separator".into(),
+                kind: EntityKind::Separator
+            }],
+            "the one a record speaks of is the record's"
+        );
     }
 
     #[test]
