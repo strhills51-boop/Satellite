@@ -131,7 +131,7 @@
 | Разбор BSA/BA2 | `@sat:formats.archive` | — |
 | Заголовок DDS и VRAM | `@sat:formats.dds` | — |
 | Класс загрузки плагина (NG) | `@sat:formats.plugin.kind` | тип монолита для паритета — `@sat:formats.plugin.monolith-type` |
-| Служебные разделители и подшивка в лог-группы: разделитель добавляется в канон окном или CLI, его папку делает фиксация (разделитель MO2 — пустая папка); мод подшивается в лог-группу рядом с ней или выходит с её края | `@sat:app.separator.add` (`Command::AddSeparator`), `@sat:sync.plan.separators`, `@sat:order.book.regroup` (`Command::Regroup`, `Op::Regroup`) | группа остаётся сплошной: мод сначала переносится к ней |
+| Служебные разделители и подшивка в лог-группы: разделитель добавляется в канон окном или CLI, его папку делает фиксация (разделитель MO2 — пустая папка); мод подшивается в лог-группу рядом с ней или выходит с её края | `@sat:app.separator.add` (`Command::AddSeparator`), `@sat:sync.plan.separators`, `@sat:order.book.regroup` (`Command::Regroup`, `Op::Regroup`); из командной строки — `@sat:cli.order`, `@sat:cli.order.run` (`sat-cli order … --add-separator`, `--move … --under`, `--into-group … --join`, `--out-of-group`, `--separators`) | группа остаётся сплошной: мод сначала переносится к ней |
 | Экземпляр MO2 (папки, профили, ini); ini, называющий папку своим `base_directory`: глобальный в `%LOCALAPPDATA%` или портативный уровнем выше (`X:\MO2\ModOrganizer.ini` → `X:/MO2/SSE`) | `@sat:mo2.instance`, `@sat:mo2.instance.base` | — |
 | `modlist.txt` / `plugins.txt` / `loadorder.txt` | `@sat:mo2.profile`; два формата `plugins.txt` (со звёздами / список без звёзд = все активны) — `@sat:mo2.plugins-txt`, запись в формате прежнего файла — `@sat:mo2.plugins-write` | порядок — `loadorder.txt`; плагины сверх лимита MO2 в списки не вносит — их находит скан |
 | Правка плагинов: отметка, скрытие (blacklist), каскадное включение по мастерам, что получают `plugins.txt` / `loadorder.txt` | `@sat:plugins.edit` (`set_checked`, `set_blacklisted`), `@sat:plugins.edit.cascade`, `@sat:plugins.edit.files`; скрытые в списке — `Plugin::blacklisted` (`@sat:plugins.list`); в проекте — раздел `plugins` (`PluginCanon::blacklist`; ранний `plugin_blacklist` сворачивается при чтении) | команды окна — `@sat:app.plugins-edit` (`SetPluginChecked` включает мод-владельца, `SetPluginHidden`, `CascadePlugins`; пока без отмены); запись при фиксации — `Payload::plugin_files` (`@sat:mo2.commit`) |
@@ -332,6 +332,7 @@
 - `tools/sat-cli/src/main.rs` — `@sat:cli`: `analyze`, `donor`, `sync`, `commit`, `ignore`, `inspect`, `bench-synth`.
 - `tools/sat-cli/src/commit_cmd.rs` — `@sat:cli.commit`: `sync` (записи и решения) и `commit` (план, `--apply`).
 - `tools/sat-cli/src/factory_cmd.rs` — `@sat:cli.factory`: `group` и `factory` — лог-группы и фабрики проекта.
+- `tools/sat-cli/src/order_cmd.rs` — `@sat:cli.order`: порядок из командной строки — служебные разделители, перенос модов под разделитель, подшивка в лог-группы.
 - `tools/sat-cli/src/processors_cmd.rs` — `@sat:cli.processors`: процессоры из командной строки — список с состоянием, найти в MO2, включить.
 - `tools/sat-cli/src/patch_cmd.rs` — `@sat:cli.patch`: патчи ini модов — добавить, изменить, перебазировать, убрать, список.
 - `tools/sat-cli/src/ignore_cmd.rs` — `@sat:cli.ignore`: игнор-лист конфликтов в проекте.
