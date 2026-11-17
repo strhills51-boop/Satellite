@@ -88,8 +88,8 @@ impl SortRules {
             let Some(name) = p.get("name").and_then(|n| n.as_str()) else {
                 continue;
             };
-            // templated names of the masterlist's prelude ("{0}") are not plugin names
-            if name.contains('{') {
+            // templated names of the masterlist's prelude ("… {0}") are not plugin names; a quantifier ("{3}") is
+            if name.contains(" {0}") {
                 continue;
             }
             let pattern = if name.contains([':', '\\', '*', '?', '|']) {
@@ -458,7 +458,7 @@ mod tests {
         let list = PluginList::compute(&PluginVersions::build(&facts), &canon, &prio);
         let master = SortRules::from_yaml(
             "groups:\n  - name: default\n  - name: Late Loaders\n    after: [default]\n\
-             plugins:\n  - name: Late.esp\n    group: Late Loaders\n  - name: 'Aft.*\\.esp'\n    after: [Big.esp]\n",
+             plugins:\n  - name: Late.esp\n    group: Late Loaders\n  - name: 'Af[t]{1}.*\\.esp'\n    after: [Big.esp]\n",
         )
         .unwrap();
         let counts: FxHashMap<String, u32> = [("small.esp", 5), ("big.esp", 500)]
