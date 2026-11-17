@@ -147,6 +147,28 @@ pub fn real_contexts(
     hashes: &ContentHashes,
     ow: &OverwriteProjection,
 ) -> Vec<Vec<ModId>> {
+    contexts_of(table, hashes, ow, false)
+}
+
+// @sat:identical.order-contexts
+/// [`real_contexts`] of the loose copies only: where the mod order decides. A loose file beats every archive copy
+/// whatever the order, and archives go by their plugins' order, so a path with one loose copy (or none) asks
+/// nothing of the mod order; a texture pack that repacks the game's archives ties no mods together. What stays are
+/// the groups whose order in the list is a real choice.
+pub fn order_contexts(
+    table: &ProviderTable,
+    hashes: &ContentHashes,
+    ow: &OverwriteProjection,
+) -> Vec<Vec<ModId>> {
+    contexts_of(table, hashes, ow, true)
+}
+
+fn contexts_of(
+    table: &ProviderTable,
+    hashes: &ContentHashes,
+    ow: &OverwriteProjection,
+    loose_only: bool,
+) -> Vec<Vec<ModId>> {
     let prio = ow.priorities();
     let n = table.mod_count();
     let mut parent: Vec<usize> = (0..n).collect();
@@ -163,9 +185,12 @@ pub fn real_contexts(
             for p in ow.chain_paths(c) {
                 let ps: Vec<usize> = table
                     .path_providers(p)
-                    .filter(|&i| prio.is_active(table.owner(i)))
+                    .filter(|&i| prio.is_active(table.owner(i)) && !(loose_only && table.is_archive(i)))
                     .collect();
                 let Some(&first) = ps.first() else { continue };
+                if loose_only && ps.iter().all(|&i| table.owner(i) == table.owner(first)) {
+                    continue;
+                }
                 if ps.iter().all(|&i| same(table, hashes, first, i) == Some(true)) {
                     continue;
                 }
@@ -365,5 +390,41 @@ mod tests {
             ContentHashes(vec![Some(1)]).for_table(&table),
             ContentHashes::default()
         );
+    }
+
+    #[test]
+    fn an_archive_copy_ties_no_mods_in_the_mod_order() {
+        use crate::facts::ArchiveFacts;
+        use sat_formats::{ArchiveEntry, ArchiveKind, ArchiveManifest};
+        // Pack repacks the game's archive with a.dds and b.dds; A and B have them loose, differing
+        let mut pack = mod_with("Pack", &[]);
+        pack.archives.push(ArchiveFacts {
+            file_name: "Skyrim - Textures0.bsa".into(),
+            size: 10,
+            manifest: Some(ArchiveManifest {
+                kind: ArchiveKind::Bsa { version: 105 },
+                entries: ["textures/a.dds", "textures/b.dds"]
+                    .map(|p| ArchiveEntry {
+                        path: p.into(),
+                        size: 5,
+                        vram: 0,
+                    })
+                    .to_vec(),
+            }),
+            error: None,
+        });
+        let facts = [
+            mod_with("A", &[("a.dds", 9)]),
+            mod_with("B", &[("b.dds", 9)]),
+            pack,
+        ];
+        let table = ProviderTable::build(&facts);
+        let hashes =
+            ContentHashes((0..table.provider_count()).map(|i| Some(i as u64)).collect()).for_table(&table);
+        let ow = OverwriteProjection::compute(&table, Priorities(vec![0, 1, 2]));
+        // by every differing copy, the pack ties A and B into one group
+        assert_eq!(real_contexts(&table, &hashes, &ow).first().map(Vec::len), Some(3));
+        // by loose copies only, nothing is left to order: each path has one loose copy
+        assert!(order_contexts(&table, &hashes, &ow).is_empty());
     }
 }

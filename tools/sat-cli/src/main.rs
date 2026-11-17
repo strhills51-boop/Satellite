@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -132,7 +132,7 @@ fn main() {
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
         other => Err(format!(
-            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
             other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
         )),
     };
@@ -747,11 +747,18 @@ fn analyze(args: &[String]) -> Result<(), String> {
         let Some(h) = &content_hashes else {
             return Err("--contexts --real needs the content hashes (not with --no-hashes)".into());
         };
-        let mut groups = sat_core::identical::real_contexts(&table, h, &proj);
+        // --loose: only loose copies, where the mod order decides (`@sat:identical.order-contexts`)
+        let loose = has(args, "--loose");
+        let mut groups = if loose {
+            sat_core::identical::order_contexts(&table, h, &proj)
+        } else {
+            sat_core::identical::real_contexts(&table, h, &proj)
+        };
         groups.retain(|g| g.len() >= 2);
         groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
         println!(
-            "contexts of differing copies: {} (mods, separators spanned, positions first..last)",
+            "contexts of differing {}copies: {} (mods, separators spanned, positions first..last)",
+            if loose { "loose " } else { "" },
             groups.len()
         );
         let groups: Vec<(String, Vec<ModId>)> = groups
