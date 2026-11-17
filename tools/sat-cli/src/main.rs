@@ -771,11 +771,22 @@ fn analyze(args: &[String]) -> Result<(), String> {
         if loose {
             let hubs = sat_core::identical::order_hubs(&table, h, &proj);
             println!(
-                "hubs (mods met on differing loose paths, such paths): top 40 of {}",
+                "hubs (mods met, differing loose paths, of them won, position): top 60 of {}",
                 hubs.len()
             );
-            for (m, met, paths) in hubs.iter().take(40) {
-                println!("  {met:>5} {paths:>7}  {}", table.mod_name(*m));
+            let pos: std::collections::HashMap<String, usize> = project
+                .canon
+                .entries
+                .iter()
+                .enumerate()
+                .map(|(i, e)| (e.name.to_lowercase(), i))
+                .collect();
+            for (m, met, paths, won) in hubs.iter().take(60) {
+                let name = table.mod_name(*m);
+                let at = pos
+                    .get(&name.to_lowercase())
+                    .map_or("?".into(), |p| p.to_string());
+                println!("  {met:>5} {paths:>7} {won:>7} {at:>6}  {name}");
             }
         }
     }

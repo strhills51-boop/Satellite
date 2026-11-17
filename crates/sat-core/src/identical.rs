@@ -165,17 +165,19 @@ pub fn order_contexts(
 
 // @sat:identical.order-hubs
 /// The mods that tie the mod-order contexts together: for each mod, how many other mods it shares a differing loose
-/// path with, and on how many such paths. A hub (a texture pack over everything, a patch hub) joins many small
-/// groups into one cluster; leaving it aside shows the groups. Most connected first.
+/// path with, on how many such paths, and on how many of them its copy is the one the game takes (the highest loose
+/// copy). A hub (a texture pack over everything, a patch hub) joins many small groups into one cluster; a base layer
+/// meant to be overridden should win few. Most connected first.
 pub fn order_hubs(
     table: &ProviderTable,
     hashes: &ContentHashes,
     ow: &OverwriteProjection,
-) -> Vec<(ModId, u32, u32)> {
+) -> Vec<(ModId, u32, u32, u32)> {
     let prio = ow.priorities();
     let n = table.mod_count();
     let mut neighbours: Vec<rustc_hash::FxHashSet<u32>> = vec![Default::default(); n];
     let mut paths = vec![0u32; n];
+    let mut wins = vec![0u32; n];
     for cx in ow.contexts() {
         for &c in &cx.chains {
             for p in ow.chain_paths(c) {
@@ -193,6 +195,9 @@ pub fn order_hubs(
                 if owners.len() < 2 {
                     continue;
                 }
+                if let Some(&w) = ps.iter().max_by_key(|&&i| prio.get(table.owner(i))) {
+                    wins[table.owner(w).idx()] += 1;
+                }
                 for &a in &owners {
                     paths[a as usize] += 1;
                     for &b in &owners {
@@ -204,9 +209,9 @@ pub fn order_hubs(
             }
         }
     }
-    let mut out: Vec<(ModId, u32, u32)> = (0..n)
+    let mut out: Vec<(ModId, u32, u32, u32)> = (0..n)
         .filter(|&m| !neighbours[m].is_empty())
-        .map(|m| (ModId::from_idx(m), neighbours[m].len() as u32, paths[m]))
+        .map(|m| (ModId::from_idx(m), neighbours[m].len() as u32, paths[m], wins[m]))
         .collect();
     out.sort_by_key(|x| std::cmp::Reverse((x.1, x.2)));
     out
