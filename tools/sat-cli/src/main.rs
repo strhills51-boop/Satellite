@@ -920,9 +920,12 @@ fn analyze(args: &[String]) -> Result<(), String> {
         for &ci in &big {
             for &c in &proj.contexts()[ci].chains {
                 let ch = proj.chain(c);
+                // a chain's mods come winner first (loose copies before archives, then by priority): printed low
+                // to high, the winner last
                 let mods: Vec<&str> = proj
                     .chain_mods(c)
                     .iter()
+                    .rev()
                     .map(|m| names[m.idx()].as_str())
                     .collect();
                 let verdict = content_hashes.as_ref().map_or("?".to_string(), |h| {
