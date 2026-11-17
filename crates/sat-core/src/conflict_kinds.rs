@@ -709,8 +709,9 @@ fn sig4(s: &str) -> [u8; 4] {
 }
 
 // @sat:conflict.kinds.dangerous
-/// Records whose override breaks the game: a reference or a navmesh deleted instead of disabled; an exclusive
-/// record (a navmesh) edited by two plugins or more beyond its own.
+/// Records whose override breaks the game: a reference or a navmesh deleted instead of disabled (by the game's own
+/// masters and Creation Club plugins — apart, as a warning); an exclusive record (a navmesh) edited by two plugins or
+/// more beyond its own.
 pub fn dangerous(ix: &RecordIndex, rules: &RecordRules) -> DomainReport {
     let mut b = Builder::new(info(
         "dangerous",
@@ -728,13 +729,29 @@ pub fn dangerous(ix: &RecordIndex, rules: &RecordRules) -> DomainReport {
         .filter(|(_, pr)| watch.contains(&pr.signature))
         .collect();
     deleted.sort_by_key(|x| (x.1.plugin, x.0));
+    // the game's own masters and Creation Club plugins ship deleted references (Dawnguard.esm, Update.esm): a fact,
+    // not something a mod list broke — shown apart and as a warning
+    let pack = &crate::game::active().plugins;
+    let official = |name: &str| {
+        let n = name.to_lowercase();
+        pack.base.iter().any(|x| x.name.eq_ignore_ascii_case(&n))
+            || pack
+                .creation_club_prefix
+                .as_deref()
+                .is_some_and(|cc| n.starts_with(&cc.to_lowercase()))
+    };
     for (key, pr) in deleted {
         let me = pid(&mut b, pr.plugin);
+        let (kind, severity) = if official(&ix.plugins[pr.plugin as usize]) {
+            ("удалена в официальном мастере", Severity::Warn)
+        } else {
+            ("удалена вместо «отключена»", Severity::Error)
+        };
         b.contest(
             &format!("{} {}", ix.label(key), String::from_utf8_lossy(&pr.signature)),
             &[(me, cell::BREAKS)],
-            "удалена вместо «отключена»",
-            Severity::Error,
+            kind,
+            severity,
             true,
         );
     }
@@ -1091,14 +1108,25 @@ mod tests {
             masters: vec!["Skyrim.esm".into()],
             records: vec![rec(0x20, b"NAVM", 1)],
         };
+        // the game's own Update.esm deletes a reference too: a fact of the game, shown apart
+        let upd = PluginRecords {
+            masters: vec!["Skyrim.esm".into()],
+            records: vec![rec(0x30, b"REFR", 0x20)],
+        };
+        let base = PluginRecords {
+            masters: vec![],
+            records: [base.records.clone(), vec![rec(0x30, b"REFR", 0)]].concat(),
+        };
         let ix = RecordIndex::build(&[
             ("Skyrim.esm".into(), &base),
+            ("Update.esm".into(), &upd),
             ("A.esp".into(), &a),
             ("B.esp".into(), &b),
         ]);
         let r = dangerous(&ix, crate::game::active().records.as_ref().unwrap());
         let kinds: Vec<&str> = r.chains.iter().map(|c| c.kind.as_str()).collect();
         assert!(kinds.contains(&"удалена вместо «отключена»"), "{kinds:?}");
+        assert!(kinds.contains(&"удалена в официальном мастере"), "{kinds:?}");
         assert!(kinds.contains(&"правят двое и больше"), "{kinds:?}");
         let nav = r
             .chains
