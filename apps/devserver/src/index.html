@@ -288,6 +288,14 @@ section > h2.wonly { display: none; } body.space section > h2.wonly { display: f
 #bDon .donact { display: flex; gap: 6px; align-items: center; margin-top: 6px; } #bDon .donact select { flex: 1; min-width: 0; font-size: 11px; }
 #bDon .donact label { font-size: 11px; display: flex; gap: 3px; align-items: center; }
 #bDon .donadd { display: flex; gap: 4px; margin-top: 6px; } #bDon .donadd input { min-width: 0; font-size: 11px; padding: 3px 7px; } #bDon .donadd input:first-child { width: 70px; flex: none; } #bDon .donadd input:nth-child(2) { flex: 1; }
+#fgroups { display: grid; gap: 6px; margin-top: 6px; }
+#fgroups .fgall { justify-self: start; font-size: 11px; color: var(--accent); }
+#fgroups .fgh { display: flex; justify-content: space-between; font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--subtle); cursor: pointer; padding: 4px 2px; }
+#fgroups .fgh i { font-style: normal; } #fgroups .fgp.open .fgh { color: var(--muted); }
+#fgroups .fgl { display: flex; flex-wrap: wrap; gap: 4px; }
+#fgroups .fg { font-size: 11px; padding: 2px 8px; border-radius: 8px; cursor: pointer; border: 1px solid hsl(var(--h) 50% 55% / .35); display: inline-flex; gap: 6px; align-items: center; }
+#fgroups .fg b { font: 10px var(--mono); color: var(--subtle); } #fgroups .fg:hover { background: hsl(var(--h) 50% 50% / .12); }
+#fgroups .fg.on { background: var(--accent-weak); border-color: var(--accent); color: var(--fg); }
 /* the cloud: the mod's card at the mini level on hover */
 #cloud { position: fixed; z-index: 55; width: 300px; max-height: 60vh; overflow: auto; padding: 10px 12px; border-radius: 12px;
   background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; display: grid; gap: 8px; }
@@ -1882,8 +1890,34 @@ async function tiles() {
   sepTiles = tiles;
   $("sepcount").textContent = tiles.length;
   $("tiles").innerHTML = tiles.map(t => `<div class="tile" data-key="${t.key}" title="${esc(t.name)}">` +
-    `<span class="ctr">${t.index}:${t.first ?? "—"}:${t.mods}</span><span class="on">${t.enabled}●</span><b>${esc(t.name)}</b></div>`).join("");
+    `<span class="ctr">${t.index}:${t.first ?? "—"}:${t.mods}</span><span class="on">${t.enabled}●</span><b>${esc(t.name)}</b></div>`).join("") +
+    `<div id="fgroups"></div>`;
+  focusGroups();
 }
+
+// ---------------------------------------------------------------- focus groups (ADR 0009): what the list can be pointed at
+/** Under the blocks: the other providers — logical groups, tags, stickers, plugins, muted, saved filters (the build
+ *  indicators' conditions). A click points the list at the group: only its mods stay, separators as headings;
+ *  «весь список» brings everything back. */
+const FG = { open: new Set(["filters", "tags"]), cur: null };
+async function focusGroups() {
+  let rep; try { rep = await query({ type: "focus-groups", view: VIEW }); } catch (_) { return; }
+  if (!rep.pointed) FG.cur = null;
+  const box = $("fgroups"); if (!box) return;
+  box.innerHTML = (rep.pointed ? `<button class="fgall" data-fg="">× весь список</button>` : "") +
+    rep.providers.filter(p => p.id !== "blocks").map(p => `<div class="fgp${FG.open.has(p.id) ? " open" : ""}"><div class="fgh" data-fgp="${p.id}">${esc(p.title)}<i>${p.groups.length}</i></div>` +
+      (FG.open.has(p.id) ? `<div class="fgl">${p.groups.map(g => `<span class="fg${FG.cur === g.id ? " on" : ""}" data-fg="${esc(g.id)}" style="--h:${hue(g.name)}" title="${g.count} модов, включено ${g.enabled}">${esc(g.name)}<b>${g.count}</b></span>`).join("")}</div>` : "") + `</div>`).join("");
+}
+$("tilesec").addEventListener("click", ev => {
+  const h = ev.target.closest("[data-fgp]"), g = ev.target.closest("[data-fg]");
+  if (h) { FG.open.has(h.dataset.fgp) ? FG.open.delete(h.dataset.fgp) : FG.open.add(h.dataset.fgp); focusGroups(); ev.stopPropagation(); return; }
+  if (g) {
+    ev.stopPropagation();
+    const id = g.dataset.fg || null;
+    FG.cur = FG.cur === id ? null : id;
+    run({ type: "point-view", view: VIEW, group: FG.cur }).then(focusGroups);
+  }
+}, true);
 
 /** The summary of the focused mod: with whom and in what it conflicts. */
 async function detail(key) {

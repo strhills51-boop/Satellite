@@ -66,7 +66,8 @@ pub struct Counters {
     list: Vec<Compiled>,
 }
 
-fn compile_expr(src: &str) -> Result<Expr, String> {
+/// Compiles an expression of the counters' language over a mod's metrics (a condition or a value).
+pub fn compile_expr(src: &str) -> Result<Expr, String> {
     Expr::compile_with(src, &crate::metrics::resolve).map_err(|e| e.to_string())
 }
 

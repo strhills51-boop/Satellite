@@ -17,6 +17,7 @@ pub mod commit;
 mod context;
 mod domains;
 pub mod find;
+mod focus;
 mod participants;
 pub mod pass;
 pub mod patches;
@@ -29,6 +30,7 @@ mod tree;
 pub use advisor::{AdviceRow, OrderAdvice};
 pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
+pub use focus::{FocusGroup, FocusProvider};
 pub use preview::{Asset, FileCopy, FilePreview, FileSource, PinnedFile, PlaceFile, VfsEntry};
 pub use tree::{ChainRef, FileRow, FileTree, PathOwners, TreeSubject};
 
@@ -142,6 +144,11 @@ pub enum Command {
     SetPluginChecked {
         name: String,
         checked: bool,
+    },
+    /// Point a view at a focus group (`@sat:app.focus`): its mods become the view's area; `None` — the whole list.
+    PointView {
+        view: ViewId,
+        group: Option<String>,
     },
     /// Bind a donor build to this machine by its mods folder (the shell does it and reads the donor).
     BindDonor {
@@ -677,6 +684,10 @@ pub enum Query {
     Resources,
     /// Donor builds bound on this machine, matched against the project (`@sat:app.donors`).
     Donors,
+    /// Focus groups by provider (`@sat:app.focus`), and the group view `view` is pointed at.
+    FocusGroups {
+        view: ViewId,
+    },
     /// The workspace (the built-in one when the project has none).
     Space,
     /// The build indicators measured over the whole build (`@sat:app.indicators`).
@@ -1046,6 +1057,11 @@ pub enum Reply {
     Donors {
         donors: Vec<DonorView>,
     },
+    FocusGroups {
+        providers: Vec<FocusProvider>,
+        /// The view is pointed at an area (a focus group).
+        pointed: bool,
+    },
     Resources {
         resources: Vec<ResourceView>,
         /// The project's own data resources: counters on mod cards, sticker rules, build indicators.
@@ -1393,6 +1409,10 @@ impl App {
             C::SetLevel { keys, level } => self.session.command(|b| b.set_level(&keys, level))?,
             C::SetStyle { keys, style } => self.session.command(|b| b.set_style(&keys, style))?,
             // @sat:app.marks
+            C::PointView { view, group } => {
+                let f = self.focus_filter(view, group.as_deref())?;
+                self.session.command(|b| b.set_filter(view, f))?
+            }
             C::BindDonor { name, path } => {
                 let name = name.trim().to_string();
                 if name.is_empty() || path.trim().is_empty() {
@@ -2652,6 +2672,10 @@ impl App {
                     .map(Box::new),
             },
             // @sat:app.decoration
+            Query::FocusGroups { view } => Reply::FocusGroups {
+                pointed: self.session.book().filter(view).area.is_some(),
+                providers: self.focus_groups(),
+            },
             Query::Donors => Reply::Donors {
                 donors: self.donor_views(),
             },
@@ -3502,6 +3526,59 @@ pub(crate) mod tests {
             panic!()
         };
         assert_eq!(focus_row, Some(2), "B is below A after the move");
+    }
+
+    #[test]
+    fn a_view_is_pointed_at_a_focus_group_and_back() {
+        let mut a = app();
+        let kb = a.session().book().key_of("B").unwrap();
+        a.command(Command::EditMarks {
+            keys: vec![kb],
+            edit: MarksEdit::AddTag { tag: "Fam".into() },
+        })
+        .unwrap();
+        let Reply::FocusGroups { providers, pointed } =
+            a.query(Query::FocusGroups { view: order::MAIN }).unwrap()
+        else {
+            panic!()
+        };
+        assert!(!pointed);
+        let tags = providers
+            .iter()
+            .find(|p| p.id == "tags")
+            .expect("a tags provider");
+        assert_eq!(
+            (tags.groups[0].id.as_str(), tags.groups[0].count),
+            ("tags:Fam", 1)
+        );
+        let mods = |a: &mut App| match a
+            .query(Query::Rows {
+                view: order::MAIN,
+                start: 0,
+                count: 10,
+                badges: 0,
+            })
+            .unwrap()
+        {
+            Reply::Rows { rows, .. } => rows
+                .into_iter()
+                .filter(|r| r.kind == RowKind::Mod)
+                .map(|r| r.name)
+                .collect::<Vec<_>>(),
+            _ => unreachable!(),
+        };
+        a.command(Command::PointView {
+            view: order::MAIN,
+            group: Some("tags:Fam".into()),
+        })
+        .unwrap();
+        assert_eq!(mods(&mut a), ["B"], "only the group's mods");
+        a.command(Command::PointView {
+            view: order::MAIN,
+            group: None,
+        })
+        .unwrap();
+        assert_eq!(mods(&mut a).len(), 2, "the whole list again");
     }
 
     #[test]

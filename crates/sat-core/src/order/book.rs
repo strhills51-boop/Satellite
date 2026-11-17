@@ -143,6 +143,9 @@ pub struct Filter {
     /// Show entries the user muted (hidden by default).
     #[serde(default)]
     pub show_muted: bool,
+    /// The view's area (ADR 0009 focus group): only these mods are rows; separators stay as headings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub area: Option<Vec<Key>>,
 }
 
 #[derive(Debug, Clone)]
@@ -522,9 +525,10 @@ impl OrderBook {
         self.groups[g as usize].as_ref().map(|gr| (g, gr))
     }
 
-    fn passes_filter(&self, it: &Item, v: ViewId) -> bool {
+    fn passes_filter(&self, k: Key, it: &Item, v: ViewId) -> bool {
         let f = &self.view(v).filter;
-        (f.text.is_empty() || it.folded.contains(&f.text))
+        f.area.as_ref().is_none_or(|a| a.binary_search(&k).is_ok())
+            && (f.text.is_empty() || it.folded.contains(&f.text))
             && f.enabled.is_none_or(|e| e == it.enabled)
             && f.color.is_none_or(|c| it.color == Some(c))
             && (f.show_muted || !it.muted)
@@ -542,7 +546,7 @@ impl OrderBook {
         if it.kind == EntryKind::Separator {
             return !block_collapsed;
         }
-        if block_collapsed || !self.passes_filter(it, v) {
+        if block_collapsed || !self.passes_filter(k, it, v) {
             return false;
         }
         match self.group(k) {
@@ -960,6 +964,11 @@ impl OrderBook {
         (0..self.groups.len() as GroupId)
             .filter(|&g| self.groups[g as usize].is_some())
             .collect()
+    }
+
+    /// Whether the user muted an entry.
+    pub fn is_muted(&self, k: Key) -> bool {
+        self.items[k as usize].muted
     }
 
     /// The nesting level of an entry (0 unless a nested separator).
@@ -1854,11 +1863,20 @@ impl OrderBook {
         Ok(Some(self.finish(out)))
     }
 
+    /// The filter of view `v`.
+    pub fn filter(&self, v: ViewId) -> &Filter {
+        &self.view(v).filter
+    }
+
     // @sat:order.book.filter
     /// Replaces the filter of view `v`: one pass over the list, then a [`Patch::Reset`] for that view.
     pub fn set_filter(&mut self, v: ViewId, mut filter: Filter) -> Result<Change, OrderError> {
         self.check_view(v)?;
         filter.text = filter.text.to_lowercase();
+        if let Some(a) = filter.area.as_mut() {
+            a.sort_unstable();
+            a.dedup();
+        }
         self.view_mut(v).filter = filter;
         self.refill_view(v);
         self.revision += 1;
@@ -1973,7 +1991,7 @@ impl OrderBook {
                 }
                 continue;
             }
-            if collapsed || !self.passes_filter(it, v) {
+            if collapsed || !self.passes_filter(k, it, v) {
                 continue;
             }
             if let Some(gid) = it.group
