@@ -88,6 +88,13 @@ pub fn read_plugin_header<R: Read>(mut r: R) -> Result<PluginHeader> {
             expected: "TES4",
         });
     }
+    // Oblivion's records have a 20-byte header: its first subrecord starts where Skyrim's header still goes on
+    // (seen in the owner's build — an Oblivion plugin among Skyrim mods)
+    if &hdr[20..24] == b"HEDR" {
+        return Err(FormatError::Corrupt(
+            "Oblivion plugin (20-byte record header): not a plugin for this game",
+        ));
+    }
     let size = u32le(&hdr, 4);
     let flags = u32le(&hdr, 8);
     if size > MAX_HEADER_SIZE {
@@ -496,5 +503,18 @@ mod subrecord_tests {
         d.extend_from_slice(b"TORN\x09\x00x");
         let f = super::subrecords(&d);
         assert_eq!(f, vec![(*b"EDID", &b"ab\0"[..]), (*b"DATA", &b"hello"[..])]);
+    }
+
+    #[test]
+    fn an_oblivion_plugin_is_named_as_such() {
+        // TES4, size, flags, form id, vc — then HEDR at byte 20, as Oblivion writes it
+        let mut b = b"TES4".to_vec();
+        b.extend_from_slice(&18u32.to_le_bytes());
+        b.extend_from_slice(&[0; 12]);
+        b.extend_from_slice(b"HEDR");
+        b.extend_from_slice(&12u16.to_le_bytes());
+        b.extend_from_slice(&[0; 12]);
+        let e = crate::plugin::read_plugin_header(&b[..]).unwrap_err().to_string();
+        assert!(e.contains("Oblivion"), "{e}");
     }
 }
