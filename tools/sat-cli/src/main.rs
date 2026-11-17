@@ -753,7 +753,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 .iter()
                 .filter_map(|&k| {
                     let from = sep_of(&book, k);
-                    (from != to).then(|| (k, from))
+                    (from != to).then_some((k, from))
                 })
                 .collect();
             book.move_keys(&lower, Some(top)).map_err(|e| e.to_string())?;
