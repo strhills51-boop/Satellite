@@ -766,6 +766,18 @@ fn analyze(args: &[String]) -> Result<(), String> {
             .map(|g| (format!("mods {:>3}", g.len()), g))
             .collect();
         print_contexts(&table, &project, &groups);
+        // @sat:cli.contexts.hubs
+        // the mods that tie the clusters together, most connected first
+        if loose {
+            let hubs = sat_core::identical::order_hubs(&table, h, &proj);
+            println!(
+                "hubs (mods met on differing loose paths, such paths): top 40 of {}",
+                hubs.len()
+            );
+            for (m, met, paths) in hubs.iter().take(40) {
+                println!("  {met:>5} {paths:>7}  {}", table.mod_name(*m));
+            }
+        }
     }
 
     // @sat:cli.contexts.compact

@@ -163,6 +163,55 @@ pub fn order_contexts(
     contexts_of(table, hashes, ow, true)
 }
 
+// @sat:identical.order-hubs
+/// The mods that tie the mod-order contexts together: for each mod, how many other mods it shares a differing loose
+/// path with, and on how many such paths. A hub (a texture pack over everything, a patch hub) joins many small
+/// groups into one cluster; leaving it aside shows the groups. Most connected first.
+pub fn order_hubs(
+    table: &ProviderTable,
+    hashes: &ContentHashes,
+    ow: &OverwriteProjection,
+) -> Vec<(ModId, u32, u32)> {
+    let prio = ow.priorities();
+    let n = table.mod_count();
+    let mut neighbours: Vec<rustc_hash::FxHashSet<u32>> = vec![Default::default(); n];
+    let mut paths = vec![0u32; n];
+    for cx in ow.contexts() {
+        for &c in &cx.chains {
+            for p in ow.chain_paths(c) {
+                let ps: Vec<usize> = table
+                    .path_providers(p)
+                    .filter(|&i| prio.is_active(table.owner(i)) && !table.is_archive(i))
+                    .collect();
+                let Some(&first) = ps.first() else { continue };
+                if ps.iter().all(|&i| same(table, hashes, first, i) == Some(true)) {
+                    continue;
+                }
+                let mut owners: Vec<u32> = ps.iter().map(|&i| table.owner(i).0).collect();
+                owners.sort_unstable();
+                owners.dedup();
+                if owners.len() < 2 {
+                    continue;
+                }
+                for &a in &owners {
+                    paths[a as usize] += 1;
+                    for &b in &owners {
+                        if a != b {
+                            neighbours[a as usize].insert(b);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut out: Vec<(ModId, u32, u32)> = (0..n)
+        .filter(|&m| !neighbours[m].is_empty())
+        .map(|m| (ModId::from_idx(m), neighbours[m].len() as u32, paths[m]))
+        .collect();
+    out.sort_by_key(|x| std::cmp::Reverse((x.1, x.2)));
+    out
+}
+
 fn contexts_of(
     table: &ProviderTable,
     hashes: &ContentHashes,
@@ -426,5 +475,9 @@ mod tests {
         assert_eq!(real_contexts(&table, &hashes, &ow).first().map(Vec::len), Some(3));
         // by loose copies only, nothing is left to order: each path has one loose copy
         assert!(order_contexts(&table, &hashes, &ow).is_empty());
+        assert!(
+            order_hubs(&table, &hashes, &ow).is_empty(),
+            "no mod meets another on a loose path"
+        );
     }
 }
