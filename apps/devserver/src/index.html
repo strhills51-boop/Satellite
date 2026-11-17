@@ -1064,6 +1064,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
 const $ = id => document.getElementById(id);
 const list = $("list"), layer = $("layer"), spacer = $("spacer");
 const ROW = 44, GAP = 4, VIEW = 0, MAXPX = 8_000_000, CHAINS_SHOWN = 6;
+let detailT = 0; // the mod card waits for the cursor to rest (`sync`)
 // guides (ADR 0020 §2): no explanations in the interface — a faint «i» in the corner of a context opens its guide.
 // Guides are data: [title, text]; the domain ones are filled from the core's own descriptions.
 const GUIDES = {
@@ -1105,7 +1106,9 @@ async function post(path, body) {
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
 }
-const command = c => post("/command", c).then(r => { projSoon(); return r; });
+// the save state is asked after a command — not in a sandbox, where there is nothing to save
+const sandboxed = () => { try { return !!PROJ && !PROJ.writable; } catch (_) { return false; } };
+const command = c => post("/command", c).then(r => { if (!sandboxed()) projSoon(); return r; });
 const query = q => post("/query", q);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const num = n => n.toLocaleString("ru-RU");
@@ -1991,7 +1994,8 @@ async function sync(follow) {
       if (r.focused) focused = r;
     }
     for (const [k, el] of cards) if (!seen.has(k)) { cards.delete(k); el.hidden = true; el._sig = ""; el._row = null; spare.push(el); }
-    if (focused && focused.kind === "mod" && focused.key !== shownKey) detail(focused.key);
+    // the mod card follows the cursor once it rests (a held key does not ask for every card on the way)
+    if (focused && focused.kind === "mod" && focused.key !== shownKey) { clearTimeout(detailT); const k = focused.key; detailT = setTimeout(() => { if (k !== shownKey) detail(k); }, 150); }
   } catch (e) { $("err").textContent = e.message; }
   busy = false;
   if (again) { again = false; sync(false); }
@@ -3599,11 +3603,19 @@ async function run(c) {
     if (ev.type === "decided") { cards.forEach(el => { el._sig = null; }); await sync(false); if (shownKey !== null) detail(shownKey); return; }
     if (ev.type === "changed") {
       await sync(true);
-      decor(); metaBlocks(); if (VW.size) vwAll();
-      if (ev.canon) { totals(); tiles(); if (shownKey !== null) detail(shownKey); }
-      else { clearTimeout(TREE.t); TREE.t = setTimeout(treeDraw, 120); } // the selection may have moved
+      if (ev.canon) { decor(); metaBlocks(); if (VW.size) vwAll(); totals(); tiles(); if (shownKey !== null) detail(shownKey); }
+      else panelsSoon(); // the selection may have moved: the side panels follow once the keys stop
     }
   } catch (e) { $("err").textContent = e.message; }
+}
+
+/** The side panels (decoration, selection, buffer, donors, view windows, file tree) follow the cursor once it rests:
+ *  a held arrow key asks the server for the list only, not for six panels per step (on a slow machine each request
+ *  waited behind the others — seconds per key press). */
+let panelsT = 0;
+function panelsSoon() {
+  clearTimeout(panelsT);
+  panelsT = setTimeout(() => { decor(); metaBlocks(); if (VW.size) vwAll(); treeDraw(); }, 250);
 }
 
 function chord(ev) {

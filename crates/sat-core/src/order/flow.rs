@@ -227,7 +227,7 @@ impl OrderBook {
         }
         FlowIndex {
             params,
-            revision: self.revision(),
+            revision: self.layout_revision(),
             blocks,
             total_height: y,
         }

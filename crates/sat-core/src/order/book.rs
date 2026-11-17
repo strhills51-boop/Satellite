@@ -319,6 +319,9 @@ pub struct OrderBook {
     /// The buffer: named areas of entries set aside to be placed later (`@sat:order.book.buffer`).
     buffer: Vec<(String, Vec<Key>)>,
     revision: u64,
+    /// Bumped by changes that can move cards (truth, rows appearing or going, filters, folds) — not by the cursor
+    /// or the selection: a flow index built at it stays valid while only the cursor moves.
+    layout_revision: u64,
     undo: Vec<(Op, Op)>,
     redo: Vec<(Op, Op)>,
 }
@@ -367,6 +370,7 @@ impl OrderBook {
             attached: FxHashMap::default(),
             buffer: Vec::new(),
             revision: 0,
+            layout_revision: 0,
             undo: Vec::new(),
             redo: Vec::new(),
         }
@@ -479,6 +483,10 @@ impl OrderBook {
     }
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+    /// The revision of what places cards (`layout_revision` field): the cursor and the selection leave it.
+    pub fn layout_revision(&self) -> u64 {
+        self.layout_revision
     }
     pub fn key_of(&self, name: &str) -> Option<Key> {
         self.by_name.get(&name.to_lowercase()).copied()
@@ -666,6 +674,14 @@ impl OrderBook {
         }
         self.seq.compact();
         self.revision += 1;
+        let moves = !out.truth.is_empty()
+            || out
+                .views
+                .iter()
+                .any(|(_, p)| p.0.iter().any(|x| !matches!(x, Patch::Update { .. })));
+        if moves {
+            self.layout_revision += 1;
+        }
         Change {
             revision: self.revision,
             truth: out.truth,
@@ -1778,6 +1794,7 @@ impl OrderBook {
             }
         }
         self.revision += 1;
+        self.layout_revision += 1;
         let mut views = Vec::new();
         for v in self.view_ids() {
             let view = self.view_mut(v);
@@ -1880,6 +1897,7 @@ impl OrderBook {
         self.view_mut(v).filter = filter;
         self.refill_view(v);
         self.revision += 1;
+        self.layout_revision += 1;
         let len = self.seq.visible_len(v) as u32;
         Ok(Change {
             revision: self.revision,

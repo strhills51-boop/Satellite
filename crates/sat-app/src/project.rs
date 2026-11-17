@@ -35,6 +35,9 @@ pub(crate) struct SaveSlot {
     /// The project as last saved or read: `dirty` compares with it.
     saved: Option<Project>,
     request: Option<bool>,
+    /// `dirty` as last compared, with the content revision it was compared at: the comparison clones and walks the
+    /// whole project (tens of MB on a big build), so it runs only when something besides the cursor changed.
+    dirty_at: Option<(u64, bool)>,
 }
 
 impl App {
@@ -88,6 +91,7 @@ impl App {
     /// The project as it is on disk now (read at opening, written by a save or a run): what `dirty` compares with.
     pub fn project_saved(&mut self, p: Project) {
         self.save.saved = Some(p);
+        self.save.dirty_at = None;
         self.save.state.saving = false;
         self.save.state.error = None;
         self.save.state.changed_outside = false;
@@ -120,15 +124,35 @@ impl App {
         self.save.state.changed_outside = changed_outside;
     }
 
+    /// The app's revision without the changes that only moved the cursor or the selection: what the project holds
+    /// can have changed only when this did.
+    pub(crate) fn content_revision(&self) -> u64 {
+        self.revision - self.view_moves
+    }
+
     // @sat:app.project.state
     /// Saving as the window shows it; `dirty` compares the project now with the one last saved or read.
+    /// A sandbox is never dirty (nothing is saved there). Asked after every command, so the comparison is made
+    /// once per content revision (`App::content_revision`): cursor moves do not count.
     pub(crate) fn project_state(&mut self) -> ProjectState {
-        let now = self.project();
         let mut st = self.save.state.clone();
-        st.dirty = match (&now, &self.save.saved) {
-            (Some(n), Some(s)) => n != s,
-            (Some(_), None) => true,
-            _ => false,
+        if !st.writable {
+            st.dirty = false;
+            return st;
+        }
+        let rev = self.content_revision();
+        st.dirty = match self.save.dirty_at {
+            Some((r, d)) if r == rev => d,
+            _ => {
+                let now = self.project();
+                let d = match (&now, &self.save.saved) {
+                    (Some(n), Some(s)) => n != s,
+                    (Some(_), None) => true,
+                    _ => false,
+                };
+                self.save.dirty_at = Some((rev, d));
+                d
+            }
         };
         st
     }
@@ -239,6 +263,29 @@ mod tests {
     }
 
     #[test]
+    fn the_cursor_does_not_move_cards() {
+        // the flow index is kept while only the cursor moves (a rebuild per key press was slow on a big build)
+        let mut a = app_of(["A", "B"]);
+        let r0 = a.session().book().layout_revision();
+        a.command(Command::Key {
+            view: 0,
+            chord: "ArrowDown".into(),
+        })
+        .unwrap();
+        assert_eq!(a.session().book().layout_revision(), r0);
+        let k = a.session().book().key_of("A").unwrap();
+        a.command(Command::SetEnabled {
+            keys: vec![k],
+            enabled: Some(false),
+        })
+        .unwrap();
+        assert!(
+            a.session().book().layout_revision() > r0,
+            "a canon change can move cards"
+        );
+    }
+
+    #[test]
     fn unsaved_changes_and_saving() {
         let mut a = app_of(["A", "B"]);
         let p = sat_core::project::Project::import(a.session().book().to_modlist());
@@ -251,14 +298,22 @@ mod tests {
             rules: vec!["meta.ini".into()],
         })
         .unwrap();
-        assert!(state(&mut a).dirty);
-        // the sandbox does not save
+        // the sandbox does not save, and is never dirty (the comparison is not made there)
+        assert!(!state(&mut a).dirty);
         assert_eq!(
             a.command(Command::SaveProject { force: false }).unwrap(),
             Event::Nothing
         );
         assert_eq!(a.take_save_request(), None);
         a.enable_saving("p.stll".into());
+        assert!(state(&mut a).dirty);
+        // a cursor move changes nothing the project holds: still dirty, not compared again
+        a.command(Command::Key {
+            view: 0,
+            chord: "ArrowDown".into(),
+        })
+        .unwrap();
+        assert!(state(&mut a).dirty);
         assert_eq!(
             a.command(Command::SaveProject { force: false }).unwrap(),
             Event::Decided

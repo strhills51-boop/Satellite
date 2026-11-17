@@ -1261,6 +1261,8 @@ pub struct App {
     session: Session,
     registry: Registry,
     revision: u64,
+    /// Changes that moved only the cursor or the selection (`content_revision` leaves them out).
+    view_moves: u64,
     /// Flow index per view, valid for one book revision and one set of parameters.
     flows: std::collections::HashMap<ViewId, FlowIndex>,
     /// Bricks: what each container holds besides its name, by view (`@sat:app.bricks`), built with its flow index.
@@ -1338,6 +1340,7 @@ impl App {
             session,
             registry,
             revision: 0,
+            view_moves: 0,
             flows: Default::default(),
             brick_extra: Default::default(),
             open_context: None,
@@ -1905,6 +1908,10 @@ impl App {
                         sat_core::engine::Truth::Canon | sat_core::engine::Truth::Facts
                     )
                 });
+                // only the cursor moved (or the selection): nothing the project holds changed
+                if ch.truth.is_empty() {
+                    self.view_moves += 1;
+                }
                 Event::Changed {
                     revision: self.revision,
                     views: ch.views,
@@ -2380,7 +2387,9 @@ impl App {
                 measures,
             } => {
                 let book = self.session.book();
-                let rev = book.revision();
+                // the cursor moving does not move cards: the index stays (rebuilding it per key press was a second
+                // a step on the owner's laptop)
+                let rev = book.layout_revision();
                 let fresh = self
                     .flows
                     .get(&view)
