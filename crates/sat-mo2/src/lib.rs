@@ -13,6 +13,7 @@
 pub mod bake;
 pub mod commit;
 pub mod donors;
+pub mod executables;
 pub mod ini;
 pub mod install;
 pub mod instance;

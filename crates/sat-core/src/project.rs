@@ -80,6 +80,9 @@ pub struct Project {
     /// Factories: groups a commit turns into one output mod (`@sat:factory`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub factories: Vec<crate::factory::Factory>,
+    /// External generators a commit runs (`@sat:processor`, ADR 0021).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub processors: Vec<crate::processor::Processor>,
     /// User-made counters on mod cards (`@sat:counters`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub counters: Vec<crate::counters::CounterDef>,
@@ -173,6 +176,7 @@ impl Project {
             pinned_files: Vec::new(),
             sources: BTreeMap::new(),
             factories: Vec::new(),
+            processors: Vec::new(),
             patches: Vec::new(),
             patches_built: None,
             extra: BTreeMap::new(),
