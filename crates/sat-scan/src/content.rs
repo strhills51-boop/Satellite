@@ -1,7 +1,7 @@
 //! Content hashes of files, with a cache that skips files unchanged since the last time. @sat:scan.content-hash
 //!
 //! Owns: the hash of a file's bytes (xxh3, 64 bits), and the hash cache — a text file of `hash size mtime path`
-//! lines; a line counts while the file keeps its size and modification time.
+//! lines (`x` for a hash: not comparable); a line counts while the file keeps its size and modification time.
 //! Not here: what is compared (`@sat:identical`), folder signatures for the scan cache (`@sat:scan.signature`).
 
 use std::collections::HashMap;
@@ -51,10 +51,12 @@ impl HashCache {
                 else {
                     continue;
                 };
-                let h = if h == "-" {
-                    Ok(None)
-                } else {
-                    u64::from_str_radix(h, 16).map(Some)
+                // `x` — not comparable; `-` is the same mark from before entry paths were matched normalized
+                // (an archive entry in the author's case was never found then): such a line is read again
+                let h = match h {
+                    "x" => Ok(None),
+                    "-" => continue,
+                    _ => u64::from_str_radix(h, 16).map(Some),
                 };
                 if let (Ok(h), Ok(s), Ok(t)) = (h, s.parse(), t.parse()) {
                     entries.insert(PathBuf::from(p), (h, s, t));
@@ -76,7 +78,7 @@ impl HashCache {
             .iter()
             .map(|(p, (h, s, t))| match h {
                 Some(h) => format!("{h:016x} {s} {t} {}", p.display()),
-                None => format!("- {s} {t} {}", p.display()),
+                None => format!("x {s} {t} {}", p.display()),
             })
             .collect();
         lines.sort_unstable();
@@ -155,7 +157,12 @@ impl HashCache {
 
 /// Reads the asked entries of one archive and hashes their bytes.
 fn read_archive_hashes(archive: &Path, entries: &[String]) -> Vec<Option<u64>> {
-    let want: HashMap<&str, usize> = entries.iter().enumerate().map(|(i, e)| (e.as_str(), i)).collect();
+    // the reader gives entry paths normalized (lower case, forward slashes); the table keeps the author's case
+    let want: HashMap<String, usize> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (sat_formats::normalize_path(e), i))
+        .collect();
     let mut out = vec![None; entries.len()];
     if let Ok(f) = std::fs::File::open(archive) {
         let _ = sat_formats::archive_data::read_entries(
@@ -230,9 +237,10 @@ mod tests {
         let d = std::env::temp_dir().join(format!("sat-content-arc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         let (a, b) = (d.join("A"), d.join("B"));
-        std::fs::create_dir_all(a.join("textures")).unwrap();
+        // the loose copy is written in the author's case: the table keeps it, the archive reader normalizes
+        std::fs::create_dir_all(a.join("Textures")).unwrap();
         std::fs::create_dir_all(b.join("src")).unwrap();
-        std::fs::write(a.join("textures").join("x.dds"), b"the same texture").unwrap();
+        std::fs::write(a.join("Textures").join("x.dds"), b"the same texture").unwrap();
         std::fs::write(b.join("src").join("x.dds"), b"the same texture").unwrap();
         std::fs::write(b.join("src").join("y.dds"), b"another").unwrap();
         let files = [("textures/x.dds", "x.dds"), ("textures/y.dds", "y.dds")].map(|(path, src)| {
@@ -248,7 +256,7 @@ mod tests {
             ModFacts {
                 name: "A".into(),
                 dirs: vec![LooseDir {
-                    rel: "textures".into(),
+                    rel: "Textures".into(),
                     files: vec![
                         LooseFile {
                             name: "x.dds".into(),
@@ -275,7 +283,7 @@ mod tests {
                 ..ModFacts::default()
             },
         ];
-        std::fs::write(a.join("textures").join("y.dds"), b"differs").unwrap();
+        std::fs::write(a.join("Textures").join("y.dds"), b"differs").unwrap();
         let table = sat_core::table::ProviderTable::build(&facts);
         let cache = d.join("hashes.txt");
         let (h, read) = hashes_for(&table, |m| d.join(m), &cache, 0);
@@ -283,7 +291,10 @@ mod tests {
         let by = |path: &str, archive: bool| {
             (0..table.provider_count())
                 .find(|&i| {
-                    table.path_string(table.path_of_provider(i)) == path && table.is_archive(i) == archive
+                    table
+                        .path_string(table.path_of_provider(i))
+                        .eq_ignore_ascii_case(path)
+                        && table.is_archive(i) == archive
                 })
                 .unwrap()
         };
