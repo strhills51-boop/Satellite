@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts] [--compact-contexts N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -131,7 +131,7 @@ fn main() {
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
         other => Err(format!(
-            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts] [--compact-contexts N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
             other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
         )),
     };
@@ -701,6 +701,86 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 println!("      {pos:>5} {} [{sep}] {name}", if *en { "+" } else { "-" });
             }
         }
+    }
+
+    // @sat:cli.contexts.compact
+    // a context is closed under conflicts: its mods overwrite only each other, so moving them next to each other
+    // (their own order kept) changes no file's winner — and the conflict becomes local in the list. Contexts of up to
+    // N mods, none in a logical group; the lower members go right before the top one, a note says where from.
+    if let Some(n) = flag_value(args, "--compact-contexts") {
+        let max: usize = n
+            .parse()
+            .map_err(|_| format!("--compact-contexts {n}: a number of mods"))?;
+        let (mut book, _) = project.book();
+        let sep_of = |book: &sat_core::order::OrderBook, k: sat_core::order::Key| -> String {
+            let mut sep = String::from("(без разделителя)");
+            for (name, kind, _) in book.entries() {
+                if kind == sat_core::canon::EntryKind::Separator {
+                    sep = name
+                        .trim_end_matches(sat_core::canon::SEPARATOR_SUFFIX)
+                        .to_string();
+                } else if name == book.name(k) {
+                    break;
+                }
+            }
+            sep
+        };
+        let (mut moved, mut contexts, mut skipped) = (0usize, 0usize, 0usize);
+        for cx in proj.contexts() {
+            if cx.mods.len() < 2 || cx.mods.len() > max {
+                continue;
+            }
+            let keys: Option<Vec<sat_core::order::Key>> =
+                cx.mods.iter().map(|&m| book.key_of(table.mod_name(m))).collect();
+            let Some(mut keys) = keys else {
+                skipped += 1;
+                continue;
+            };
+            if keys.iter().any(|&k| book.group_id_of(k).is_some()) {
+                skipped += 1;
+                continue;
+            }
+            keys.sort_by_key(|&k| book.pos(k));
+            let top = *keys.last().expect("two or more");
+            let lo = book.pos(keys[0]);
+            let hi = book.pos(top);
+            if hi - lo + 1 == keys.len() {
+                continue; // already together
+            }
+            let to = sep_of(&book, top);
+            let lower: Vec<sat_core::order::Key> = keys[..keys.len() - 1].to_vec();
+            let notes: Vec<(sat_core::order::Key, String)> = lower
+                .iter()
+                .filter_map(|&k| {
+                    let from = sep_of(&book, k);
+                    (from != to).then(|| (k, from))
+                })
+                .collect();
+            book.move_keys(&lower, Some(top)).map_err(|e| e.to_string())?;
+            for (k, from) in notes {
+                let line = format!("кластер конфликтов: перенесён из [{from}] к {}", book.name(top));
+                book.patch_marks(&[k], |mut m| {
+                    m.note = if m.note.is_empty() {
+                        line.clone()
+                    } else {
+                        format!("{}\n{line}", m.note)
+                    };
+                    m
+                })
+                .map_err(|e| e.to_string())?;
+            }
+            moved += lower.len();
+            contexts += 1;
+        }
+        project.commit_book(&book);
+        eprintln!(
+            "compact contexts (up to {max} mods): {contexts} context(s) gathered, {moved} mod(s) moved, {skipped} skipped (groups or unknown mods){}",
+            if has(args, "--no-save") {
+                " — not saved (--no-save)"
+            } else {
+                ""
+            }
+        );
     }
 
     if let Some(took) = sources_read {
