@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -132,7 +132,7 @@ fn main() {
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
         other => Err(format!(
-            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
             other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
         )),
     };
@@ -1276,6 +1276,44 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 println!("  {:>7}  {}", s.unchanged, ix.plugins[*i]);
             }
             record_ix = Some((ix, loaded));
+        }
+
+        // @sat:cli.plugins.sort
+        // the load order sorted by a LOOT masterlist (and userlist) and the record overlap (`@sat:plugins.sort`); the
+        // project receives it, `sat-cli commit --apply` writes `loadorder.txt` / `plugins.txt`
+        if let Some(ml) = flag_value(args, "--sort-plugins") {
+            let Some((ix, _)) = &record_ix else {
+                return Err("--sort-plugins needs --records (the overlap of records)".into());
+            };
+            let read = |f: &str| -> Result<sat_core::plugin_sort::SortRules, String> {
+                let text = std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))?;
+                sat_core::plugin_sort::SortRules::from_yaml(&text).map_err(|e| format!("{f}: {e}"))
+            };
+            let master = read(ml)?;
+            let user = flag_value(args, "--userlist")
+                .map(read)
+                .transpose()?
+                .unwrap_or_default();
+            let (counts, overlap) = sat_core::plugin_sort::overlaps(ix);
+            let sorted = sat_core::plugin_sort::sort(
+                &plugin_list,
+                &project.plugins.load_order,
+                &master,
+                &user,
+                &counts,
+                &overlap,
+            );
+            println!(
+                "plugin sort: {} active plugin(s) moved; rules kept: {} load-after, {} overlap; {} skipped",
+                sorted.moved,
+                sorted.kept.0,
+                sorted.kept.1,
+                sorted.skipped.len()
+            );
+            for k in sorted.skipped.iter().filter(|k| k.rule != "overlap").take(40) {
+                println!("  skipped {}: {} before {}", k.rule, k.before, k.after);
+            }
+            project.plugins.load_order = sorted.order;
         }
     }
 

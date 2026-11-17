@@ -50,6 +50,7 @@ pub mod order;
 pub mod overwrite;
 pub mod patch;
 pub mod plugin_edit;
+pub mod plugin_sort;
 pub mod plugins;
 pub mod processor;
 pub mod profile;
