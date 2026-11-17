@@ -1,0 +1,58 @@
+/* Satellite UI Resource Center / controls reference implementation.
+   Single owner for .satui-*; never append shadow implementations.
+   Version: ref-1.0. Unproven in Satellite NG runtime; test on adoption.
+   Usage: add data-satui on a parent, import satellite-tokens.css first. */
+[data-satui] .satui-ghost{appearance:none;background:transparent;border:1px solid transparent;color:var(--satui-muted);border-radius:7px;min-height:29px;max-width:100%;padding:4px 9px;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:background var(--satui-motion),color var(--satui-motion),border-color var(--satui-motion);cursor:pointer}
+[data-satui] .satui-ghost:hover{background:var(--satui-hover);color:var(--satui-fg)}
+[data-satui] .satui-ghost:focus-visible,[data-satui] .satui-segment button:focus-visible,[data-satui] .satui-micro:focus-visible,[data-satui] .satui-stepper button:focus-visible{outline:2px solid var(--satui-accent);outline-offset:2px}
+[data-satui] .satui-stretch{display:flex;width:100%;min-width:0}
+[data-satui] .satui-stretch>.satui-ghost{flex:1 1 0;min-width:0}
+[data-satui] .satui-segment{display:grid;grid-auto-columns:minmax(0,1fr);grid-auto-flow:column;width:100%;min-width:0;gap:2px;padding:2px;border-radius:8px;background:color-mix(in srgb,var(--satui-fg) 3%,transparent);border:1px solid color-mix(in srgb,var(--satui-line) 70%, transparent)}
+[data-satui] .satui-segment button{appearance:none;min-width:0;border:0;background:transparent;color:var(--satui-muted);border-radius:5px;padding:6px 5px;cursor:pointer;font:inherit;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background var(--satui-motion),color var(--satui-motion)}
+[data-satui] .satui-segment button:hover{background:var(--satui-hover);color:var(--satui-fg)}
+[data-satui] .satui-segment button[aria-pressed="true"]{background:var(--satui-accent);color:#0b1422;font-weight:750}
+[data-satui] .satui-checkline{display:flex;align-items:center;gap:9px;min-height:26px;color:var(--satui-muted);cursor:pointer;font-size:12px}
+[data-satui] .satui-checkline input{position:absolute;opacity:0;pointer-events:none}
+[data-satui] .satui-checkline .satui-box,[data-satui] .satui-checkline .satui-radio{position:relative;flex:none;height:17px;width:17px;border:1px solid color-mix(in srgb,var(--satui-muted) 60%, transparent);border-radius:4px;background:transparent}
+[data-satui] .satui-checkline .satui-radio{border-radius:50%}
+[data-satui] .satui-checkline input:checked+.satui-box{background:var(--satui-accent);border-color:var(--satui-accent)}
+[data-satui] .satui-checkline input:checked+.satui-box::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border-right:2px solid #081522;border-bottom:2px solid #081522;transform:rotate(42deg)}
+[data-satui] .satui-checkline input:checked+.satui-radio{border-color:var(--satui-accent)}
+[data-satui] .satui-checkline input:checked+.satui-radio::after{content:"";position:absolute;inset:4px;background:var(--satui-accent);border-radius:50%}
+[data-satui] .satui-checkline input:focus-visible+.satui-box,[data-satui] .satui-checkline input:focus-visible+.satui-radio{outline:2px solid var(--satui-accent);outline-offset:3px}
+[data-satui] .satui-checkline input:disabled~span{opacity:.45}
+[data-satui] .satui-micro{--satui-h:160;--satui-s:80%;--satui-v:80%;--satui-a:1;--satui-rgb:103,255,188;display:inline-grid;vertical-align:middle;position:relative;grid-template-columns:25px 9px;grid-template-rows:17px;width:34px;height:17px;isolation:isolate;outline:none}
+[data-satui] .satui-micro .satui-sv{position:relative;cursor:crosshair;border:1px solid color-mix(in srgb,var(--satui-fg) 35%,transparent);border-right:0;border-radius:4px 0 0 4px;background:linear-gradient(0deg,#000,transparent),linear-gradient(90deg,#fff,hsl(var(--satui-h) 100% 50%));overflow:hidden}
+[data-satui] .satui-micro .satui-sv::before{content:"";position:absolute;width:5px;height:5px;border:1px solid white;border-radius:50%;box-shadow:0 0 0 1px #0b1320;left:var(--satui-s);top:calc(100% - var(--satui-v));transform:translate(-50%,-50%);pointer-events:none}
+[data-satui] .satui-micro[data-mode="smart"] .satui-sv::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,transparent,rgba(var(--satui-rgb),1));opacity:var(--satui-a);pointer-events:none}
+[data-satui] .satui-micro .satui-open{appearance:none;margin:0;padding:0;position:relative;cursor:pointer;border:1px solid color-mix(in srgb,var(--satui-fg) 35%,transparent);border-radius:0 4px 4px 0;background:linear-gradient(45deg,#78839744 25%,transparent 25%,transparent 75%,#78839744 75%) 0 0 / 5px 5px,rgba(var(--satui-rgb),var(--satui-a));font-size:9px;color:#071521;line-height:1}
+[data-satui] .satui-micro .satui-open::after{content:"⌄";position:relative;text-shadow:0 1px 0 #fff9}
+[data-satui] .satui-micro[data-mode="fast"]{grid-template-columns:34px}
+[data-satui] .satui-micro[data-mode="fast"] .satui-sv{border-radius:4px;border-right:1px solid color-mix(in srgb,var(--satui-fg) 35%,transparent);background:linear-gradient(0deg,#071222, transparent),linear-gradient(90deg,#f64,#ffde55,#5ffb86,#4be6fb,#708cff,#ff78ed)}
+[data-satui] .satui-micro[data-mode="fast"] .satui-sv::before{display:none}
+[data-satui] .satui-micro[data-mode="fast"] .satui-sv::after{content:"";position:absolute;inset:0;background:rgba(var(--satui-rgb),.4);pointer-events:none;mix-blend-mode:color}
+[data-satui] .satui-pop{position:absolute;top:24px;left:0;z-index:50000;width:240px;border:1px solid var(--satui-line);padding:12px;border-radius:11px;background:var(--satui-surface);box-shadow:0 20px 50px #0009;display:grid;gap:9px}
+[data-satui] .satui-pop[hidden]{display:none}
+[data-satui] .satui-pop-sv{height:120px;border-radius:7px;border:1px solid var(--satui-line);cursor:crosshair;background:linear-gradient(0deg,#000,transparent),linear-gradient(90deg,#fff,hsl(var(--satui-h) 100% 50%))}
+[data-satui] .satui-hue{height:10px;border-radius:5px;cursor:ew-resize;background:linear-gradient(90deg,red,#ff0,#0f0,#0ff,#00f,#f0f,red)}
+[data-satui] .satui-alpha{height:10px;border-radius:5px;cursor:ew-resize;background:linear-gradient(90deg,transparent,rgba(var(--satui-rgb),1)),repeating-conic-gradient(#5b6679 0 25%,#b4bed1 0 50%) 0 0 / 8px 8px}
+[data-satui] .satui-pop input{min-width:0;width:100%;padding:7px;background:var(--satui-bg);border:1px solid var(--satui-line);border-radius:6px;color:var(--satui-fg);font:11px monospace}
+[data-satui] .satui-stepper{display:inline-flex;max-width:100%;min-height:31px;align-items:stretch;border-radius:8px;border:1px solid var(--satui-line);overflow:visible;position:relative;background:transparent}
+[data-satui] .satui-stepper button{appearance:none;border:0;background:transparent;color:var(--satui-muted);min-width:25px;cursor:pointer}
+[data-satui] .satui-stepper button:hover{background:var(--satui-hover);color:var(--satui-fg)}
+[data-satui] .satui-stepper input{background:transparent;min-width:0;width:64px;text-align:center;border:0;color:var(--satui-fg);outline:0;font:600 12px ui-monospace,Consolas,monospace;cursor:ew-resize}
+[data-satui] .satui-stepper input:focus{cursor:text}
+[data-satui] .satui-stepper:focus-within{outline:1px solid var(--satui-accent)}
+[data-satui] .satui-stepper.is-soft::before,[data-satui] .satui-stepper.is-soft::after{content:"";position:absolute;top:-5px;bottom:-5px;width:16px;pointer-events:none;opacity:var(--satui-over-left,0);transition:opacity .14s;z-index:2;filter:blur(5px)}
+[data-satui] .satui-stepper.is-soft::before{left:-7px;background:linear-gradient(90deg,var(--satui-warn),transparent)}
+[data-satui] .satui-stepper.is-soft::after{right:-7px;opacity:var(--satui-over-right,0);background:linear-gradient(270deg,var(--satui-warn),transparent)}
+[data-satui] .satui-wheel-select{border:1px solid var(--satui-line);border-radius:7px;background:transparent;color:var(--satui-fg);padding:5px 9px;min-height:31px;max-width:100%;cursor:ns-resize}
+[data-satui] .satui-wheel-select:hover{background:var(--satui-hover)}
+[data-satui] .satui-range{accent-color:var(--satui-accent);width:100%;min-width:0}
+[data-satui] .satui-status{display:inline-flex;gap:6px;align-items:center;color:var(--satui-muted);font-size:11px}
+[data-satui] .satui-status::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--satui-muted)}
+[data-satui] .satui-status[data-status="verified"]{color:var(--satui-ion)}
+[data-satui] .satui-status[data-status="verified"]::before{background:var(--satui-ion);box-shadow:0 0 12px color-mix(in srgb,var(--satui-ion) 30%,transparent)}
+[data-satui] .satui-status[data-status="attention"]{color:var(--satui-warn)}
+[data-satui] .satui-status[data-status="attention"]::before{background:var(--satui-warn)}
+@media(prefers-reduced-motion:reduce){[data-satui] *{transition-duration:0ms!important}}

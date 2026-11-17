@@ -1,0 +1,19 @@
+/* Satellite UI resource center — reference tokens, 2026-11-17.
+   Authority: design-reference ONLY. This is NOT an app/core contract.
+   Scope: [data-satui], no global root selectors. */
+[data-satui] {
+  --satui-bg: var(--bg, #0c111b);
+  --satui-surface: var(--surface, #121b29);
+  --satui-raised: var(--raised, #1a2737);
+  --satui-hover: var(--hover, #223246);
+  --satui-line: var(--line, #283647);
+  --satui-fg: var(--fg, #e9f0f8);
+  --satui-muted: var(--muted, #9baabd);
+  --satui-accent: var(--accent, #6caaff);
+  --satui-ion: #67ffbc;
+  --satui-warn: #f6c279;
+  --satui-bad: #f18894;
+  --satui-radius: 8px;
+  --satui-motion: 140ms;
+  color: var(--satui-fg);
+}

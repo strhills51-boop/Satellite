@@ -1,0 +1,52 @@
+<!doctype html><html lang="ru" data-theme="dark"><meta charset="utf-8"><title>Satellite UI · Standalone reference controls</title>
+<link rel="stylesheet" href="satellite-tokens.css"><link rel="stylesheet" href="satellite-controls.css">
+<style>body{background:#0c111b;color:#e9f0f8;font:14px Segoe UI,Arial;padding:24px;max-width:900px;margin:auto}h1{font-size:25px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:13px}.c{border:1px solid #283647;border-radius:12px;background:#121b29;padding:20px;min-height:130px}.c h2{font-size:14px;margin:0 0 10px}.c p{font-size:11px;color:#9baabd;line-height:1.5}code{font-size:12px;color:#67ffbc}</style>
+<h1>Satellite · isolated controls</h1><p>Only local interactions. See CLAUDE_START_HERE.md before adopting into NG.</p><main data-satui><section class="c"><h2>Ghost actions</h2><div data-satui class="satui-stretch">
+  <button class="satui-ghost" type="button">Сканировать</button>
+  <button class="satui-ghost" type="button">История</button>
+  <button class="satui-ghost" type="button">Фильтры</button>
+</div></section><section class="c"><h2>Tooth single-select</h2><div data-satui>
+  <div class="satui-segment" data-satui-segment data-value="table" role="group" aria-label="Вид конфликтов">
+    <button type="button" data-value="cards" aria-pressed="false">Карточки</button>
+    <button type="button" data-value="table" aria-pressed="true">Таблица</button>
+    <button type="button" data-value="split" aria-pressed="false">2 области</button>
+  </div>
+</div></section><section class="c"><h2>Checkbox</h2><div data-satui>
+  <label class="satui-checkline"><input type="checkbox" checked><span class="satui-box"></span><span>Показывать решённые</span></label>
+</div></section><section class="c"><h2>Radio</h2><div data-satui>
+  <label class="satui-checkline"><input type="radio" name="mode" checked><span class="satui-radio"></span><span>Порядок</span></label>
+  <label class="satui-checkline"><input type="radio" name="mode"><span class="satui-radio"></span><span>Редактор</span></label>
+</div></section><section class="c"><h2>SMART palette</h2><div data-satui>
+  <div class="satui-micro" data-satui-palette="smart" data-value="#67ffbccc" tabindex="0" aria-label="SMART: цвет и прозрачность">
+    <div class="satui-sv" data-satui-sv title="ЛКМ/drag: S/V; колесо: H; Shift+колесо: alpha"></div>
+    <button class="satui-open" type="button" data-satui-open aria-expanded="false" aria-label="Полная палитра"></button>
+    <div class="satui-pop" hidden>
+      <div class="satui-pop-sv" data-satui-sv></div><div class="satui-hue" data-satui-hue></div>
+      <div class="satui-alpha" data-satui-alpha></div><input data-satui-hex aria-label="HEX/RGBA" value="#67ffbccc">
+    </div>
+  </div>
+</div></section><section class="c"><h2>FAST palette</h2><div data-satui>
+  <div class="satui-micro" data-satui-palette="fast" data-value="#67ffbcff" tabindex="0" aria-label="FAST: цвет и яркость">
+    <div class="satui-sv" data-satui-sv title="ЛКМ/drag: цвет и яркость; колесо: цвет; Shift+колесо: яркость"></div>
+  </div>
+</div></section><section class="c"><h2>Number scrub</h2><div data-satui>
+  <div class="satui-stepper" data-satui-number data-step="1">
+    <button type="button" data-satui-step="down" aria-label="Уменьшить">−</button>
+    <input type="text" inputmode="decimal" value="28" aria-label="Размер">
+    <button type="button" data-satui-step="up" aria-label="Увеличить">+</button>
+  </div>
+</div></section><section class="c"><h2>Soft bounds</h2><div data-satui>
+  <div class="satui-stepper is-soft" data-satui-number data-step="1" data-soft-min="0" data-soft-max="100">
+    <button type="button" data-satui-step="down" aria-label="Уменьшить">−</button>
+    <input type="text" inputmode="decimal" value="75" aria-label="Число с мягкими границами">
+    <button type="button" data-satui-step="up" aria-label="Увеличить">+</button>
+  </div>
+</div></section><section class="c"><h2>Wheel select</h2><div data-satui>
+  <select class="satui-wheel-select" data-satui-wheel aria-label="Модель просмотра">
+    <option>Компактно</option><option selected>Сбалансировано</option><option disabled>Недоступно</option><option>Подробно</option>
+  </select>
+</div></section><section class="c"><h2>Range</h2><div data-satui><input class="satui-range" type="range" min="0" max="100" value="48" aria-label="Интенсивность"></div></section><section class="c"><h2>Status</h2><div data-satui>
+  <span class="satui-status" data-status="verified">Подтверждено</span>
+  <span class="satui-status" data-status="attention">Нужна проверка</span>
+  <span class="satui-status">Неизвестно</span>
+</div></section></main><script src="satellite-controls.js"></script></html>
