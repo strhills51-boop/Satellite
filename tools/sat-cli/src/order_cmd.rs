@@ -2,7 +2,7 @@
 //!
 //! Owns: adding a separator to the project's canon (a service one such as `obsolete` or `review`: the commit makes
 //! its folder), renaming and removing one (the commit renames its folder or moves it to `deleted/`), moving mods to the end of a separator's block or before an entry, filing mods into a logical group
-//! or taking them out, and listing the separators with how many mods each holds. Everything goes into the project
+//! or taking them out, notes and tags on mods, and listing the separators with how many mods each holds. Everything goes into the project
 //! only; `sat-cli commit` writes `modlist.txt` and makes the folders.
 //! Not here: the order itself (`@sat:order.book`), the plan (`@sat:sync.plan`).
 //!
@@ -46,7 +46,7 @@ fn after_block(book: &OrderBook, sep: Key) -> Option<Key> {
 
 // @sat:cli.order.run
 /// `sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]...
-/// [--remove-separator NAME]... [--move MOD]... (--under SEPARATOR | --before
+/// [--remove-separator NAME]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--move MOD]... (--under SEPARATOR | --before
 /// ENTRY) [--into-group MOD --join MOD]... [--out-of-group MOD]... [--separators]`
 pub fn order(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
@@ -160,6 +160,34 @@ pub fn order(args: &[String]) -> Result<(), String> {
         changed = true;
     }
 
+    // notes and tags on mods: the window shows them on the card and in the mod's sheet
+    for w in args.windows(3) {
+        if w[0] == "--note" {
+            let k = key(&book, &w[1])?;
+            let note = w[2].clone();
+            book.patch_marks(&[k], |mut m| {
+                m.note = note.clone();
+                m
+            })
+            .map_err(|e| e.to_string())?;
+            println!("note on {}", w[1]);
+            changed = true;
+        }
+        if w[0] == "--tag" {
+            let k = key(&book, &w[1])?;
+            let tag = w[2].clone();
+            book.patch_marks(&[k], |mut m| {
+                if !m.tags.iter().any(|t| t.eq_ignore_ascii_case(&tag)) {
+                    m.tags.push(tag.clone());
+                }
+                m
+            })
+            .map_err(|e| e.to_string())?;
+            println!("tag {} on {}", w[2], w[1]);
+            changed = true;
+        }
+    }
+
     if changed {
         project.commit_book(&book);
         sat_home::project::save(&mut stll, &project)?;
@@ -168,7 +196,20 @@ pub fn order(args: &[String]) -> Result<(), String> {
             path.display()
         );
     }
-    if has(args, "--separators") || !changed {
+    for m in flag_values(args, "--show") {
+        let k = key(&book, m)?;
+        let g = book.group_id_of(k).map(|_| " (in a logical group)").unwrap_or("");
+        println!("{m}{g}");
+        if let Some(mk) = book.marks(k) {
+            if !mk.tags.is_empty() {
+                println!("  tags: {}", mk.tags.join(", "));
+            }
+            if !mk.note.is_empty() {
+                println!("  note: {}", mk.note);
+            }
+        }
+    }
+    if has(args, "--separators") || (!changed && flag_values(args, "--show").is_empty()) {
         let mut cur: Option<(String, usize, usize)> = None;
         let mut out = Vec::new();
         for (n, k, en) in book.entries() {
