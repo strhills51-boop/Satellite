@@ -46,7 +46,7 @@ fn after_block(book: &OrderBook, sep: Key) -> Option<Key> {
 
 // @sat:cli.order.run
 /// `sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]...
-/// [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--move MOD]... (--under SEPARATOR | --before
+/// [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before
 /// ENTRY) [--into-group MOD --join MOD]... [--out-of-group MOD]... [--separators]`
 pub fn order(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
@@ -202,6 +202,50 @@ pub fn order(args: &[String]) -> Result<(), String> {
             println!("tag {} on {}", w[2], w[1]);
             changed = true;
         }
+    }
+
+    // @sat:cli.order.families
+    // mods of one Nexus mod (a main file with its options, patches, updates) standing next to each other in one
+    // block become a logical group: one unit, one row — nothing moves, so no file changes its winner
+    if has(args, "--group-families") {
+        let ids: std::collections::HashMap<String, u64> = project
+            .sources_by_name()
+            .into_iter()
+            .filter_map(|(n, s)| Some((n.to_lowercase(), s.mod_id?)))
+            .collect();
+        let entries: Vec<(String, EntryKind)> = book.entries().map(|(n, k, _)| (n.to_string(), k)).collect();
+        let mut runs: Vec<Vec<Key>> = Vec::new();
+        let mut cur: (Option<u64>, Vec<Key>) = (None, Vec::new());
+        let flush = |cur: &mut (Option<u64>, Vec<Key>), runs: &mut Vec<Vec<Key>>| {
+            if cur.1.len() >= 2 {
+                runs.push(std::mem::take(&mut cur.1));
+            }
+            *cur = (None, Vec::new());
+        };
+        for (n, kind) in &entries {
+            let k = key(&book, n)?;
+            let id = (*kind == EntryKind::Mod && book.group_id_of(k).is_none())
+                .then(|| ids.get(&n.to_lowercase()).copied())
+                .flatten();
+            match id {
+                Some(i) if cur.0 == Some(i) => cur.1.push(k),
+                Some(i) => {
+                    flush(&mut cur, &mut runs);
+                    cur = (Some(i), vec![k]);
+                }
+                None => flush(&mut cur, &mut runs),
+            }
+        }
+        flush(&mut cur, &mut runs);
+        let mut made = 0;
+        for run in runs {
+            let name = format!("семья: {}", book.name(run[0]));
+            if book.create_group(&name, &run).is_ok() {
+                made += 1;
+                changed = true;
+            }
+        }
+        println!("{made} logical group(s) of one Nexus mod's files next to each other");
     }
 
     if changed {
