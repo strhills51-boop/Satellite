@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -132,7 +132,7 @@ fn main() {
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
         other => Err(format!(
-            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
             other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
         )),
     };
@@ -645,63 +645,28 @@ fn analyze(args: &[String]) -> Result<(), String> {
     // @sat:cli.contexts
     // overwrite contexts as clusters in the list: how far each one's mods are spread (separators, positions) — the
     // owner wants a conflict kept local in the order, not stretched across it
-    if has(args, "--contexts") {
-        let mut place: std::collections::HashMap<String, (usize, String, bool)> = Default::default();
-        let mut sep = String::from("(no separator)");
-        for (i, e) in project.canon.entries.iter().enumerate() {
-            if e.is_mod() {
-                place.insert(e.name.to_lowercase(), (i, sep.clone(), e.enabled));
-            } else {
-                sep = e
-                    .name
-                    .trim_end_matches(sat_core::canon::SEPARATOR_SUFFIX)
-                    .to_string();
-            }
-        }
+    if has(args, "--contexts") && !has(args, "--real") {
         let mut cxs: Vec<&sat_core::overwrite::Context> = proj.contexts().iter().collect();
         cxs.sort_by_key(|c| std::cmp::Reverse((c.files, c.mods.len())));
         println!(
             "contexts: {} (files, mods, chains, separators spanned, positions first..last)",
             cxs.len()
         );
-        for (n, cx) in cxs.iter().enumerate() {
-            let rows: Vec<(usize, String, bool, &str)> = cx
-                .mods
-                .iter()
-                .map(|&m| {
-                    let name = table.mod_name(m);
-                    let (pos, sep, en) =
-                        place
-                            .get(&name.to_lowercase())
-                            .cloned()
-                            .unwrap_or((usize::MAX, "?".into(), false));
-                    (pos, sep, en, name)
-                })
-                .collect();
-            let mut seps: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
-            seps.sort_unstable();
-            seps.dedup();
-            let lo = rows.iter().map(|r| r.0).min().unwrap_or(0);
-            let hi = rows
-                .iter()
-                .map(|r| r.0)
-                .filter(|&p| p != usize::MAX)
-                .max()
-                .unwrap_or(0);
-            println!(
-                "#{:<3} files {:>6}  mods {:>3}  chains {:>4}  separators {:>2}  positions {}..{}",
-                n + 1,
-                cx.files,
-                cx.mods.len(),
-                cx.chains.len(),
-                seps.len(),
-                lo,
-                hi
-            );
-            for (pos, sep, en, name) in &rows {
-                println!("      {pos:>5} {} [{sep}] {name}", if *en { "+" } else { "-" });
-            }
-        }
+        let groups: Vec<(String, Vec<ModId>)> = cxs
+            .iter()
+            .map(|cx| {
+                (
+                    format!(
+                        "files {:>6}  mods {:>3}  chains {:>4}",
+                        cx.files,
+                        cx.mods.len(),
+                        cx.chains.len()
+                    ),
+                    cx.mods.clone(),
+                )
+            })
+            .collect();
+        print_contexts(&table, &project, &groups);
     }
 
     if let Some(took) = sources_read {
@@ -774,6 +739,27 @@ fn analyze(args: &[String]) -> Result<(), String> {
         }
         Some(mc)
     };
+
+    // @sat:cli.contexts.real
+    // the contexts of the conflicts that matter (`@sat:identical.real-contexts`): paths whose copies all hold the same
+    // bytes are left out, so a context of mods that only repeat each other falls apart
+    if has(args, "--contexts") && has(args, "--real") {
+        let Some(h) = &content_hashes else {
+            return Err("--contexts --real needs the content hashes (not with --no-hashes)".into());
+        };
+        let mut groups = sat_core::identical::real_contexts(&table, h, &proj);
+        groups.retain(|g| g.len() >= 2);
+        groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
+        println!(
+            "contexts of differing copies: {} (mods, separators spanned, positions first..last)",
+            groups.len()
+        );
+        let groups: Vec<(String, Vec<ModId>)> = groups
+            .into_iter()
+            .map(|g| (format!("mods {:>3}", g.len()), g))
+            .collect();
+        print_contexts(&table, &project, &groups);
+    }
 
     // @sat:cli.contexts.compact
     // a context is closed under conflicts: its mods overwrite only each other, so moving them next to each other
@@ -1950,5 +1936,59 @@ fn human_bytes(b: u64) -> String {
         format!("{b} B")
     } else {
         format!("{v:.1} {}", units[u])
+    }
+}
+
+/// Prints overwrite contexts as clusters in the list: each one's header, how many separators it spans, its first and
+/// last position, then its mods with their place (`+` enabled).
+fn print_contexts(
+    table: &sat_core::table::ProviderTable,
+    project: &sat_core::project::Project,
+    groups: &[(String, Vec<ModId>)],
+) {
+    let mut place: std::collections::HashMap<String, (usize, String, bool)> = Default::default();
+    let mut sep = String::from("(no separator)");
+    for (i, e) in project.canon.entries.iter().enumerate() {
+        if e.is_mod() {
+            place.insert(e.name.to_lowercase(), (i, sep.clone(), e.enabled));
+        } else {
+            sep = e
+                .name
+                .trim_end_matches(sat_core::canon::SEPARATOR_SUFFIX)
+                .to_string();
+        }
+    }
+    for (n, (head, mods)) in groups.iter().enumerate() {
+        let mut rows: Vec<(usize, String, bool, &str)> = mods
+            .iter()
+            .map(|&m| {
+                let name = table.mod_name(m);
+                let (pos, sep, en) =
+                    place
+                        .get(&name.to_lowercase())
+                        .cloned()
+                        .unwrap_or((usize::MAX, "?".into(), false));
+                (pos, sep, en, name)
+            })
+            .collect();
+        rows.sort_by_key(|r| r.0);
+        let mut seps: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+        seps.sort_unstable();
+        seps.dedup();
+        let lo = rows.iter().map(|r| r.0).min().unwrap_or(0);
+        let hi = rows
+            .iter()
+            .map(|r| r.0)
+            .filter(|&p| p != usize::MAX)
+            .max()
+            .unwrap_or(0);
+        println!(
+            "#{:<3} {head}  separators {:>2}  positions {lo}..{hi}",
+            n + 1,
+            seps.len()
+        );
+        for (pos, sep, en, name) in &rows {
+            println!("      {pos:>5} {} [{sep}] {name}", if *en { "+" } else { "-" });
+        }
     }
 }
