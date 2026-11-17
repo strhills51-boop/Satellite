@@ -215,6 +215,7 @@ impl App {
                 prio,
                 &list,
                 pack,
+                Some(&self.content_hashes),
             )));
         }
         let names = table.mod_names().to_vec();

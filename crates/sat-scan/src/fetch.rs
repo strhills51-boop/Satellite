@@ -127,6 +127,20 @@ pub fn preview(f: &Folders, m: &str, rel: &str, archive: Option<&str>) -> Option
     }
 }
 
+// @sat:scan.fetch.bytes
+/// The bytes of mod `m`'s copy of `rel`: loose, or unpacked from archive `archive` (a file in the mod's folder).
+/// `None` — not found, or the entry does not unpack.
+pub fn read_copy(f: &Folders, m: &str, rel: &str, archive: Option<&str>) -> Option<Vec<u8>> {
+    let dir = f.mod_dir(m);
+    match archive {
+        None => std::fs::read(find(&dir, rel)?).ok(),
+        Some(a) => {
+            let file = std::fs::File::open(find(&dir, a)?).ok()?;
+            sat_formats::archive_data::read_one(std::io::BufReader::new(file), rel).ok()?
+        }
+    }
+}
+
 /// An archive's entries: (path, size).
 type Manifest = Arc<Vec<(String, u64)>>;
 

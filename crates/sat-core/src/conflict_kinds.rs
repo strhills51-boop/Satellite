@@ -821,47 +821,69 @@ pub fn facegen(
     prio: &Priorities,
     list: &PluginList,
     pack: &GamePack,
+    hashes: Option<&crate::identical::ContentHashes>,
 ) -> DomainReport {
-    facegen_in(&candidates(table, pack, &[]).facegen, ix, table, prio, list, pack)
+    facegen_in(
+        &candidates(table, pack, &[]).facegen,
+        ix,
+        table,
+        prio,
+        list,
+        pack,
+        hashes,
+    )
 }
 
-/// [`facegen`] over candidate face files: (path, the record's plugin, its object id).
-pub fn facegen_in(
+/// A face file of an overridden NPC whose copy in the game is not the record mod's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FaceFile {
+    /// The NPC record (`RecordIndex` key).
+    pub key: u64,
+    pub path: PathId,
+    /// The copy the game takes.
+    pub face: usize,
+    /// The mod of the plugin that wins the record.
+    pub rec_mod: ModId,
+    /// The record mod's own copy that would load (its game-order best), `None` — it has none.
+    pub rec_copy: Option<usize>,
+    /// The geometry (a mismatch darkens the face), not a secondary file (tint).
+    pub geom: bool,
+}
+
+/// Face files of overridden NPCs whose game copy is not the record mod's (an identical copy from another mod is
+/// not a mismatch when content hashes are known).
+fn face_files(
     faces: &[(PathId, String, u32)],
     ix: &RecordIndex,
     table: &ProviderTable,
     prio: &Priorities,
     list: &PluginList,
     pack: &GamePack,
-) -> DomainReport {
-    let mut b = Builder::new(info(
-        "facegen",
-        "Лица NPC",
-        "Запись NPC выигрывает из одного мода, а файлы его лица (FaceGen) — из другого: лицо не совпадает с записью (тёмные лица).",
-        Family::Interaction,
-        Centrality::ModOrder,
-        Semantics::LastWins,
-    ));
+    hashes: Option<&crate::identical::ContentHashes>,
+) -> Vec<FaceFile> {
     let Some(fg) = &pack.facegen else {
-        return b.finish();
+        return Vec::new();
     };
     let record_sig = sig4(&fg.record);
     let order = pack.archives.as_ref().map(|r| GameOrder::new(list, r));
+    // the copy the game takes among copies (a loose face file beats an archive one whatever the mod order)
+    let pick = |copies: &mut dyn Iterator<Item = usize>| match &order {
+        Some(o) => o.winner(table, prio, copies),
+        None => copies.max_by_key(|&i| (prio.get(table.owner(i)), !table.is_archive(i))),
+    };
     // the mod a loaded plugin comes from
     let plugin_mod = |name: &str| -> Option<ModId> {
         let p = list.get(name)?;
         p.winner.map(|w| p.versions[w].owner)
     };
-    // the first face file of the pack is the geometry (a mismatch darkens the face), the rest are secondary (tints)
+    // the first face file of the pack is the geometry, the rest are secondary (tints)
     let geom_ext = fg
         .files
         .first()
         .and_then(|t| t.rsplit_once('.'))
         .map(|x| format!(".{}", x.1.to_lowercase()))
         .unwrap_or_default();
-    // key → per part (geometry, secondary): (face winner mod, record winner mod, the record's mod has its own copy)
-    type Part = Option<(ModId, ModId, bool)>;
-    let mut seen_keys: FxHashMap<u64, (Part, Part)> = FxHashMap::default();
+    let mut out = Vec::new();
     for (p, plugin, object) in faces {
         let (p, object) = (*p, *object);
         let Some(key) = ix.key_of(plugin, object) else {
@@ -875,27 +897,100 @@ pub fn facegen_in(
         let Some(rec_mod) = plugin_mod(&ix.plugins[last.plugin as usize]) else {
             continue;
         };
-        // the copy the game takes (a loose face file beats an archive one whatever the mod order)
-        let active = table
-            .path_providers(p)
-            .filter(|&i| prio.is_active(table.owner(i)));
-        let face = match &order {
-            Some(o) => o.winner(table, prio, active),
-            None => active.max_by_key(|&i| (prio.get(table.owner(i)), !table.is_archive(i))),
-        };
-        let Some(face) = face else {
+        let Some(face) = pick(
+            &mut table
+                .path_providers(p)
+                .filter(|&i| prio.is_active(table.owner(i))),
+        ) else {
             continue;
         };
-        let face_mod = table.owner(face);
-        if face_mod == rec_mod {
+        if table.owner(face) == rec_mod {
             continue;
         }
-        let rec_has = table.path_providers(p).any(|i| table.owner(i) == rec_mod);
+        let rec_copy = pick(&mut table.path_providers(p).filter(|&i| table.owner(i) == rec_mod));
+        if let (Some(h), Some(r)) = (hashes, rec_copy)
+            && crate::identical::same(table, h, face, r) == Some(true)
+        {
+            continue;
+        }
         let geom = !geom_ext.is_empty() && table.path_string(p).to_lowercase().ends_with(&geom_ext);
-        let e = seen_keys.entry(key).or_default();
-        let part = if geom { &mut e.0 } else { &mut e.1 };
-        let v = part.get_or_insert((face_mod, rec_mod, false));
-        v.2 |= rec_has;
+        out.push(FaceFile {
+            key,
+            path: p,
+            face,
+            rec_mod,
+            rec_copy,
+            geom,
+        });
+    }
+    out
+}
+
+// @sat:conflict.kinds.facegen.fixes
+/// The record mod's own face files to put above the copies that beat them: for every NPC whose record mod has a
+/// face copy that loses (in an archive that loads earlier, or a loose file lower in the mod order), all of that
+/// NPC's face files the record mod has. (path, the record mod's copy).
+pub fn facegen_fixes(
+    ix: &RecordIndex,
+    table: &ProviderTable,
+    prio: &Priorities,
+    list: &PluginList,
+    pack: &GamePack,
+    hashes: Option<&crate::identical::ContentHashes>,
+) -> Vec<(PathId, usize)> {
+    let files = face_files(
+        &candidates(table, pack, &[]).facegen,
+        ix,
+        table,
+        prio,
+        list,
+        pack,
+        hashes,
+    );
+    let keys: rustc_hash::FxHashSet<u64> = files
+        .iter()
+        .filter(|f| f.rec_copy.is_some())
+        .map(|f| f.key)
+        .collect();
+    let mut out: Vec<(PathId, usize)> = files
+        .iter()
+        .filter(|f| keys.contains(&f.key))
+        .filter_map(|f| Some((f.path, f.rec_copy?)))
+        .collect();
+    out.sort_by_key(|x| x.0);
+    out.dedup();
+    out
+}
+
+/// [`facegen`] over candidate face files: (path, the record's plugin, its object id).
+pub fn facegen_in(
+    faces: &[(PathId, String, u32)],
+    ix: &RecordIndex,
+    table: &ProviderTable,
+    prio: &Priorities,
+    list: &PluginList,
+    pack: &GamePack,
+    hashes: Option<&crate::identical::ContentHashes>,
+) -> DomainReport {
+    let mut b = Builder::new(info(
+        "facegen",
+        "Лица NPC",
+        "Запись NPC выигрывает из одного мода, а файлы его лица (FaceGen) — из другого: лицо не совпадает с записью (тёмные лица).",
+        Family::Interaction,
+        Centrality::ModOrder,
+        Semantics::LastWins,
+    ));
+    let Some(fg) = &pack.facegen else {
+        return b.finish();
+    };
+    // key → per part (geometry, secondary): (face winner mod, record winner mod, the record's mod has its own copy)
+    type Part = Option<(ModId, ModId, bool)>;
+    let mut seen_keys: FxHashMap<u64, (Part, Part)> = FxHashMap::default();
+    for f in face_files(faces, ix, table, prio, list, pack, hashes) {
+        let e = seen_keys.entry(f.key).or_default();
+        let part = if f.geom { &mut e.0 } else { &mut e.1 };
+        let v = part.get_or_insert((table.owner(f.face), f.rec_mod, false));
+        v.2 |= table.path_providers(f.path).any(|i| table.owner(i) == f.rec_mod);
     }
     let mut keys: Vec<(u64, (Part, Part))> = seen_keys.into_iter().collect();
     keys.sort_by_key(|x| x.0);
@@ -1091,13 +1186,21 @@ mod tests {
             let table = ProviderTable::build(&facts);
             let prio = Priorities(vec![0, 1]);
             let list = list_of(&facts, &prio, &["Overhaul.esp"]);
-            let r = facegen(&ix, &table, &prio, &list, crate::game::active());
+            let r = facegen(&ix, &table, &prio, &list, crate::game::active(), None);
             assert_eq!(
                 r.chains.is_empty(),
                 !loose,
                 "loose pack copy: {loose}; the game takes the loose tint over the archive one: {:?}",
                 r.counts
             );
+            // the fix: the record mod's own tint, only where it loses
+            let fixes = facegen_fixes(&ix, &table, &prio, &list, crate::game::active(), None);
+            if loose {
+                assert_eq!(fixes.len(), 1);
+                assert_eq!(table.mod_name(table.owner(fixes[0].1)), "NPC Overhaul");
+            } else {
+                assert!(fixes.is_empty());
+            }
         }
     }
 
