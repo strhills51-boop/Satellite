@@ -137,6 +137,66 @@ pub fn chain_content(
     }
 }
 
+// @sat:identical.real-contexts
+/// The overwrite contexts with the paths whose copies are all the same bytes left out: a path like that has a winner
+/// whose bytes every loser also holds, so the order among its owners changes nothing the game sees. What stays are
+/// the conflicts that matter, often in smaller groups. A path not compared (archive entries, files not read) counts as
+/// a real conflict. Each group: active mods, lowest priority first.
+pub fn real_contexts(
+    table: &ProviderTable,
+    hashes: &ContentHashes,
+    ow: &OverwriteProjection,
+) -> Vec<Vec<ModId>> {
+    let prio = ow.priorities();
+    let n = table.mod_count();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+    let mut touched = vec![false; n];
+    for cx in ow.contexts() {
+        for &c in &cx.chains {
+            for p in ow.chain_paths(c) {
+                let ps: Vec<usize> = table
+                    .path_providers(p)
+                    .filter(|&i| prio.is_active(table.owner(i)))
+                    .collect();
+                let Some(&first) = ps.first() else { continue };
+                if ps.iter().all(|&i| same(table, hashes, first, i) == Some(true)) {
+                    continue;
+                }
+                let owners: Vec<usize> = ps.iter().map(|&i| table.owner(i).idx()).collect();
+                for &o in &owners {
+                    touched[o] = true;
+                }
+                for w in owners.windows(2) {
+                    let (a, b) = (find(&mut parent, w[0]), find(&mut parent, w[1]));
+                    if a != b {
+                        parent[a] = b;
+                    }
+                }
+            }
+        }
+    }
+    let mut groups: std::collections::BTreeMap<usize, Vec<ModId>> = Default::default();
+    for m in 0..n {
+        if touched[m] {
+            let r = find(&mut parent, m);
+            groups.entry(r).or_default().push(ModId::from_idx(m));
+        }
+    }
+    let mut out: Vec<Vec<ModId>> = groups.into_values().filter(|g| g.len() > 1).collect();
+    for g in &mut out {
+        g.sort_by_key(|&m| prio.get(m));
+    }
+    out.sort_by_key(|g| std::cmp::Reverse(g.len()));
+    out
+}
+
 // @sat:identical.mods
 /// What a mod loses as copies equal to the winner (files the game takes from someone else, byte for byte the same).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
