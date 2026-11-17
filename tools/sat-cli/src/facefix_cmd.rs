@@ -6,7 +6,8 @@
 //! the mod in the order (the next `analyze` finds the new folder; `sat-cli sync` and `commit` add it).
 //!
 //! The fix is additive: nothing in the owner's mods changes, and unchecking the generated mod undoes it. It is a
-//! snapshot of the order it was made for: after the order changes, it is made again. A folder is rewritten only
+//! snapshot of the order it was made for: after the order changes, it is made again (against the order without the
+//! earlier fix). A folder is rewritten only
 //! when it carries the list of a previous fix — a folder of anything else is never touched.
 
 use std::path::Path;

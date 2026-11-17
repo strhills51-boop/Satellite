@@ -1308,10 +1308,18 @@ fn analyze(args: &[String]) -> Result<(), String> {
             ));
             // @sat:cli.facegen-fix.run
             if let Some(name) = flag_value(args, "--facegen-fix") {
+                // the fix is made against the order without itself: an earlier fix of the same name does not count,
+                // or its own copies would hide the faces it carries
+                let mut without = prio.clone();
+                for (i, n) in table.mod_names().iter().enumerate() {
+                    if n.eq_ignore_ascii_case(name) {
+                        without.0[i] = Priorities::INACTIVE;
+                    }
+                }
                 let fixes = sat_core::conflict_kinds::facegen_fixes(
                     ix,
                     &table,
-                    prio,
+                    &without,
                     &plugin_list,
                     pack,
                     content_hashes.as_ref(),
