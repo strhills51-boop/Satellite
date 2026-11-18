@@ -110,6 +110,9 @@ pub struct Project {
     /// What the user wants done to the build, fulfilled by a commit (`@sat:intent`): planned mods.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub intents: Vec<crate::intent::Intent>,
+    /// Forks of taste (`@sat:forks`): an aspect, its options, the choice in force and who made it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forks: Vec<crate::forks::Fork>,
     /// Fields this build does not know (written by a newer one or an extension): kept as they are and written
     /// back, so opening a project never loses another program's data (ADR 0007 §Модель).
     #[serde(flatten)]
@@ -165,6 +168,7 @@ impl Project {
             conflict_ignore: Default::default(),
             tags: Default::default(),
             intents: Vec::new(),
+            forks: Vec::new(),
             sticker_rules: Vec::new(),
             space: None,
             new_mods: Vec::new(),
