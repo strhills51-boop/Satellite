@@ -20,6 +20,9 @@ use crate::table::ProviderTable;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WhatIf {
     pub m: ModId,
+    /// Its paths (one per path, loose or in its archives) and their bytes.
+    pub files: u32,
+    pub bytes: u64,
     /// Paths it shares with enabled mods.
     pub shared: u32,
     /// Enabled mods it meets on those paths.
@@ -36,7 +39,7 @@ pub struct WhatIf {
 }
 
 // @sat:what-if.compute
-/// The theoretical part of every disabled mod. `rank` is each mod's place in the list as if every mod were enabled
+/// The theoretical part of every disabled mod (a mod that meets no enabled one has a row too). `rank` is each mod's place in the list as if every mod were enabled
 /// (higher wins among loose copies); `prio` is the build as it is. `same(a, b)` says whether two copies hold the same
 /// bytes (`None` — unknown).
 pub fn what_if(
@@ -54,6 +57,8 @@ pub fn what_if(
         let my_rank = rank.get(m);
         let mut w = WhatIf {
             m,
+            files: 0,
+            bytes: 0,
             shared: 0,
             met: 0,
             would_win: 0,
@@ -73,6 +78,8 @@ pub fn what_if(
                 continue;
             }
             last_path = Some(p);
+            w.files += 1;
+            w.bytes += table.size(i);
             let active: Vec<usize> = table
                 .path_providers(p)
                 .filter(|&j| prio.is_active(table.owner(j)))
@@ -109,9 +116,6 @@ pub fn what_if(
             } else {
                 w.would_lose += 1;
             }
-        }
-        if w.shared == 0 {
-            continue;
         }
         w.met = met.len() as u32;
         let mut v: Vec<(ModId, u32)> = victims.into_iter().map(|(k, n)| (ModId(k), n)).collect();
@@ -173,6 +177,9 @@ mod tests {
         assert_eq!(b.victims, vec![(ModId::from_idx(0), 1)]);
         let d = r.iter().find(|w| table.mod_name(w.m) == "D").unwrap();
         // D meets A on x.dds with the same bytes; z.dds is its own
-        assert_eq!((d.shared, d.would_win, d.same), (1, 0, 1));
+        assert_eq!(
+            (d.files, d.bytes, d.shared, d.would_win, d.same),
+            (2, 10, 1, 0, 1)
+        );
     }
 }

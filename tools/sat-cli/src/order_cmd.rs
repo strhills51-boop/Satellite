@@ -46,7 +46,7 @@ fn after_block(book: &OrderBook, sep: Key) -> Option<Key> {
 
 // @sat:cli.order.run
 /// `sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]...
-/// [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before
+/// [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--marks FILE] [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before
 /// ENTRY) [--into-group MOD --join MOD]... [--out-of-group MOD]... [--separators]`
 pub fn order(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
@@ -202,6 +202,75 @@ pub fn order(args: &[String]) -> Result<(), String> {
             println!("tag {} on {}", w[2], w[1]);
             changed = true;
         }
+    }
+
+    // @sat:cli.order.marks-file
+    // marks for many mods at once (a sweep over thousands of mods does not fit a command line): a file of lines
+    // `MOD<TAB>ACTION<TAB>VALUE` — `tag`, `untag`, `untag-prefix` (drops every tag starting with VALUE), `note`
+    // (`\n` in VALUE is a line end), `sticker`, `unsticker`; `enable` / `disable` (VALUE ignored). All marks in one
+    // undoable step; an unknown mod or action stops before anything changes.
+    if let Some(file) = flag_value(args, "--marks") {
+        let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+        let mut edits: Vec<(Key, Vec<(String, String)>)> = Vec::new();
+        let mut at: std::collections::HashMap<Key, usize> = Default::default();
+        let (mut on, mut off) = (Vec::new(), Vec::new());
+        for (n, line) in text.lines().enumerate() {
+            let line = line.trim_end_matches('\r');
+            if line.trim().is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut f = line.splitn(3, '\t');
+            let (m, action, value) = (
+                f.next().unwrap_or(""),
+                f.next().unwrap_or(""),
+                f.next().unwrap_or(""),
+            );
+            let k = key(&book, m).map_err(|e| format!("{file}:{}: {e}", n + 1))?;
+            match action {
+                "enable" => on.push(k),
+                "disable" => off.push(k),
+                "tag" | "untag" | "untag-prefix" | "note" | "sticker" | "unsticker" => {
+                    let i = *at.entry(k).or_insert_with(|| {
+                        edits.push((k, Vec::new()));
+                        edits.len() - 1
+                    });
+                    edits[i].1.push((action.to_string(), value.replace("\\n", "\n")));
+                }
+                other => return Err(format!("{file}:{}: unknown action {other:?}", n + 1)),
+            }
+        }
+        let keys: Vec<Key> = edits.iter().map(|e| e.0).collect();
+        let mut next = edits.iter();
+        if !keys.is_empty() {
+            book.patch_marks(&keys, |mut m| {
+                for (action, v) in next.next().map(|e| e.1.as_slice()).unwrap_or_default() {
+                    match action.as_str() {
+                        "tag" if !m.tags.iter().any(|t| t.eq_ignore_ascii_case(v)) => m.tags.push(v.clone()),
+                        "untag" => m.tags.retain(|t| !t.eq_ignore_ascii_case(v)),
+                        "untag-prefix" => m.tags.retain(|t| !t.starts_with(v.as_str())),
+                        "note" => m.note = v.clone(),
+                        "sticker" if !m.stickers.contains(v) => m.stickers.push(v.clone()),
+                        "unsticker" => m.stickers.retain(|s| s != v),
+                        _ => {}
+                    }
+                }
+                m
+            })
+            .map_err(|e| e.to_string())?;
+            changed = true;
+        }
+        for (keys, enable) in [(&on, true), (&off, false)] {
+            if !keys.is_empty() {
+                book.set_enabled(keys, Some(enable)).map_err(|e| e.to_string())?;
+                changed = true;
+            }
+        }
+        println!(
+            "marks from {file}: {} mod(s) marked, {} enabled, {} disabled",
+            keys.len(),
+            on.len(),
+            off.len()
+        );
     }
 
     // @sat:cli.order.families
