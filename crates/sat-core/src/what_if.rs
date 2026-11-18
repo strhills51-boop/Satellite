@@ -6,6 +6,8 @@
 //! the mods it would take the most paths from. The game's rule decides a copy: a loose file beats every archive copy,
 //! then the place in the list.
 //!
+//! Disabled mods turned on together may meet each other (two copies of one mod): `pairs` (`@sat:what-if.pairs`).
+//!
 //! Not in any real metric: the build's conflicts, contexts and reports count enabled mods only. Not here: whether
 //! its plugins would load (`@sat:plugins.master-gap`), whether it is an older version of an enabled mod (the CLI
 //! looks at Nexus ids).
@@ -127,6 +129,88 @@ pub fn what_if(
     out
 }
 
+/// Two mods of a set turned on together that share paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pair {
+    pub a: ModId,
+    pub b: ModId,
+    /// Paths both have.
+    pub shared: u32,
+    /// Of them, where both copies are the same bytes.
+    pub same: u32,
+    /// Where `a`'s copy would be taken (loose beats archive, then the place), and where `b`'s.
+    pub a_wins: u32,
+    pub b_wins: u32,
+}
+
+// @sat:what-if.pairs
+/// The mods of `set` (disabled mods to turn on together) that would meet each other: each pair once, most shared
+/// paths first. `what_if` sees each disabled mod alone against the build; two copies of one mod, both disabled, only
+/// meet here.
+pub fn pairs(
+    table: &ProviderTable,
+    set: &[ModId],
+    rank: &Priorities,
+    same: impl Fn(usize, usize) -> Option<bool>,
+) -> Vec<Pair> {
+    let members: rustc_hash::FxHashSet<u32> = set.iter().map(|m| m.0).collect();
+    let mut acc: FxHashMap<(u32, u32), Pair> = FxHashMap::default();
+    // the copy a mod gives a path: loose before archive
+    let best = |m: ModId, p| {
+        table
+            .path_providers(p)
+            .filter(|&j| table.owner(j) == m)
+            .max_by_key(|&j| !table.is_archive(j))
+    };
+    for &m in set {
+        let mut last = None;
+        for &i in table.mod_providers(m) {
+            let p = table.path_of_provider(i as usize);
+            if last == Some(p) {
+                continue;
+            }
+            last = Some(p);
+            let mut others: Vec<ModId> = table
+                .path_providers(p)
+                .map(|j| table.owner(j))
+                .filter(|o| o.0 > m.0 && members.contains(&o.0))
+                .collect();
+            others.dedup();
+            for o in others {
+                let (Some(x), Some(y)) = (best(m, p), best(o, p)) else {
+                    continue;
+                };
+                let e = acc.entry((m.0, o.0)).or_insert(Pair {
+                    a: m,
+                    b: o,
+                    shared: 0,
+                    same: 0,
+                    a_wins: 0,
+                    b_wins: 0,
+                });
+                e.shared += 1;
+                if same(x, y) == Some(true) {
+                    e.same += 1;
+                    continue;
+                }
+                let a_wins = match (table.is_archive(x), table.is_archive(y)) {
+                    (false, true) => true,
+                    (true, false) => false,
+                    _ => rank.get(m) > rank.get(o),
+                };
+                if a_wins {
+                    e.a_wins += 1;
+                } else {
+                    e.b_wins += 1;
+                }
+            }
+        }
+    }
+    let mut out: Vec<Pair> = acc.into_values().collect();
+    out.sort_by_key(|p| (std::cmp::Reverse(p.shared), p.a.0, p.b.0));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +264,23 @@ mod tests {
         assert_eq!(
             (d.files, d.bytes, d.shared, d.would_win, d.same),
             (2, 10, 1, 0, 1)
+        );
+    }
+    #[test]
+    fn two_disabled_mods_turned_on_together_meet_only_in_the_pairs() {
+        let facts = [
+            mk("A", &[("x.dds", 1)]),
+            mk("B", &[("x.dds", 2), ("y.dds", 2)]),
+            mk("C", &[("x.dds", 3), ("y.dds", 3)]),
+        ];
+        let table = ProviderTable::build(&facts);
+        let rank = Priorities(vec![1, 2, 3]);
+        let (b, c) = (ModId::from_idx(1), ModId::from_idx(2));
+        let r = pairs(&table, &[b, c], &rank, |_, _| None);
+        assert_eq!(r.len(), 1);
+        assert_eq!(
+            (r[0].a, r[0].b, r[0].shared, r[0].a_wins, r[0].b_wins),
+            (b, c, 2, 0, 2)
         );
     }
 }

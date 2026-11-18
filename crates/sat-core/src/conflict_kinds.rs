@@ -14,7 +14,7 @@ use rustc_hash::FxHashMap;
 use crate::conflict::{
     Builder, Centrality, DomainInfo, DomainReport, Family, Origin, Semantics, Severity, cell,
 };
-use crate::game::{GamePack, RecordRules};
+use crate::game::{GamePack, RecordRules, RuntimeRules};
 use crate::ids::{ModId, PathId};
 use crate::overwrite::Priorities;
 use crate::plugins::{PluginList, plugin_key};
@@ -557,6 +557,29 @@ pub struct GameRuntime {
     pub files: Vec<String>,
 }
 
+// @sat:conflict.kinds.runtime.loads
+/// Whether a plugin of the script extender is loaded on the game's version, by the names it exports: the loader calls
+/// one entry export, which depends on the game version (`RuntimeRules::plugin_entry`: Skyrim SE before 1.6.317 asks
+/// through `SKSEPlugin_Query`, later through `SKSEPlugin_Version`; a plugin built for both exports both). `None` — the
+/// pack says nothing, or the library exports none of the entries (not a plugin of the extender: a helper library).
+pub fn extender_plugin_loads(
+    rules: &RuntimeRules,
+    game: (u16, u16, u16, u16),
+    exports: &[String],
+) -> Option<bool> {
+    let ver = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
+    let g = [u32::from(game.0), u32::from(game.1), u32::from(game.2)];
+    let entry = rules
+        .plugin_entry
+        .iter()
+        .rfind(|e| ver(&e.from).as_slice() <= g.as_slice())?;
+    let any = rules.plugin_entry.iter().any(|e| exports.contains(&e.export));
+    if !any {
+        return None;
+    }
+    Some(exports.contains(&entry.export))
+}
+
 // @sat:conflict.kinds.runtime
 /// The script extender against the game: a loader for another game version, extender plugins without a loader, no
 /// address library for this game version. Only when the game's version is known.
@@ -1030,6 +1053,43 @@ pub fn facegen_in(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn an_extender_plugin_loads_only_with_the_entry_its_game_version_calls() {
+        let rules = crate::game::RuntimeRules {
+            exe: String::new(),
+            loader: String::new(),
+            plugins: String::new(),
+            address_library: Vec::new(),
+            plugin_entry: vec![
+                crate::game::PluginEntry {
+                    from: "1.0.0".into(),
+                    export: "SKSEPlugin_Query".into(),
+                },
+                crate::game::PluginEntry {
+                    from: "1.6.317".into(),
+                    export: "SKSEPlugin_Version".into(),
+                },
+            ],
+        };
+        let ex = |n: &[&str]| -> Vec<String> { n.iter().map(|s| s.to_string()).collect() };
+        let se = (1, 5, 97, 0);
+        let ae = (1, 6, 1170, 0);
+        // an AE-only plugin is not loaded on 1.5.97, an SE-only one not on 1.6.1170, one built for both on either
+        assert_eq!(
+            extender_plugin_loads(&rules, se, &ex(&["SKSEPlugin_Version", "SKSEPlugin_Load"])),
+            Some(false)
+        );
+        assert_eq!(
+            extender_plugin_loads(&rules, ae, &ex(&["SKSEPlugin_Query", "SKSEPlugin_Load"])),
+            Some(false)
+        );
+        let both = ex(&["SKSEPlugin_Query", "SKSEPlugin_Version", "SKSEPlugin_Load"]);
+        assert_eq!(extender_plugin_loads(&rules, se, &both), Some(true));
+        assert_eq!(extender_plugin_loads(&rules, ae, &both), Some(true));
+        // a helper library is not an extender plugin
+        assert_eq!(extender_plugin_loads(&rules, se, &ex(&["Init"])), None);
+    }
     use super::*;
     use crate::plugins::{PluginCanon, PluginVersions};
     use crate::records::{PluginRecords, RecordFact};

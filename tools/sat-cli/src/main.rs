@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N] [--columns M1,M2]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]] [--what-if FILE] [--safe-moves FILE [--apply-moves]]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N] [--columns M1,M2]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]] [--what-if FILE [--what-if-set FILE]] [--skse-check] [--safe-moves FILE [--apply-moves]]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -134,7 +134,7 @@ fn main() {
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
         other => Err(format!(
-            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N] [--columns M1,M2]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]] [--what-if FILE] [--safe-moves FILE [--apply-moves]]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli forks <instance> [--add FILE] [--choose ID N [--owner] [--why TEXT]]... [--remove ID]... [--page FILE]\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--marks FILE] [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N] [--columns M1,M2]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]] [--what-if FILE [--what-if-set FILE]] [--skse-check] [--safe-moves FILE [--apply-moves]]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli forks <instance> [--add FILE] [--choose ID N [--owner] [--why TEXT]]... [--remove ID]... [--page FILE]\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--marks FILE] [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
             other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
         )),
     };
@@ -1272,6 +1272,66 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let plugin_canon = project.plugins.clone();
     let plugin_list = PluginList::compute(&plugin_versions, &plugin_canon, proj.priorities());
     timings.insert("plugins", t.elapsed().as_millis());
+    // @sat:cli.skse-check
+    // plugins of the script extender against the game's version, by their exports (`@sat:conflict.kinds.runtime.loads`),
+    // for every mod, on or off: a plugin built for another game version is not loaded. --skse-check lists the enabled
+    // ones; the what-if table says it of the disabled ones.
+    let skse: std::collections::HashMap<ModId, Vec<(String, Option<bool>)>> = if has(args, "--skse-check")
+        || flag_value(args, "--what-if").is_some()
+    {
+        let pack = sat_core::game::active();
+        let game = sat_scan::game_runtime(&inst.game_path).version;
+        let mut out: std::collections::HashMap<ModId, Vec<(String, Option<bool>)>> = Default::default();
+        if let (Some(rules), Some(game)) = (pack.runtime.as_ref(), game) {
+            let re = sat_core::game::glob(&rules.plugins);
+            let folders = sat_scan::fetch::Folders {
+                mods: inst.mods_dir.clone(),
+                overwrite: inst.overwrite_dir.clone(),
+            };
+            for p in sat_core::conflict_kinds::candidates(&table, pack, &[]).extender {
+                let rel = table.path_string(p);
+                if !re.is_match(&rel) {
+                    continue;
+                }
+                let file = rel.rsplit(['/', '\\']).next().unwrap_or(&rel).to_string();
+                for i in table.path_providers(p) {
+                    if table.is_archive(i) {
+                        continue;
+                    }
+                    let m = table.owner(i);
+                    let loads = sat_scan::fetch::exports(&folders, table.mod_name(m), &rel)
+                        .and_then(|ex| sat_core::conflict_kinds::extender_plugin_loads(rules, game, &ex));
+                    out.entry(m).or_default().push((file.clone(), loads));
+                }
+            }
+            if has(args, "--skse-check") {
+                let mut off: Vec<(i32, &str, &str)> = out
+                    .iter()
+                    .filter(|(m, _)| proj.priorities().is_active(**m))
+                    .flat_map(|(m, v)| {
+                        v.iter()
+                            .filter(|(_, l)| *l == Some(false))
+                            .map(|(f, _)| (proj.priorities().get(*m), table.mod_name(*m), f.as_str()))
+                    })
+                    .collect();
+                off.sort();
+                println!(
+                    "SKSE plugins of enabled mods that the game {}.{}.{} does not load (built for another version): {}",
+                    game.0,
+                    game.1,
+                    game.2,
+                    off.len()
+                );
+                for (_, m, f) in &off {
+                    println!("  {f}   ({m})");
+                }
+            }
+        }
+        out
+    } else {
+        Default::default()
+    };
+
     // @sat:cli.what-if
     // "what if it were on" (`@sat:what-if`): the theoretical part of every disabled mod at its place, against the
     // build as it is; a table to a file (tab-separated), the strongest to the screen. Not in any real metric.
@@ -1360,7 +1420,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
             .map(|o| (o.name.to_lowercase(), &o.tags))
             .collect();
         let mut text = String::from(
-            "mod\tposition\tseparator\tfiles\tmb\tshared\tmet\twould_win\twould_win_mb\twould_lose\tsame\tvictims\tnexus\tenabled_same_nexus\tplugins\ttags\n",
+            "mod\tposition\tseparator\tfiles\tmb\tshared\tmet\twould_win\twould_win_mb\twould_lose\tsame\tvictims\tnexus\tenabled_same_nexus\tplugins\ttags\tskse\n",
         );
         for w in &rows {
             let name = table.mod_name(w.m);
@@ -1379,7 +1439,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 .map(|(m, n)| format!("{}={n}", table.mod_name(*m)))
                 .collect();
             text.push_str(&format!(
-                "{name}\t{pos}\t{sep}\t{}\t{:.1}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{same_nexus}\t{}\t{}\n",
+                "{name}\t{pos}\t{sep}\t{}\t{:.1}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{same_nexus}\t{}\t{}\t{}\n",
                 w.files,
                 w.bytes as f64 / 1048576.0,
                 w.shared,
@@ -1397,10 +1457,62 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 tags_of
                     .get(name.to_lowercase().as_str())
                     .map(|t| t.join(", "))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                // its SKSE plugins: "ok", or the ones the game does not load
+                skse.get(&w.m).map_or(String::new(), |v| {
+                    let bad: Vec<&str> = v
+                        .iter()
+                        .filter(|(_, l)| *l == Some(false))
+                        .map(|(f, _)| f.as_str())
+                        .collect();
+                    if bad.is_empty() {
+                        "ok".to_string()
+                    } else {
+                        format!("not loaded: {}", bad.join(", "))
+                    }
+                })
             ));
         }
         std::fs::write(out, text).map_err(|e| format!("{out}: {e}"))?;
+        // @sat:cli.what-if.set
+        // --what-if-set FILE (mod names, one a line): those disabled mods turned on together — which of them meet
+        // each other (`@sat:what-if.pairs`), to FILE.pairs.tsv
+        if let Some(set_file) = flag_value(args, "--what-if-set") {
+            let names = std::fs::read_to_string(set_file).map_err(|e| format!("{set_file}: {e}"))?;
+            let set: Vec<ModId> = names
+                .lines()
+                .map(|l| l.trim_end_matches('\r'))
+                .filter(|l| !l.trim().is_empty())
+                .filter_map(|l| index.get(&l.to_lowercase()).copied())
+                .collect();
+            let pairs = sat_core::what_if::pairs(&table, &set, &rank, |a, b| {
+                content_hashes
+                    .as_ref()
+                    .and_then(|h| sat_core::identical::same(&table, h, a, b))
+            });
+            let mut t = String::from("a\tb\tshared\tsame\ta_wins\tb_wins\ta_files\tb_files\n");
+            for p in &pairs {
+                t.push_str(&format!(
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                    table.mod_name(p.a),
+                    table.mod_name(p.b),
+                    p.shared,
+                    p.same,
+                    p.a_wins,
+                    p.b_wins,
+                    table.mod_providers(p.a).len(),
+                    table.mod_providers(p.b).len()
+                ));
+            }
+            let pf = format!("{set_file}.pairs.tsv");
+            std::fs::write(&pf, t).map_err(|e| format!("{pf}: {e}"))?;
+            println!(
+                "what if together: {} of {} mod(s) found; {} pair(s) meet → {pf}",
+                set.len(),
+                names.lines().count(),
+                pairs.len()
+            );
+        }
         let disabled = (0..table.mod_count())
             .filter(|&i| !real.is_active(ModId::from_idx(i)) && rank.is_active(ModId::from_idx(i)))
             .count();

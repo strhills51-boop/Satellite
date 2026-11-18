@@ -147,6 +147,20 @@ pub struct RuntimeRules {
     pub plugins: String,
     /// Address library files, `{v}` — the game version as `1-6-1170`; one of them must be in an active mod.
     pub address_library: Vec<String>,
+    /// How the loader asks a plugin, by game version (`@sat:conflict.kinds.runtime.loads`): the export it calls from
+    /// a version on — the last entry whose version is not above the game's. A plugin without that export is not
+    /// loaded on this game.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugin_entry: Vec<PluginEntry>,
+}
+
+/// The export the loader calls from a game version on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginEntry {
+    /// The first game version, `1.6.317`.
+    pub from: String,
+    /// The export name.
+    pub export: String,
 }
 
 // @sat:game.glob

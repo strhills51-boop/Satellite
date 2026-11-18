@@ -232,6 +232,10 @@
     "address_library": [
       "skse/plugins/versionlib-{v}-0.bin",
       "skse/plugins/version-{v}-0.bin"
+    ],
+    "plugin_entry": [
+      { "from": "1.0.0", "export": "SKSEPlugin_Query" },
+      { "from": "1.6.317", "export": "SKSEPlugin_Version" }
     ]
   },
   "ignored": [

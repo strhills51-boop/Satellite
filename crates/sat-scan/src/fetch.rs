@@ -127,6 +127,14 @@ pub fn preview(f: &Folders, m: &str, rel: &str, archive: Option<&str>) -> Option
     }
 }
 
+// @sat:scan.fetch.exports
+/// The names exported by mod `m`'s loose library `rel` (`@sat:formats.pe.exports`), read with a few seeks; `None` —
+/// not found or not a library with exports.
+pub fn exports(f: &Folders, m: &str, rel: &str) -> Option<Vec<String>> {
+    let file = std::fs::File::open(find(&f.mod_dir(m), rel)?).ok()?;
+    sat_formats::pe::exports(&mut std::io::BufReader::new(file))
+}
+
 // @sat:scan.fetch.bytes
 /// The bytes of mod `m`'s copy of `rel`: loose, or unpacked from archive `archive` (a file in the mod's folder).
 /// `None` — not found, or the entry does not unpack.
