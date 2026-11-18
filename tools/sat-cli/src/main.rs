@@ -1305,18 +1305,33 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 }
             }
             if has(args, "--skse-check") {
-                let mut off: Vec<(i32, &str, &str)> = out
-                    .iter()
-                    .filter(|(m, _)| proj.priorities().is_active(**m))
-                    .flat_map(|(m, v)| {
-                        v.iter()
-                            .filter(|(_, l)| *l == Some(false))
-                            .map(|(f, _)| (proj.priorities().get(*m), table.mod_name(*m), f.as_str()))
-                    })
-                    .collect();
+                // the copy the game takes: of each plugin path, the enabled loose copy highest in the list
+                let prio = proj.priorities();
+                let mut off: Vec<(i32, String, String)> = Vec::new();
+                for p in sat_core::conflict_kinds::candidates(&table, pack, &[]).extender {
+                    let rel = table.path_string(p);
+                    if !re.is_match(&rel) {
+                        continue;
+                    }
+                    let Some(w) = table
+                        .path_providers(p)
+                        .filter(|&i| !table.is_archive(i) && prio.is_active(table.owner(i)))
+                        .max_by_key(|&i| prio.get(table.owner(i)))
+                    else {
+                        continue;
+                    };
+                    let m = table.owner(w);
+                    let file = rel.rsplit(['/', '\\']).next().unwrap_or(&rel).to_string();
+                    if out
+                        .get(&m)
+                        .is_some_and(|v| v.iter().any(|(f, l)| *f == file && *l == Some(false)))
+                    {
+                        off.push((prio.get(m), table.mod_name(m).to_string(), file));
+                    }
+                }
                 off.sort();
                 println!(
-                    "SKSE plugins of enabled mods that the game {}.{}.{} does not load (built for another version): {}",
+                    "SKSE plugins the game {}.{}.{} takes but does not load (built for another version): {}",
                     game.0,
                     game.1,
                     game.2,
