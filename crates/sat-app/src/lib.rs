@@ -18,6 +18,7 @@ mod context;
 mod domains;
 pub mod find;
 mod focus;
+pub mod forks;
 mod participants;
 pub mod pass;
 pub mod patches;
@@ -189,6 +190,12 @@ pub enum Command {
     },
     /// Add the processors the presets recognise among MO2's tools, turned off (`@sat:app.processors.detect`).
     DetectProcessors,
+    /// Choose an option of a fork of taste (`@sat:app.forks`): its mods on, the mods only the other options have off,
+    /// in one undo step; the choice is the owner's (the window is his).
+    ChooseFork {
+        id: String,
+        option: usize,
+    },
     /// Change the buffer (`@sat:app.buffer`): areas of mods set aside to be placed later. One undo step each (placing
     /// is two: the move, then the area gone).
     Buffer {
@@ -717,6 +724,8 @@ pub enum Query {
     Indicators,
     /// The project's processors with their states, MO2's tools and the presets (`@sat:app.processors.view`).
     Processors,
+    /// The project's forks of taste (`@sat:app.forks`).
+    Forks,
     /// The buffer's areas.
     Buffer,
     /// The selection summary of a view.
@@ -1098,6 +1107,9 @@ pub enum Reply {
         /// The project has its own (otherwise `space` is the built-in one).
         own: bool,
     },
+    Forks {
+        forks: Vec<sat_core::forks::Fork>,
+    },
     Processors {
         processors: Vec<processors::ProcessorView>,
         /// MO2's registered tools on this machine (titles).
@@ -1326,6 +1338,8 @@ pub struct App {
     space: Option<sat_core::space::Space>,
     /// The project's processors (`@sat:app.processors`).
     processors: Vec<sat_core::processor::Processor>,
+    /// The project's forks of taste (`@sat:app.forks`).
+    forks: Vec<sat_core::forks::Fork>,
     /// Donor builds the shell read (`@sat:app.donors`), and bindings the window asked for.
     donors: std::collections::BTreeMap<String, DonorData>,
     donor_requests: Vec<(String, String)>,
@@ -1390,6 +1404,7 @@ impl App {
             indicator_defs: Vec::new(),
             space: None,
             processors: Vec::new(),
+            forks: Vec::new(),
             donors: Default::default(),
             donor_requests: Vec::new(),
             sources: Default::default(),
@@ -1500,6 +1515,28 @@ impl App {
             C::DetectProcessors => {
                 self.detect_processors();
                 return Ok(Event::Decided);
+            }
+            // @sat:app.forks
+            C::ChooseFork { id, option } => {
+                let Some(pos) = self.forks.iter().position(|f| f.id == id) else {
+                    return Err(AppError::Expr(format!("no fork {id:?}")));
+                };
+                let Some(e) = self.forks[pos].effect(option) else {
+                    return Err(AppError::Expr(format!("fork {id}: no option {option}")));
+                };
+                let each: Vec<(order::Key, bool)> = {
+                    let b = self.session.book();
+                    e.enable
+                        .iter()
+                        .filter_map(|n| b.key_of(n).map(|k| (k, true)))
+                        .chain(e.disable.iter().filter_map(|n| b.key_of(n).map(|k| (k, false))))
+                        .collect()
+                };
+                let f = &mut self.forks[pos];
+                f.chosen = Some(option);
+                f.by = sat_core::forks::ChosenBy::Owner;
+                self.revision += 1;
+                self.session.command(|b| b.set_enabled_each(&each))?
             }
             C::SetIndicators { defs } => {
                 let (_, errors) = sat_core::counters::Indicators::compile(&defs);
@@ -2796,6 +2833,9 @@ impl App {
             Query::Space => Reply::Space {
                 own: self.space.is_some(),
                 space: self.space.clone().unwrap_or_else(sat_core::space::Space::classic),
+            },
+            Query::Forks => Reply::Forks {
+                forks: self.forks.clone(),
             },
             Query::Processors => {
                 let (processors, tools, presets) = self.processors_view();

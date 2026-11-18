@@ -297,6 +297,20 @@ section > h2.wonly { display: none; } body.space section > h2.wonly { display: f
 #prBox .pf input, #prBox .pf select { font-size: 12px; min-width: 0; }
 #prBox .pfoot { display: grid; gap: 6px; padding: 10px 14px 14px; border-top: 1px solid var(--line-soft); }
 #prBox .pfoot div { display: flex; gap: 6px; justify-content: flex-end; align-items: center; } #prBox .pfoot .muted { font-size: 11px; }
+#fkBox { position: fixed; z-index: 57; top: 52px; right: 0; bottom: 0; width: min(460px, 100vw); background: var(--bg2); border-left: 1px solid var(--line);
+  box-shadow: var(--shadow); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; font-size: 12px; }
+#fkBox header { display: flex; align-items: center; gap: 6px; padding: 12px 14px 8px; border-bottom: 1px solid var(--line-soft); } #fkBox header b { font-size: 15px; } #fkBox header [data-fkx] { margin-left: auto; padding: 4px; }
+#fkBox .plist { overflow: auto; padding: 10px 14px; display: grid; gap: 8px; align-content: start; }
+#fkBox .pit { padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line-soft); background: var(--panel); display: grid; gap: 4px; }
+#fkBox .pit .ph { display: flex; gap: 8px; align-items: center; } #fkBox .pit .ph b { flex: 1; } #fkBox .pit small { color: var(--muted); }
+#fkBox .pst { font: 10px var(--mono); padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--subtle); white-space: nowrap; }
+#fkBox .pst.clean { color: var(--ok); border-color: var(--ok); } #fkBox .pst.dirty { color: var(--m-txt); border-color: var(--m-txt); } #fkBox .pst.bad { color: var(--l-txt); border-color: var(--l-txt); }
+#fkBox .pf { display: grid; grid-template-columns: 90px 1fr; gap: 4px 8px; align-items: center; } #fkBox .pf span { color: var(--subtle); font-size: 11px; }
+#fkBox .pf input, #fkBox .pf select { font-size: 12px; min-width: 0; }
+#fkBox .pfoot { display: grid; gap: 6px; padding: 10px 14px 14px; border-top: 1px solid var(--line-soft); }
+#fkBox .pfoot div { display: flex; gap: 6px; justify-content: flex-end; align-items: center; } #fkBox .pfoot .muted { font-size: 11px; }
+#fkBox [data-fkq] { width: 100%; font-size: 12px; }
+#fkBox .fko { display: flex; gap: 6px; align-items: flex-start; padding: 2px 0; cursor: pointer; } #fkBox .fko small { color: var(--muted); }
 #bDon .donh { display: flex; gap: 8px; align-items: center; padding: 4px 0; cursor: pointer; font-size: 12px; }
 #bDon .fit { font: 10px var(--mono); padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); }
 #bDon .fit.ok { color: var(--ok); } #bDon .fit.warn { color: var(--m-txt); } #bDon .fit.bad { color: var(--l-txt); }
@@ -987,6 +1001,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
   <span class="tooth" id="modeSw" role="radiogroup" aria-label="Режим окна"><button data-m="classic">Классика</button><button data-m="space">Пространство</button></span>
   <nav id="marks" aria-label="Воркфлоу"></nav>
   <button id="prBtn" title="Процессоры: генераторы сборки (Pandora, BodySlide, DynDOLOD…) — запускаются фиксацией">Процессоры</button>
+  <button id="fkBtn" title="Развилки вкуса: аспект, варианты с фактами, выбор Claude по умолчанию — твоё слово последнее">Развилки</button>
   <button id="wsBtn" title="Мастерская: ресурсы — команды, клавиши, окна, анализаторы, счётчики, индикаторы, гайды">Мастерская</button>
   <div id="stats"></div>
   <span class="sandbox" id="projState" title="Песочница: изменения живут в памяти и никуда не пишутся">песочница</span><button id="saveBtn" class="pri" hidden title="Сохранить проект (Ctrl+S)"><svg class="si"><use href="#ic-save"/></svg><span>Сохранить</span></button>
@@ -1847,6 +1862,51 @@ async function prClick(ev) {
 $("prBtn").onclick = () => procs();
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("prBox") && !$("prBox").hidden) { ev.stopPropagation(); procs(false); } }, true);
 GUIDES.processors = ["Процессоры", "Генераторы сборки — Pandora, Nemesis, BodySlide, DynDOLOD, xLODGen, TexGen, Synthesis — как шаги фиксации.\n\nИнструмент берётся из зарегистрированных в MO2 (пути — на этой машине, в проекте только имя). Входы — моды, в которых есть нужные папки (или плагины); выход — свой мод, куда собирается всё, что инструмент записал в Overwrite за запуск.\n\nГрязный — входы, инструмент или настройки изменились с последней сборки, или выхода нет. Фиксация (только с --write, при закрытом MO2) запускает грязные по порядку «после»; старый выход уходит в deleted/ фиксации."];
+// ---------------------------------------------------------------- forks of taste (`@sat:app.forks`)
+/** An aspect of the build, its options with the facts that tell them apart, the option in force and who chose it.
+ *  Claude prepares the fork and applies a reasoned default; the owner's choice here is final. Choosing an option
+ *  turns its mods on and the mods only the other options have off — one undo step. */
+const FK = { data: null, filter: "" };
+const FK_BY = { nobody: "не выбрано", claude: "выбор Claude", owner: "твоё решение" };
+async function forksPanel(open) {
+  let box = $("fkBox");
+  if (!box) {
+    box = document.createElement("aside"); box.id = "fkBox"; box.hidden = true; document.body.appendChild(box);
+    box.onclick = fkClick; box.onchange = fkChange; box.oninput = fkInput;
+  }
+  if (open === false || (open === undefined && !box.hidden)) { box.hidden = true; return; }
+  try { FK.data = await query({ type: "forks" }); } catch (e) { $("err").textContent = e.message; return; }
+  box.hidden = false; fkDraw();
+}
+function fkDraw() {
+  const box = $("fkBox"), forks = FK.data.forks;
+  const opt = (f, o, i) => `<label class="fko"><input type="radio" name="fk-${esc(f.id)}" data-fk="${esc(f.id)}" data-fo="${i}"${f.chosen === i ? " checked" : ""}>` +
+    `<span><b>${esc(o.name)}</b>${o.mods.length !== 1 || o.mods[0] !== o.name ? ` <small>${esc(o.mods.join(", "))}</small>` : ""}${o.facts ? `<br><small>${esc(o.facts)}</small>` : ""}</span></label>`;
+  const items = forks.map(f => `<div class="pit" data-fka="${esc((f.aspect + " " + f.options.map(o => o.mods.join(" ")).join(" ")).toLowerCase())}">` +
+    `<div class="ph"><b>${esc(f.aspect)}</b><span class="pst ${f.by === "owner" ? "clean" : f.by === "claude" ? "dirty" : ""}">${esc(FK_BY[f.by] || f.by)}</span></div>` +
+    (f.about ? `<small>${esc(f.about)}</small>` : "") + f.options.map((o, i) => opt(f, o, i)).join("") +
+    (f.why ? `<small>Почему: ${esc(f.why)}</small>` : "") + `</div>`).join("") ||
+    `<div class="muted">Развилок нет — их заводит Claude (sat-cli forks --add).</div>`;
+  const mine = forks.filter(f => f.by === "owner").length;
+  box.innerHTML = `<header><b>Развилки</b>${guideBtn("forks")}<button data-fkx title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></header>` +
+    `<div class="plist"><input data-fkq placeholder="найти аспект или мод" value="${esc(FK.filter)}">${items}</div>` +
+    `<div class="pfoot"><span class="muted">${forks.length} развилок · решено тобой ${mine}. Выбор включает моды варианта и выключает те, что есть только у других вариантов; отмена — как всегда.</span></div>`;
+  fkFilter();
+}
+function fkFilter() {
+  const q = FK.filter.trim().toLowerCase();
+  for (const el of $("fkBox").querySelectorAll("[data-fka]")) el.hidden = !!q && !el.dataset.fka.includes(q);
+}
+function fkInput(ev) { if (ev.target.matches("[data-fkq]")) { FK.filter = ev.target.value; fkFilter(); } }
+async function fkChange(ev) {
+  const r = ev.target.closest("[data-fk]"); if (!r) return;
+  await run({ type: "choose-fork", id: r.dataset.fk, option: +r.dataset.fo });
+  return forksPanel(true);
+}
+function fkClick(ev) { if (ev.target.closest("[data-fkx]")) forksPanel(false); }
+$("fkBtn").onclick = () => forksPanel();
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("fkBox") && !$("fkBox").hidden) { ev.stopPropagation(); forksPanel(false); } }, true);
+GUIDES.forks = ["Развилки", "Вкусовые решения сборки: голова, освещение, версия одного мода, фолловер из нескольких копий.\n\nУ каждой — аспект, варианты с фактами (версия, редакция игры, что перебивает, что требует), вариант в силе и кто выбрал. Claude ставит выбор по умолчанию и пишет почему; твой выбор здесь — последний.\n\nВыбор варианта включает его моды и выключает моды, которые есть только у других вариантов. Общие моды (патч на оба) не трогаются."];
 
 // ---------------------------------------------------------------- the Workshop (ADR 0020 §10, ADR 0011)
 /** The entry point for advanced users: the library of resources — what is registered (built-in, machine, project),

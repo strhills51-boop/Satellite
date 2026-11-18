@@ -78,6 +78,7 @@ impl App {
         problems.extend(self.set_counters(&p.counters));
         problems.extend(self.set_indicators(&p.indicators));
         self.processors = p.processors.clone();
+        self.forks = p.forks.clone();
         self.space = p.space.clone().filter(|s| s.problems().is_empty());
         problems
     }
@@ -185,6 +186,7 @@ impl App {
         p.indicators = self.indicator_defs.clone();
         p.space = self.space.clone();
         p.processors = self.processors.clone();
+        p.forks = self.forks.clone();
         let ids = &p.entities;
         p.patches = self
             .patches()

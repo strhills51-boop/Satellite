@@ -763,6 +763,18 @@ impl OrderBook {
         self.apply_recorded(Op::Enabled(each))
     }
 
+    /// Turns each mod on or off as given, in one undoable step (a fork's choice: its mods on, the others off).
+    pub fn set_enabled_each(&mut self, each: &[(Key, bool)]) -> Result<Option<Change>, OrderError> {
+        let mut out = Vec::new();
+        for &(k, on) in each {
+            self.check_key(k)?;
+            if self.items[k as usize].kind == EntryKind::Mod {
+                out.push((k, on));
+            }
+        }
+        self.apply_recorded(Op::Enabled(out))
+    }
+
     /// Sets the decoration colour (`None` clears it).
     pub fn set_color(&mut self, keys: &[Key], color: Option<u32>) -> Result<Option<Change>, OrderError> {
         for &k in keys {
