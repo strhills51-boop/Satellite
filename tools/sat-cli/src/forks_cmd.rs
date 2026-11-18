@@ -21,30 +21,29 @@ pub fn forks(args: &[String]) -> Result<(), String> {
     let mut problems: Vec<String> = Vec::new();
 
     // the list follows a choice: the chosen option's mods on, the others' off
-    let apply =
-        |book: &mut sat_core::order::OrderBook, f: &Fork, i: usize, problems: &mut Vec<String>| {
-            let Some(e) = f.effect(i) else {
-                problems.push(format!("{}: no option {i}", f.id));
-                return;
-            };
-            for (names, on) in [(&e.enable, true), (&e.disable, false)] {
-                let keys: Vec<_> = names
-                    .iter()
-                    .filter_map(|n| {
-                        let k = book.key_of(n);
-                        if k.is_none() {
-                            problems.push(format!("{}: no mod {n:?} in the project", f.id));
-                        }
-                        k
-                    })
-                    .collect();
-                if !keys.is_empty()
-                    && let Err(err) = book.set_enabled(&keys, Some(on))
-                {
-                    problems.push(format!("{}: {err}", f.id));
-                }
-            }
+    let apply = |book: &mut sat_core::order::OrderBook, f: &Fork, i: usize, problems: &mut Vec<String>| {
+        let Some(e) = f.effect(i) else {
+            problems.push(format!("{}: no option {i}", f.id));
+            return;
         };
+        for (names, on) in [(&e.enable, true), (&e.disable, false)] {
+            let keys: Vec<_> = names
+                .iter()
+                .filter_map(|n| {
+                    let k = book.key_of(n);
+                    if k.is_none() {
+                        problems.push(format!("{}: no mod {n:?} in the project", f.id));
+                    }
+                    k
+                })
+                .collect();
+            if !keys.is_empty()
+                && let Err(err) = book.set_enabled(&keys, Some(on))
+            {
+                problems.push(format!("{}: {err}", f.id));
+            }
+        }
+    };
 
     for id in flag_values(args, "--remove") {
         let before = project.forks.len();
