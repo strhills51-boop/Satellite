@@ -8,7 +8,7 @@
 //! in between keeps them (`@sat:plugins.edit.reconcile`).
 
 use sat_core::ids::ModId;
-use sat_core::plugins::{Colour, PluginList, PluginVersions};
+use sat_core::plugins::{Caste, Colour, PluginList, PluginState, PluginVersions};
 use sat_core::project::Project;
 use sat_mo2::commit::Layout;
 
@@ -62,7 +62,7 @@ fn list_of(stll: &mut sat_stll::Stll, project: &Project) -> PluginList {
 }
 
 /// `sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]...
-/// [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]`
+/// [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list] [--tsv FILE]`
 pub fn plugins(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let path = Layout::of(&inst).project_file;
@@ -129,6 +129,15 @@ pub fn plugins(args: &[String]) -> Result<(), String> {
         list = list_of(&mut stll, &project);
     }
 
+    let mod_name = |m: ModId| {
+        project
+            .canon
+            .entries
+            .iter()
+            .filter(|e| e.is_mod())
+            .nth(m.idx())
+            .map_or_else(|| OVERWRITE.to_string(), |e| e.name.clone())
+    };
     if has(args, "--list") {
         for p in list
             .plugins
@@ -138,21 +147,20 @@ pub fn plugins(args: &[String]) -> Result<(), String> {
             let index = p
                 .index
                 .map_or_else(|| "  --  ".to_string(), |i| format!("{i:<6}"));
+            let owner = p
+                .winner
+                .map_or_else(String::new, |w| format!("   ({})", mod_name(p.versions[w].owner)));
+            // the priority first, then every other state (they stack)
+            let states: Vec<&str> = p.states.iter().map(|s| state_label(*s)).collect();
             let colour = match p.colour {
                 Colour::Blue => "base",
                 Colour::Green => "",
                 Colour::Yellow => "OVERFLOW",
                 Colour::Red => "MISSING MASTERS",
-                Colour::White => "off",
+                Colour::Grey => "off",
                 Colour::Black => "mod off",
+                Colour::Ghost => "GHOST",
             };
-            let owner = p
-                .winner
-                .map(|w| p.versions[w].owner)
-                .and_then(|m| project.canon.entries.iter().filter(|e| e.is_mod()).nth(m.idx()))
-                .map_or_else(String::new, |e| format!("   ({})", e.name));
-            let hidden = if p.blacklisted { " [hidden]" } else { "" };
-            // each missing master with why: no such plugin, its mod is off, or not loaded
             let missing = if p.missing_masters.is_empty() {
                 String::new()
             } else {
@@ -160,25 +168,79 @@ pub fn plugins(args: &[String]) -> Result<(), String> {
                     .missing_masters
                     .iter()
                     .zip(&p.master_gaps)
-                    .map(|(m, g)| match g {
-                        sat_core::plugins::MasterGap::Absent => m.clone(),
-                        sat_core::plugins::MasterGap::ModOff => format!("{m} [mod off]"),
-                        sat_core::plugins::MasterGap::NotLoaded => format!("{m} [not loaded]"),
-                    })
+                    .map(|(m, g)| format!("{m} [{}]", state_label(PluginState::from(*g))))
                     .collect();
                 format!(" → {}", why.join(", "))
             };
             println!(
-                "{index} {}{} {}{owner}{hidden}  {colour}{missing}",
+                "{index} {}{} {}{owner}  {colour}{}{missing}",
                 if p.active { "*" } else { " " },
                 if p.master { "M" } else { " " },
-                p.name
+                p.name,
+                if states.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", states.join(" "))
+                }
             );
         }
+        for g in &list.ghosts {
+            println!("  --     ? {}  GHOST ← {}", g.name, g.needed_by.join(", "));
+        }
+    }
+    // @sat:cli.plugins.tsv
+    // the whole list as a table, one plugin per line, ghosts last: for analysis outside (a plugin, not a mod, is the unit)
+    if let Some(file) = flag_value(args, "--tsv") {
+        let mut out = String::from(
+            "plugin\tcaste\tcolour\tstates\tindex\tload_order\tchecked\tactive\twinner\tversions\tmissing_masters\tmasters\n",
+        );
+        for p in &list.plugins {
+            let caste = match p.caste() {
+                Caste::Esm => "esm",
+                Caste::Esp => "esp",
+                Caste::Esl => "esl",
+            };
+            let colour = serde_json::to_value(p.colour)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            let states: Vec<&str> = p.states.iter().map(|s| state_label(*s)).collect();
+            let versions: Vec<String> = p.versions.iter().map(|v| mod_name(v.owner)).collect();
+            let missing: Vec<String> = p
+                .missing_masters
+                .iter()
+                .zip(&p.master_gaps)
+                .map(|(m, g)| format!("{m}={}", state_label(PluginState::from(*g))))
+                .collect();
+            out.push_str(&format!(
+                "{}\t{caste}\t{colour}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                p.name,
+                states.join(" "),
+                p.index.map(|i| i.to_string()).unwrap_or_default(),
+                p.load_order.map(|i| i.to_string()).unwrap_or_default(),
+                p.listed != sat_core::plugins::Listed::Disabled,
+                p.active,
+                p.winner
+                    .map(|w| mod_name(p.versions[w].owner))
+                    .unwrap_or_default(),
+                versions.join(" | "),
+                missing.join(" | "),
+                p.masters.join(" | "),
+            ));
+        }
+        for g in &list.ghosts {
+            out.push_str(&format!(
+                "{}\t\tghost\tghost\t\t\tfalse\tfalse\t\t\t\tneeded by: {}\n",
+                g.name,
+                g.needed_by.join(" | ")
+            ));
+        }
+        std::fs::write(file, out).map_err(|e| format!("{file}: {e}"))?;
+        eprintln!("plugins → {file}");
     }
     let s = list.stats;
     println!(
-        "plugins={} full={} light={} overflow={}/{} missing-masters={} (waiting only for mods that are off: {}) hidden={}",
+        "plugins={} full={} light={} overflow={}/{} missing-masters={} (waiting only for mods that are off: {}) unchecked={} hidden={} ghosts={}",
         s.plugins,
         s.active_full,
         s.active_light,
@@ -186,7 +248,25 @@ pub fn plugins(args: &[String]) -> Result<(), String> {
         s.overflow_light,
         s.with_missing_masters,
         s.waiting_for_mods_off,
-        s.blacklisted
+        s.unchecked,
+        s.blacklisted,
+        s.ghosts
     );
     Ok(())
+}
+
+/// A state as the command line writes it.
+fn state_label(s: PluginState) -> &'static str {
+    match s {
+        PluginState::Missing => "missing",
+        PluginState::OwnerOff => "mod-off",
+        PluginState::Hidden => "hidden",
+        PluginState::MasterAbsent => "master-absent",
+        PluginState::MasterOwnerOff => "master-mod-off",
+        PluginState::MasterUnchecked => "master-unchecked",
+        PluginState::Overflow => "overflow",
+        PluginState::Unchecked => "unchecked",
+        PluginState::Unlisted => "unlisted",
+        PluginState::Versioned => "versioned",
+    }
 }

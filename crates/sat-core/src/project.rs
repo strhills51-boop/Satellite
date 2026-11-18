@@ -113,6 +113,9 @@ pub struct Project {
     /// Forks of taste (`@sat:forks`): an aspect, its options, the choice in force and who made it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forks: Vec<crate::forks::Fork>,
+    /// Effects of the list (`@sat:effects`): the visual layers of a mod container and their settings.
+    #[serde(default, skip_serializing_if = "crate::effects::Effects::is_default")]
+    pub effects: crate::effects::Effects,
     /// Fields this build does not know (written by a newer one or an extension): kept as they are and written
     /// back, so opening a project never loses another program's data (ADR 0007 §Модель).
     #[serde(flatten)]
@@ -169,6 +172,7 @@ impl Project {
             tags: Default::default(),
             intents: Vec::new(),
             forks: Vec::new(),
+            effects: Default::default(),
             sticker_rules: Vec::new(),
             space: None,
             new_mods: Vec::new(),

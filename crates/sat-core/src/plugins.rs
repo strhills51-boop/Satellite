@@ -1,8 +1,10 @@
 //! Plugins: the load list as the game will see it, from facts, the plugin canon and mod priorities. @sat:plugins
 //!
 //! Owns: the plugin canon imported from the manager (load order + checked flags), the facts-only index of plugin
-//! versions (one plugin name provided by several mods), and the plugin list projection: winning version, state,
-//! runtime index (`00`…`FD`, `FE:000`…`FFF`), overflow, missing masters, colour.
+//! versions (one plugin name provided by several mods), and the plugin list projection: winning version, the
+//! plugin's states (a set — they stack), caste (esm / esp / esl), runtime index (`00`…`FD`, `FE:000`…`FFF`),
+//! overflow, missing masters and why, the priority colour; masters nobody has (ghosts); what a mod's plugins put
+//! on the mod's indicator.
 //! Not here: reading headers (`@sat:formats.plugin.kind`), finding plugins in a mod (`sat-scan` analyzer
 //! `plugins`), mod priorities (`@sat:canon.priorities`).
 //!
@@ -88,8 +90,7 @@ pub enum Origin {
 
 // @sat:plugins.master-gap
 /// Why a master of a plugin is not usable: there is no such plugin in the build, it lies only in disabled mods
-/// (the plugin exists — "what if that mod were on"), or it is present but not loaded (unchecked, or itself lacking
-/// a master).
+/// (the plugin exists — "what if that mod were on"), or it is present but not loaded (unchecked).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MasterGap {
@@ -98,21 +99,84 @@ pub enum MasterGap {
     NotLoaded,
 }
 
-/// Diagnostic colour (monolith semantics).
+/// The priority colour of a plugin (monolith `getPluginStateColorKey`): the first of its states that has a colour.
+/// The indicator shows it; the other states stack on the plugin's container (`Plugin::states`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Colour {
-    /// Cannot be used now: missing, or every owner mod is disabled.
+    /// Named by the manager's lists, provided by nobody: a ghost (no indicator, no contour).
+    Ghost,
+    /// Every owner mod is disabled.
     Black,
     /// A master is missing or unusable.
     Red,
     /// Beyond the index limit.
     Yellow,
-    /// Found by the scan, not loaded (informational).
-    White,
+    /// Not loaded by choice: unchecked or hidden (grey, semi-transparent).
+    Grey,
     /// The game's own masters.
     Blue,
     Green,
+}
+
+// @sat:plugins.states
+/// One state of a plugin. States do not exclude one another — an unchecked plugin may lack a master, a plugin of
+/// disabled mods may be one of several versions — so a plugin carries the set ([`Plugin::states`], in this order:
+/// the first one with a colour is the priority, [`Colour`]). Monolith `getPluginStateText` (activation +
+/// diagnostics) turned into one set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PluginState {
+    /// The manager's lists name it; no mod and not the game has it.
+    Missing,
+    /// Every mod that has it is disabled.
+    OwnerOff,
+    /// Hidden by the user: never loaded, not reported as anyone's missing master.
+    Hidden,
+    /// A master no mod and not the game has.
+    MasterAbsent,
+    /// A master that lies only in disabled mods.
+    MasterOwnerOff,
+    /// A master that is present but unchecked.
+    MasterUnchecked,
+    /// Past the index limit.
+    Overflow,
+    /// Unchecked in `plugins.txt`.
+    Unchecked,
+    /// Found in a mod, absent from the manager's lists.
+    Unlisted,
+    /// Several mods have the file; the highest enabled one wins ([`Plugin::versions`]).
+    Versioned,
+}
+
+impl PluginState {
+    /// The red states: a master the plugin cannot have.
+    pub fn is_master_gap(self) -> bool {
+        matches!(
+            self,
+            PluginState::MasterAbsent | PluginState::MasterOwnerOff | PluginState::MasterUnchecked
+        )
+    }
+}
+
+impl From<MasterGap> for PluginState {
+    fn from(g: MasterGap) -> Self {
+        match g {
+            MasterGap::Absent => PluginState::MasterAbsent,
+            MasterGap::ModOff => PluginState::MasterOwnerOff,
+            MasterGap::NotLoaded => PluginState::MasterUnchecked,
+        }
+    }
+}
+
+/// The plugin's caste as the game loads it: a master (ESM flag or `.esm`), a regular plugin, a light one (ESL flag
+/// or `.esl`, light masters included — they take a light slot).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Caste {
+    Esm,
+    Esp,
+    Esl,
 }
 
 /// One version of a plugin: the copy in one mod.
@@ -228,7 +292,34 @@ pub struct Plugin {
     pub missing_masters: Vec<String>,
     /// Why each of [`Plugin::missing_masters`] is missing (same order).
     pub master_gaps: Vec<MasterGap>,
+    /// Every state the plugin is in, in [`PluginState`] order (the first coloured one is [`Plugin::colour`]).
+    pub states: Vec<PluginState>,
     pub colour: Colour,
+}
+
+impl Plugin {
+    pub fn caste(&self) -> Caste {
+        if self.kind == PluginKind::Esl {
+            Caste::Esl
+        } else if self.master {
+            Caste::Esm
+        } else {
+            Caste::Esp
+        }
+    }
+
+    pub fn has(&self, s: PluginState) -> bool {
+        self.states.contains(&s)
+    }
+}
+
+/// A master no mod and not the game has, named only by the plugins that need it (monolith: the black ghost — no
+/// indicator, no contour).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ghost {
+    pub name: String,
+    /// The plugins that list it as a master, in load order.
+    pub needed_by: Vec<String>,
 }
 
 /// Runtime index.
@@ -275,6 +366,12 @@ pub struct PluginStats {
     /// Present plugins whose every missing master lies in a disabled mod: they would load with those mods on.
     #[serde(default)]
     pub waiting_for_mods_off: usize,
+    /// Present plugins unchecked in `plugins.txt`.
+    #[serde(default)]
+    pub unchecked: usize,
+    /// Masters nobody has ([`PluginList::ghosts`]).
+    #[serde(default)]
+    pub ghosts: usize,
 }
 
 // @sat:plugins.list
@@ -283,6 +380,8 @@ pub struct PluginStats {
 #[derive(Debug, Clone, Default)]
 pub struct PluginList {
     pub plugins: Vec<Plugin>,
+    /// Masters nobody has, in the load order of their first dependent (a hidden plugin needs nothing).
+    pub ghosts: Vec<Ghost>,
     pub stats: PluginStats,
 }
 
@@ -380,6 +479,7 @@ impl PluginList {
                     blacklisted,
                     missing_masters: Vec::new(),
                     master_gaps: Vec::new(),
+                    states: Vec::new(),
                     colour: Colour::Green,
                 }
             })
@@ -451,19 +551,46 @@ impl PluginList {
                 })
                 .collect();
             let overflow = p.index.is_some_and(RuntimeIndex::overflow);
+            let mut states: Vec<PluginState> = Vec::new();
+            if p.origin == Origin::Missing {
+                states.push(PluginState::Missing);
+            } else if !p.present {
+                states.push(PluginState::OwnerOff);
+            }
+            if p.blacklisted {
+                states.push(PluginState::Hidden);
+            }
+            states.extend(p.master_gaps.iter().map(|&g| PluginState::from(g)));
+            if overflow {
+                states.push(PluginState::Overflow);
+            }
+            match p.listed {
+                Listed::Disabled => states.push(PluginState::Unchecked),
+                Listed::Unlisted if p.origin == Origin::Mod => states.push(PluginState::Unlisted),
+                _ => {}
+            }
+            if p.versions.len() > 1 {
+                states.push(PluginState::Versioned);
+            }
+            states.sort();
+            states.dedup();
             p.colour = if p.origin == Origin::Base {
                 Colour::Blue
-            } else if !p.present {
-                Colour::Black
-            } else if !p.missing_masters.is_empty() {
-                Colour::Red
-            } else if overflow {
-                Colour::Yellow
-            } else if !p.active {
-                Colour::White
             } else {
-                Colour::Green
+                states
+                    .iter()
+                    .find_map(|s| match s {
+                        PluginState::Missing => Some(Colour::Ghost),
+                        PluginState::OwnerOff => Some(Colour::Black),
+                        PluginState::Hidden | PluginState::Unchecked => Some(Colour::Grey),
+                        s if s.is_master_gap() => Some(Colour::Red),
+                        PluginState::Overflow => Some(Colour::Yellow),
+                        _ => None,
+                    })
+                    .unwrap_or(Colour::Green)
             };
+            p.states = states;
+            st.unchecked += usize::from(p.present && p.listed == Listed::Disabled);
             match p.index {
                 Some(RuntimeIndex::Full(_)) => st.active_full += 1,
                 Some(RuntimeIndex::Light(_)) => st.active_light += 1,
@@ -486,12 +613,133 @@ impl PluginList {
             st.missing += usize::from(p.origin == Origin::Missing);
             st.blacklisted += usize::from(p.blacklisted);
         }
-        PluginList { plugins, stats: st }
+        // masters nobody has, in the order of their first dependent
+        let mut ghosts: Vec<Ghost> = Vec::new();
+        let mut at: FxHashMap<String, usize> = FxHashMap::default();
+        for p in plugins.iter().filter(|p| !p.blacklisted) {
+            for (m, g) in p.missing_masters.iter().zip(&p.master_gaps) {
+                if *g != MasterGap::Absent || seen.contains_key(&plugin_key(m)) {
+                    continue;
+                }
+                let i = *at.entry(plugin_key(m)).or_insert_with(|| {
+                    ghosts.push(Ghost {
+                        name: m.clone(),
+                        needed_by: Vec::new(),
+                    });
+                    ghosts.len() - 1
+                });
+                ghosts[i].needed_by.push(p.name.clone());
+            }
+        }
+        st.ghosts = ghosts.len();
+        PluginList {
+            plugins,
+            ghosts,
+            stats: st,
+        }
     }
 
     pub fn get(&self, name: &str) -> Option<&Plugin> {
         let k = plugin_key(name);
         self.plugins.iter().find(|p| plugin_key(&p.name) == k)
+    }
+    // @sat:plugins.mod-mark.compute
+    /// What each mod's plugin files put on its indicator, by [`ModId`] (`mods` — how many mods the facts hold).
+    pub fn mod_marks(&self, mods: usize) -> Vec<ModMark> {
+        let mut out = vec![ModMark::default(); mods];
+        // a mod's own plugins: a master it carries itself is there when the mod is on
+        let mut own: Vec<rustc_hash::FxHashSet<String>> = vec![Default::default(); mods];
+        for p in &self.plugins {
+            for v in &p.versions {
+                if let Some(s) = own.get_mut(v.owner.idx()) {
+                    s.insert(plugin_key(&p.name));
+                }
+            }
+        }
+        for p in &self.plugins {
+            for (i, v) in p.versions.iter().enumerate() {
+                let m = v.owner.idx();
+                let Some(mark) = out.get_mut(m) else { continue };
+                mark.plugins += 1;
+                let lacks = p.missing_masters.iter().any(|n| !own[m].contains(&plugin_key(n)));
+                let one = if p.blacklisted {
+                    Mark::Hidden
+                } else if p.winner != Some(i) {
+                    Mark::Overridden
+                } else if p.listed == Listed::Disabled {
+                    if lacks { Mark::Optional } else { Mark::Unchecked }
+                } else if lacks {
+                    Mark::Red
+                } else if p.index.is_some_and(RuntimeIndex::overflow) {
+                    Mark::Yellow
+                } else {
+                    match p.caste() {
+                        Caste::Esm => Mark::Esm,
+                        Caste::Esp => Mark::Esp,
+                        Caste::Esl => Mark::Esl,
+                    }
+                };
+                if !mark.stack.contains(&one) {
+                    mark.stack.push(one);
+                }
+            }
+        }
+        for mark in &mut out {
+            mark.stack.sort();
+            if mark.stack.first().is_some_and(|m| m.loads()) {
+                mark.top = Some(mark.stack.remove(0));
+                // the other castes of plugins that load say nothing beside the strongest
+                mark.stack
+                    .retain(|m| !matches!(m, Mark::Esm | Mark::Esp | Mark::Esl));
+            }
+        }
+        out
+    }
+}
+
+// @sat:plugins.mod-mark
+/// What a mod's plugin files put on the mod's indicator (monolith `getModPluginIndicatorBucket`, made
+/// plugin-centric): the priority comes from the plugins that load — red when one lacks a master, yellow when one is
+/// past the limit, else the strongest caste (esm > esp > esl); an unchecked plugin lacking a master is an optional
+/// patch the mod carries, not the mod's problem. The rest stack beside the priority.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModMark {
+    /// `None`: no plugin of the mod loads (none at all, or all unchecked, hidden, overridden).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<Mark>,
+    /// The other marks, each once, in [`Mark`] order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stack: Vec<Mark>,
+    /// The mod's plugin files.
+    pub plugins: u32,
+}
+
+/// One mark of [`ModMark`]. A master the mod carries itself does not count as missing (it is there when the mod is
+/// on), so a disabled mod shows what it would bring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Mark {
+    /// A plugin that loads lacks a master.
+    Red,
+    /// A plugin that loads is past the index limit.
+    Yellow,
+    Esm,
+    Esp,
+    Esl,
+    /// An unchecked plugin lacking a master: an optional patch for something the build does not have.
+    Optional,
+    /// An unchecked plugin.
+    Unchecked,
+    /// Another mod's copy of the plugin wins.
+    Overridden,
+    /// A hidden plugin.
+    Hidden,
+}
+
+impl Mark {
+    /// The marks of plugins that load (they can be the priority).
+    pub fn loads(self) -> bool {
+        matches!(self, Mark::Red | Mark::Yellow | Mark::Esm | Mark::Esp | Mark::Esl)
     }
 }
 
@@ -616,8 +864,9 @@ mod tests {
         let off = l.get("Off.esp").unwrap();
         assert_eq!(
             (off.listed, off.active, off.colour),
-            (Listed::Disabled, false, Colour::White)
+            (Listed::Disabled, false, Colour::Grey)
         );
+        assert_eq!(off.states, [PluginState::Unchecked]);
         let fresh = l.get("Fresh.esp").unwrap();
         assert_eq!(fresh.listed, Listed::Unlisted);
         assert!(
@@ -648,11 +897,19 @@ mod tests {
         let g = l.get("Ghost.esp").unwrap();
         assert_eq!(
             (g.origin, g.present, g.colour),
-            (Origin::Missing, false, Colour::Black)
+            (Origin::Missing, false, Colour::Ghost)
         );
         assert_eq!(l.get("A.esp").unwrap().missing_masters, ["Gone.esm"]);
         assert_eq!(l.get("A.esp").unwrap().master_gaps, [MasterGap::Absent]);
         assert_eq!(l.stats.missing, 1);
+        // the master nobody has is a ghost of the list, with who needs it
+        assert_eq!(
+            l.ghosts,
+            [Ghost {
+                name: "Gone.esm".into(),
+                needed_by: vec!["A.esp".into()]
+            }]
+        );
     }
 
     #[test]
@@ -671,5 +928,106 @@ mod tests {
         assert_eq!(a.missing_masters, ["Lib.esm"]);
         assert_eq!(a.master_gaps, [MasterGap::ModOff]);
         assert_eq!(l.stats.waiting_for_mods_off, 1);
+    }
+
+    #[test]
+    fn states_stack_and_the_first_coloured_one_is_the_colour() {
+        // Patch.esp: in two mods (versioned), unchecked, its master lies in a disabled mod
+        let v = PluginVersions::build(&[
+            mod_with("Lib", vec![plugin("Lib.esm", &["Skyrim.esm"], false)]),
+            mod_with("Old", vec![plugin("Patch.esp", &["Lib.esm"], false)]),
+            mod_with("New", vec![plugin("Patch.esp", &["Lib.esm"], false)]),
+        ]);
+        let c = canon(
+            &["Skyrim.esm", "Lib.esm", "Patch.esp"],
+            &[("Lib.esm", true), ("Patch.esp", false)],
+        );
+        let l = PluginList::compute(&v, &c, &Priorities(vec![-1, 1, 2]));
+        let p = l.get("Patch.esp").unwrap();
+        assert_eq!(
+            p.states,
+            [
+                PluginState::MasterOwnerOff,
+                PluginState::Unchecked,
+                PluginState::Versioned
+            ]
+        );
+        assert_eq!(
+            p.colour,
+            Colour::Red,
+            "a missing master outranks the unchecked mark"
+        );
+        assert_eq!(p.caste(), Caste::Esp);
+        let lib = l.get("Lib.esm").unwrap();
+        assert_eq!(
+            (lib.states.as_slice(), lib.colour),
+            ([PluginState::OwnerOff].as_slice(), Colour::Black)
+        );
+        assert_eq!(lib.caste(), Caste::Esm);
+    }
+
+    #[test]
+    fn a_mod_mark_comes_from_the_plugins_that_load() {
+        // Main: Main.esm (loads) + an optional patch for Absent.esm (unchecked) + an unchecked Extra.esp;
+        // Broken: a checked plugin lacking a master; Off: disabled, its own master inside it;
+        // Loser: its copy of Main.esm loses to Main
+        let v = PluginVersions::build(&[
+            mod_with(
+                "Main",
+                vec![
+                    plugin("Main.esm", &["Skyrim.esm"], false),
+                    plugin("Main - Absent Patch.esp", &["Main.esm", "Absent.esm"], false),
+                    plugin("Extra.esp", &["Main.esm"], false),
+                ],
+            ),
+            mod_with("Broken", vec![plugin("Broken.esp", &["Absent.esm"], true)]),
+            mod_with(
+                "Off",
+                vec![
+                    plugin("OffLib.esm", &[], false),
+                    plugin("OffAddon.esp", &["OffLib.esm"], false),
+                ],
+            ),
+            mod_with("Loser", vec![plugin("Main.esm", &["Skyrim.esm"], false)]),
+        ]);
+        let c = canon(
+            &[
+                "Skyrim.esm",
+                "Main.esm",
+                "Main - Absent Patch.esp",
+                "Extra.esp",
+                "Broken.esp",
+                "OffLib.esm",
+                "OffAddon.esp",
+            ],
+            &[
+                ("Main.esm", true),
+                ("Main - Absent Patch.esp", false),
+                ("Extra.esp", false),
+                ("Broken.esp", true),
+                ("OffLib.esm", true),
+                ("OffAddon.esp", true),
+            ],
+        );
+        let l = PluginList::compute(&v, &c, &Priorities(vec![3, 1, -1, 0]));
+        let m = l.mod_marks(4);
+        assert_eq!(
+            m[0].top,
+            Some(Mark::Esm),
+            "an unchecked optional patch does not make the mod red"
+        );
+        assert_eq!(m[0].stack, [Mark::Optional, Mark::Unchecked]);
+        assert_eq!(m[0].plugins, 3);
+        assert_eq!(
+            (m[1].top, m[1].stack.as_slice()),
+            (Some(Mark::Red), [].as_slice())
+        );
+        // the disabled mod's addon has its master in the same mod: it would load
+        assert_eq!(m[2].top, Some(Mark::Esm));
+        assert!(m[2].stack.is_empty());
+        assert_eq!(
+            (m[3].top, m[3].stack.as_slice()),
+            (None, [Mark::Overridden].as_slice())
+        );
     }
 }

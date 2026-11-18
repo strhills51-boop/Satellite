@@ -16,12 +16,14 @@ mod chains;
 pub mod commit;
 mod context;
 mod domains;
+mod effects;
 pub mod find;
 mod focus;
 pub mod forks;
 mod participants;
 pub mod pass;
 pub mod patches;
+pub mod plugins;
 mod preview;
 pub mod processors;
 pub mod project;
@@ -33,6 +35,7 @@ pub use advisor::{AdviceRow, OrderAdvice};
 pub use cards::{CardMember, ChainCard, ChainCardDetail};
 pub use context::{ColumnOrder, ContextItem, ContextTable, TableChain, TableCol, TableRow};
 pub use focus::{FocusGroup, FocusProvider};
+pub use plugins::{PluginOwner, PluginView, PluginsPage};
 pub use preview::{Asset, FileCopy, FilePreview, FileSource, PinnedFile, PlaceFile, VfsEntry};
 pub use tree::{ChainRef, FileRow, FileTree, PathOwners, TreeSubject};
 
@@ -195,6 +198,10 @@ pub enum Command {
     ChooseFork {
         id: String,
         option: usize,
+    },
+    /// Replace the list's effects (`@sat:app.effects`); numbers are brought inside their bounds.
+    SetEffects {
+        effects: sat_core::effects::Effects,
     },
     /// Change the buffer (`@sat:app.buffer`): areas of mods set aside to be placed later. One undo step each (placing
     /// is two: the move, then the area gone).
@@ -726,6 +733,8 @@ pub enum Query {
     Processors,
     /// The project's forks of taste (`@sat:app.forks`).
     Forks,
+    /// The list's effects (`@sat:app.effects`).
+    Effects,
     /// The buffer's areas.
     Buffer,
     /// The selection summary of a view.
@@ -977,6 +986,9 @@ pub struct RowView {
     /// A member of an open logical group (the family outline) or a collapsed group's row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<GroupMark>,
+    /// What the mod's plugins put on its indicator (`@sat:plugins.mod-mark`); absent for a mod without plugins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugins: Option<sat_core::plugins::ModMark>,
 }
 
 /// The logical group a row belongs to, as the window outlines it.
@@ -1029,22 +1041,6 @@ pub struct Counters {
     pub plugins: u32,
 }
 
-/// One plugin as the plugin window shows it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PluginView {
-    pub name: String,
-    pub index: Option<String>,
-    pub colour: sat_core::plugins::Colour,
-    pub listed: sat_core::plugins::Listed,
-    pub active: bool,
-    pub owner: Option<String>,
-    pub versions: usize,
-    pub missing_masters: Vec<String>,
-    /// What it does in the record layer (`@sat:records.plugin-stat`), once computed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub records: Option<sat_core::records::PluginRecordStat>,
-}
-
 /// Answer to a query.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -1062,7 +1058,7 @@ pub enum Reply {
         revision: u64,
     },
     Plugins {
-        plugins: Vec<PluginView>,
+        page: Box<PluginsPage>,
     },
     Keymap {
         bindings: Vec<(String, String)>,
@@ -1109,6 +1105,9 @@ pub enum Reply {
     },
     Forks {
         forks: Vec<sat_core::forks::Fork>,
+    },
+    Effects {
+        effects: sat_core::effects::Effects,
     },
     Processors {
         processors: Vec<processors::ProcessorView>,
@@ -1340,6 +1339,8 @@ pub struct App {
     processors: Vec<sat_core::processor::Processor>,
     /// The project's forks of taste (`@sat:app.forks`).
     forks: Vec<sat_core::forks::Fork>,
+    /// The list's effects (`@sat:app.effects`).
+    effects: sat_core::effects::Effects,
     /// Donor builds the shell read (`@sat:app.donors`), and bindings the window asked for.
     donors: std::collections::BTreeMap<String, DonorData>,
     donor_requests: Vec<(String, String)>,
@@ -1405,6 +1406,7 @@ impl App {
             space: None,
             processors: Vec::new(),
             forks: Vec::new(),
+            effects: Default::default(),
             donors: Default::default(),
             donor_requests: Vec::new(),
             sources: Default::default(),
@@ -1537,6 +1539,16 @@ impl App {
                 f.by = sat_core::forks::ChosenBy::Owner;
                 self.revision += 1;
                 self.session.command(|b| b.set_enabled_each(&each))?
+            }
+            // @sat:app.effects
+            C::SetEffects { effects } => {
+                let effects = effects.normalized();
+                if effects == self.effects {
+                    return Ok(Event::Nothing);
+                }
+                self.effects = effects;
+                self.revision += 1;
+                return Ok(Event::Decided);
             }
             C::SetIndicators { defs } => {
                 let (_, errors) = sat_core::counters::Indicators::compile(&defs);
@@ -2016,6 +2028,7 @@ impl App {
                 per_mod[p.versions[w].owner.idx()] += 1;
             }
         }
+        let marks = plugins.mod_marks(names.mod_count());
         let book = self.session.book();
         let mut rows = book
             .rows(view, start, count)
@@ -2056,6 +2069,12 @@ impl App {
                         }
                         _ => Vec::new(),
                     },
+                    plugins: (r.kind == RowKind::Mod)
+                        .then(|| index.get(&r.name.to_lowercase()))
+                        .flatten()
+                        .and_then(|&m| marks.get(m.idx()))
+                        .filter(|mk| mk.plugins > 0)
+                        .cloned(),
                     counters,
                     custom: Vec::new(),
                     rule_stickers: Vec::new(),
@@ -2391,26 +2410,9 @@ impl App {
                     revision: self.revision,
                 }
             }
-            Query::Plugins => {
-                let pl: Arc<_> = self.session.plugins();
-                let table = self.session.table().clone();
-                let plugins = pl
-                    .plugins
-                    .iter()
-                    .map(|p| PluginView {
-                        name: p.name.clone(),
-                        index: p.index.map(|i| i.to_string()),
-                        colour: p.colour,
-                        listed: p.listed,
-                        active: p.active,
-                        owner: p.winner.map(|w| table.mod_name(p.versions[w].owner).to_string()),
-                        versions: p.versions.len(),
-                        missing_masters: p.missing_masters.clone(),
-                        records: self.plugin_records(&p.name),
-                    })
-                    .collect();
-                Reply::Plugins { plugins }
-            }
+            Query::Plugins => Reply::Plugins {
+                page: Box::new(self.plugins_page()),
+            },
             Query::RecordChains {
                 plugin,
                 conflicts_only,
@@ -2837,6 +2839,9 @@ impl App {
             Query::Forks => Reply::Forks {
                 forks: self.forks.clone(),
             },
+            Query::Effects => Reply::Effects {
+                effects: self.effects.clone(),
+            },
             Query::Processors => {
                 let (processors, tools, presets) = self.processors_view();
                 Reply::Processors {
@@ -3003,7 +3008,6 @@ const SAMPLE_LIMIT: usize = 6;
 impl App {
     fn mod_detail(&mut self, key: Key) -> ModDetail {
         let ow = self.session.overwrite();
-        let plugins = self.session.plugins();
         let table = self.session.table().clone();
         let book = self.session.book();
         let name = book.name(key).to_string();
@@ -3122,22 +3126,7 @@ impl App {
             .collect();
         opponents.sort_by_key(|o| (o.pos.is_none(), o.pos, o.name.clone()));
         let s = ow.stat(m);
-        let mod_plugins: Vec<PluginView> = plugins
-            .plugins
-            .iter()
-            .filter(|p| p.versions.iter().any(|v| v.owner == own))
-            .map(|p| PluginView {
-                name: p.name.clone(),
-                index: p.index.map(|i| i.to_string()),
-                colour: p.colour,
-                listed: p.listed,
-                active: p.active,
-                owner: p.winner.map(|w| table.mod_name(p.versions[w].owner).to_string()),
-                versions: p.versions.len(),
-                missing_masters: p.missing_masters.clone(),
-                records: self.plugin_records(&p.name),
-            })
-            .collect();
+        let mod_plugins: Vec<PluginView> = self.mod_plugin_views(own);
         ModDetail {
             key,
             name,

@@ -27,6 +27,7 @@ pub mod conflict_kinds;
 pub mod conflict_spec;
 pub mod counters;
 pub mod decisions;
+pub mod effects;
 pub mod engine;
 pub mod entity;
 pub mod expr;

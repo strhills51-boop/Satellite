@@ -333,8 +333,8 @@ impl App {
 
             // its plugins
             let plugins = self.session.plugins();
-            let (mut active, mut inactive, mut hidden, mut missing) =
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            let (mut active, mut inactive, mut hidden, mut missing, mut optional) =
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
             for p in plugins
                 .plugins
                 .iter()
@@ -347,11 +347,22 @@ impl App {
                 } else {
                     inactive.push(p.name.clone());
                 }
-                missing.extend(p.missing_masters.iter().map(|mm| format!("{} → {mm}", p.name)));
+                // plugin-centric: a missing master is the mod's problem only for a plugin that would load; an
+                // unchecked one lacking a master is an optional patch the mod carries (`@sat:plugins.mod-mark`)
+                let lacks = p.missing_masters.iter().map(|mm| format!("{} → {mm}", p.name));
+                if p.blacklisted {
+                } else if p.listed == sat_core::plugins::Listed::Disabled {
+                    optional.extend(lacks);
+                } else {
+                    missing.extend(lacks);
+                }
             }
             let mut fields = Vec::new();
             if !missing.is_empty() {
                 fields.push(signal(names("missing_masters", missing), Signal::Problem));
+            }
+            if !optional.is_empty() {
+                fields.push(names("optional_patches", optional));
             }
             if enabled && active.is_empty() && !inactive.is_empty() {
                 fields.push(signal(names("inactive", inactive), Signal::Warn));

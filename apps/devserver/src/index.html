@@ -179,6 +179,7 @@ section h2 small { color: var(--subtle); font: inherit; letter-spacing: 0; }
 #ctx input { width: 100%; margin-bottom: 4px; }
 #ctx .it { padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
 #ctx .it:hover { background: color-mix(in srgb, var(--primary) 30%, transparent); }
+#ctx .pit { padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; } #ctx .pit:hover { background: color-mix(in srgb, var(--primary) 30%, transparent); }
 #ctx hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
 #palette { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.45); }
 #palette[hidden], #ctx[hidden], .row[hidden] { display: none; }
@@ -976,6 +977,83 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
 #sat-design-guide header button {font-size:19px;line-height:1;padding:2px 7px;}
 #sat-design-guide p {margin:0;padding:16px 18px 19px;color:var(--muted);font-size:12.5px;line-height:1.65;}
 
+
+/* plugins (`@sat:app.plugins`): one container per plugin, its states stacked — each state draws on its own channel:
+   fill — caste (esm / esp / esl / base), veil — its mods are off, transparency — unchecked, left edge — a missing
+   master and why (solid — no such plugin, dashes with black — in a disabled mod, dots — unchecked), right edge —
+   overflow, dashed contour — hidden, badge — several copies, «новый» — not in MO2's lists; a ghost (a master nobody
+   has) has no indicator and no contour. The indicator shows the priority, filled when checked, a ring when not,
+   and rings the other states around it. */
+:root { --pl-esm: #22c55e; --pl-esp: #84cc16; --pl-esl: #38bdf8; --pl-base: #3b82f6; --pl-red: #ef4444; --pl-yellow: #f59e0b; --pl-grey: #64748b; --pl-black: #020617; }
+.pl { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto auto 70px; gap: 7px; align-items: center; min-height: 26px;
+  padding: 3px 9px 3px 11px; border-radius: 7px; border: 1px solid var(--line-soft); font-size: 11.5px; cursor: pointer; user-select: none;
+  background-color: var(--panel); background-image: linear-gradient(90deg, var(--tint, transparent), transparent 75%); }
+.pl:hover { border-color: var(--line); } .pl.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.pl.c-esm { --tint: rgba(34,197,94,.17); } .pl.c-esp { --tint: rgba(132,204,22,.11); } .pl.c-esl { --tint: rgba(56,189,248,.14); } .pl.base { --tint: rgba(59,130,246,.22); }
+.pl.st-owner-off { box-shadow: inset 0 0 0 999px rgba(2,6,23,.52); } .pl.st-owner-off.on { box-shadow: inset 0 0 0 999px rgba(2,6,23,.52), inset 0 0 0 1px var(--accent-border); }
+.pl.st-unchecked { opacity: .55; filter: saturate(.45); }
+.pl::before, .pl::after { content: ""; position: absolute; top: 3px; bottom: 3px; width: 3px; border-radius: 2px; pointer-events: none; }
+.pl::before { left: 1px; background: var(--edge, transparent); } .pl::after { right: 1px; background: var(--edge2, transparent); }
+.pl.st-master-unchecked { --edge: repeating-linear-gradient(var(--pl-red) 0 2px, transparent 2px 4px); }
+.pl.st-master-owner-off { --edge: repeating-linear-gradient(var(--pl-red) 0 4px, var(--pl-black) 4px 6px); }
+.pl.st-master-absent { --edge: var(--pl-red); }
+.pl.st-overflow { --edge2: var(--pl-yellow); border-color: rgba(245,158,11,.38); }
+.pl.st-hidden { border-style: dashed; border-color: var(--subtle); } .pl.st-hidden .pn { text-decoration: line-through; text-decoration-color: var(--subtle); }
+.pl.st-unlisted .pn::after { content: "новый"; margin-left: 6px; font: 9px var(--mono); color: var(--subtle); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; }
+.pl.ghost { border-color: transparent; background: rgba(2,6,23,.32); background-image: none; opacity: .62; font-style: italic; }
+.pl .pn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl .pv { font: 9px var(--mono); padding: 0 5px; border-radius: 5px; color: #c4b5fd; border: 1px solid rgba(167,139,250,.45); }
+.pl .pk, .pl .pdp { font: 10px var(--mono); color: var(--subtle); } .pl .pi { display: grid; text-align: right; font: 10px/1.1 var(--mono); }
+.pl .pi b { font-weight: 400; color: var(--muted); } .pl .pi i { font-style: normal; color: var(--accent2); }
+.pl .gn { font: 10px var(--mono); color: var(--subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; grid-column: 3 / -1; }
+.pd { width: 12px; height: 12px; border-radius: 50%; cursor: pointer; background: radial-gradient(closest-side, var(--c) 0 64%, transparent 68%), var(--ring, none); }
+.pd.hollow { background: radial-gradient(closest-side, transparent 0 34%, var(--c) 38% 64%, transparent 68%), var(--ring, none); }
+.pd.ghost { visibility: hidden; }
+/* the mod indicator takes its plugins' colour (`@sat:plugins.mod-mark`): the priority inside, the rest as a ring */
+.row .toggle { width: var(--fx-ind, 10px) !important; height: var(--fx-ind, 10px) !important; }
+.row.on .toggle.pm { background: radial-gradient(closest-side, var(--pt) 0 60%, transparent 66%), var(--pring, none) !important; box-shadow: 0 0 6px color-mix(in srgb, var(--pt) 40%, transparent) !important; }
+body[data-fx-ind="off"] #list .toggle { display: none !important; }
+body[data-fx-tags="off"] #list .row > .tg { display: none; } body[data-fx-tags-area="separators"] #list .row:not(.sep) > .tg { display: none; }
+body[data-fx-tags-area="mods"] #list .row.sep > .tg { display: none; } #list .row > .tg { opacity: var(--fx-tags-op, 1); }
+body[data-fx-badges="off"] #list :is(.strip, .owpill) { display: none !important; } #list :is(.strip, .owpill) { opacity: var(--fx-badges-op, 1); }
+body[data-fx-focus="on"] #list .row { transition: filter 140ms; }
+body[data-fx-focus="on"] #list:hover .row:not(:hover):not(.sel) { filter: saturate(var(--fx-dim-s, .16)) brightness(var(--fx-dim-b, .88)); }
+#cloud .cpl { display: grid; gap: 3px; } #cloud .cpl .pl { grid-template-columns: 14px minmax(0, 1fr) auto; min-height: 22px; font-size: 11px; }
+#cloud .cpl .pl > :nth-child(n+4) { display: none; } #cloud .cnote { white-space: pre-wrap; color: var(--muted); font-size: 11.5px; }
+/* the plugin window: the whole list on the left, the chosen plugin's card on the right */
+#plBox { position: fixed; z-index: 58; inset: 52px 16px 16px 16px; background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr); font-size: 12px; }
+#plBox header { display: flex; align-items: center; gap: 8px; padding: 10px 14px 8px; border-bottom: 1px solid var(--line-soft); }
+#plBox header b { font-size: 15px; } #plBox header .pls { font: 11px var(--mono); color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#plBox .plt { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line-soft); }
+#plBox .plt input[type=search] { flex: 1 1 220px; min-width: 160px; font-size: 12px; }
+#plBox .chips { display: flex; flex-wrap: wrap; gap: 4px; } #plBox .chips button { font: 10px var(--mono); padding: 1px 7px; border-radius: 999px; text-transform: uppercase; }
+#plBox .chips button i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; background: var(--c); vertical-align: 0; }
+#plBox .chips button.off { opacity: .4; text-decoration: line-through; }
+#plBox .plb { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); min-height: 0; }
+#plBox .plm { overflow: auto; padding: 8px 10px 16px 14px; display: grid; gap: 3px; align-content: start; }
+#plBox .plc { overflow: auto; padding: 10px 14px 16px; border-left: 1px solid var(--line-soft); display: grid; gap: 10px; align-content: start; }
+#plBox .plc h4 { margin: 0; font-size: 14px; display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
+#plBox .plc .sec { display: grid; gap: 3px; } #plBox .plc .sec > i { font: 600 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--subtle); font-style: normal; }
+#plBox .plc .sts { display: flex; flex-wrap: wrap; gap: 4px; } #plBox .plc .sts span { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--c) 55%, transparent); }
+#plBox .plc .sts span.top { background: color-mix(in srgb, var(--c) 22%, transparent); font-weight: 600; }
+#plBox .plc .act { display: flex; flex-wrap: wrap; gap: 6px; } #plBox .plc .facts { font: 11px/1.6 var(--mono); color: var(--muted); }
+#plBox .own { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 3px 9px; border-radius: 7px; border: 1px solid var(--line-soft); background: var(--panel); }
+#plBox .own .toggle { margin: 0; } #plBox .own.on .toggle { background: var(--ok); } #plBox .own em { font: 10px var(--mono); font-style: normal; color: var(--subtle); }
+#plBox .own.win em { color: var(--ok); } #plBox .own .on-name { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } #plBox .own .on-name:hover { color: var(--accent); }
+#plBox .why { font-size: 11px; color: var(--l-txt); margin: -1px 0 2px 22px; }
+/* the effects block (monolith «Эффекты» meta block): a switch per effect, its settings below when opened */
+#bPlug .mpl { display: grid; gap: 3px; } #bPlug .mpl .rs { font-size: 11px; color: var(--muted); margin: -1px 0 3px 22px; }
+#bFx .fxs { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 4px; }
+#bFx .fxi { display: flex; align-items: center; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); }
+#bFx .fxi.open { border-color: var(--accent-border); } #bFx .fxi button { border: 0; background: none; font-size: 11.5px; padding: 4px 6px; }
+#bFx .fxi [data-fxt] { flex: 1; display: flex; align-items: center; gap: 6px; text-align: left; }
+#bFx .fxi [data-fxt] i { width: 8px; height: 8px; border-radius: 50%; background: var(--miss); } #bFx .fxi.on [data-fxt] i { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+#bFx .fxi:not(.on) [data-fxt] { color: var(--subtle); }
+#bFx .fxd { margin-top: 6px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line-soft); background: var(--surface2); display: grid; gap: 6px; font-size: 11.5px; }
+#bFx .fxd .t { color: var(--muted); } #bFx .fxd .sm { font: 10px var(--mono); color: var(--subtle); }
+#bFx .fxd label { display: grid; grid-template-columns: 130px 1fr auto; gap: 8px; align-items: center; } #bFx .fxd label.ck { grid-template-columns: auto 1fr; }
+#bFx .fxd select, #bFx .fxd input[type=range] { min-width: 0; font-size: 11px; } #bFx .fxd output { font: 10px var(--mono); color: var(--subtle); min-width: 34px; text-align: right; }
 </style>
 </head>
 <body>
@@ -1001,6 +1079,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
   <span class="tooth" id="modeSw" role="radiogroup" aria-label="Режим окна"><button data-m="classic">Классика</button><button data-m="space">Пространство</button></span>
   <nav id="marks" aria-label="Воркфлоу"></nav>
   <button id="prBtn" title="Процессоры: генераторы сборки (Pandora, BodySlide, DynDOLOD…) — запускаются фиксацией">Процессоры</button>
+  <button id="plBtn" title="Плагины: весь список, состояния, копии в модах, мастера и зависимые">Плагины</button>
   <button id="fkBtn" title="Развилки вкуса: аспект, варианты с фактами, выбор Claude по умолчанию — твоё слово последнее">Развилки</button>
   <button id="wsBtn" title="Мастерская: ресурсы — команды, клавиши, окна, анализаторы, счётчики, индикаторы, гайды">Мастерская</button>
   <div id="stats"></div>
@@ -1028,6 +1107,7 @@ section h2 > .sat-guide-button:hover {opacity:1;color:var(--accent);}
     <div class="block empty" id="bDecor"><h3>Декорация мода</h3></div>
     <div class="block empty" id="bConf"><h3>Конфликты</h3></div>
     <div class="block empty" id="bPlug"><h3>Плагины</h3></div>
+    <div class="block empty" id="bFx"><h3>Эффекты</h3></div>
     <div class="block empty" id="bTree"><h3>Проводник</h3></div>
     <div class="block empty" id="bPrev"><h3>Предпросмотр</h3></div>
   </section>
@@ -1111,7 +1191,7 @@ document.addEventListener("click", ev => { const b = ev.target.closest("[data-gu
 let len = 0, total = 0, busy = false, again = false, fetched = { y0: 0, y1: -1 }, frame = 0, shownKey = null, detailSeq = 0, shownChains = [];
 /** Cards on screen by entry key (ADR 0012: the page keeps what is visible; a card is rewritten only when it changed). */
 const cards = new Map(), spare = [];
-let badgeModel = "classic", density = 6, cols = 340;
+let badgeModel = "classic", density = 6, cols = 340, efxSig = "";
 try { badgeModel = localStorage.getItem("sat-badges") || "classic"; density = +(localStorage.getItem("sat-density") || 6);
   cols = +(localStorage.getItem("sat-cols2") ?? -1); } catch (_) {}
 
@@ -1181,7 +1261,7 @@ function cardEl(key) {
 
 /** Writes a row element only when what it shows changed. */
 function paint(el, r) {
-  const sig = r ? JSON.stringify(r) + (el._tall ? "T" : "") + (cols < 0 && r.marks && r.marks.tags ? `${el._w}x${el._h}` : "") : "";
+  const sig = r ? JSON.stringify(r) + (el._tall ? "T" : "") + (cols < 0 && r.marks && r.marks.tags ? `${el._w}x${el._h}` : "") + efxSig : "";
   if (el._sig === sig) return;
   el._sig = sig; el._row = r;
   if (!r) { el.hidden = true; return; }
@@ -1211,14 +1291,14 @@ function paint(el, r) {
   if (r.group) { cls.push("ingrp"); if (r.group.first) cls.push("gfirst"); if (r.group.last) cls.push("glast"); el.style.setProperty("--gh", hue(r.group.name)); }
   if (cols < 0 && ((r.style && r.style.fill) || (r.color !== null && r.color !== undefined))) cls.push("dec");
   el.className = cls.join(" ");
-  const c = r.counters;
+  const c = r.counters, S = EFXS.statistics, cf = S.enabled && S.conflicts, cp = S.enabled && S.plugins;
   const counters = c ? [
-    c.x ? `<span class="x" title="не виден в игре">X</span>` : "",
-    c.plugins ? `<span title="плагинов">${c.plugins} esp</span>` : "",
-    c.win ? `<span class="w" title="файлов выигрывает">W${c.win}</span>` : "",
-    c.lose ? `<span class="l" title="файлов проигрывает">L${c.lose}</span>` : "",
-    c.mid ? `<span class="m" title="в середине стека">M${c.mid}</span>` : "",
-    c.unique ? `<span title="уникальных файлов">+${c.unique}</span>` : "",
+    c.x && cf ? `<span class="x" title="не виден в игре">X</span>` : "",
+    c.plugins && cp ? `<span title="плагинов">${c.plugins} esp</span>` : "",
+    c.win && cf ? `<span class="w" title="файлов выигрывает">W${c.win}</span>` : "",
+    c.lose && cf ? `<span class="l" title="файлов проигрывает">L${c.lose}</span>` : "",
+    c.mid && cf ? `<span class="m" title="в середине стека">M${c.mid}</span>` : "",
+    c.unique && cf ? `<span title="уникальных файлов">+${c.unique}</span>` : "",
   ].join("") : "";
   const wm = r.style && r.style.watermark ? watermark(r.style.watermark) : "";
   if (cols < 0) {
@@ -1232,7 +1312,7 @@ function paint(el, r) {
     }
     el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm +
       (stk.length ? `<span class="stk">${stk.map(n => `<i style="--h:${hue(n)}" title="стикер">${esc(n)}</i>`).join("")}</span>` : "") +
-      `<span class="lead"><span class="toggle" title="вкл/выкл"></span>${r.badges && r.badges.length ? strip(r) : ""}</span>` +
+      `<span class="lead">${modToggle(r)}${r.badges && r.badges.length ? strip(r) : ""}</span>` +
       `<span class="name">${esc(r.name)}</span><span class="cnt">${counters}</span>` + tagStripes(r, el._w, el._h) +
       (r.group && r.group.first ? `<span class="glab" data-gfold="${r.key}" title="Свернуть группу">${esc(r.group.name)} · ${r.group.size} ▾</span>` : "") +
       `<span class="rsz" title="Тянуть — размер, двойной клик — свой размер сбросить"></span>`;
@@ -1240,8 +1320,8 @@ function paint(el, r) {
     else el.removeAttribute("title");
     return;
   }
-  el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm + `<div class="card"><span class="toggle" title="вкл/выкл"></span><span class="name">${esc(r.name)}</span>` +
-    `<div class="line2">${strip(r)}<div class="counters">${counters}<span class="prio" title="приоритет MO2">${r.pos}</span></div></div></div>`;
+  el.innerHTML = (r.selected ? `<span class="selv"></span>` : "") + wm + `<div class="card">${modToggle(r)}<span class="name">${esc(r.name)}</span>` +
+    `<div class="line2">${strip(r)}<div class="counters">${counters}${EFXS.counter.enabled ? `<span class="prio" title="приоритет MO2">${r.pos}</span>` : ""}</div></div></div>`;
 }
 
 // tag stripes (MAP: «Слои контейнера-кирпичика и теги»)
@@ -1422,6 +1502,7 @@ const SHEET_NAMES = {
   active: "включено", enabled: "включён", update: "есть обновление", newest_version: "новая версия", version: "версия", site: "сайт",
   mod_id: "id", link: "страница", package: "архив установки", found_tags: "найденные теги", labels: "метки", kind: "род", cases: "случаи",
   presentation: "описание", tags: "теги", stickers: "стикеры", note: "заметка",
+  missing_masters: "нет мастеров", optional_patches: "необязательные патчи", inactive: "выключенные", hidden: "скрытые",
 };
 const sheetVal = v => !v ? "" : v.type === "count" ? num(v.n) : v.type === "bytes" ? bytesH(v.n) : v.type === "flag" ? (v.on ? "да" : "нет")
   : v.type === "text" ? v.text : v.type === "names" ? v.items.join(", ") : JSON.stringify(v);
@@ -1433,24 +1514,34 @@ function cloudHide() { clearTimeout(cloudTimer); cloud.hidden = true; cloudKey =
 list.addEventListener("mousemove", ev => {
   const el = ev.target.closest(".row");
   const r = el && el._row;
-  if (!r || el._att || r.kind !== "mod" || dragging || decorOn) { if (!cloud.matches(":hover")) cloudHide(); return; }
+  const HC = EFXS.hover_cloud;
+  if (!r || el._att || r.kind !== "mod" || dragging || decorOn || !HC.enabled) { if (!cloud.matches(":hover")) cloudHide(); return; }
   if (cloudKey === r.key) return;
   cloudHide(); cloudKey = r.key;
   cloudTimer = setTimeout(async () => {
     const seq = ++cloudSeq;
-    let sheet;
-    try { ({ sheet } = await query({ type: "mod-sheet", key: r.key, level: "mini" })); } catch (_) { return; }
+    let sheet, plugins = [];
+    try {
+      ({ sheet } = await query({ type: "mod-sheet", key: r.key, level: "mini" }));
+      // the mod's plugins from the one plugin list (the window keeps it until something changes)
+      if (HC.plugins && r.plugins) plugins = (await plPage()).plugins.filter(p => p.owners.some(o => o.key === r.key));
+    } catch (_) { return; }
     if (seq !== cloudSeq || cloudKey !== r.key) return;
     const field = f => `<div class="cf${f.signal ? " " + f.signal : ""}"><span>${esc(SHEET_NAMES[f.id] || f.id)}</span><b>${esc(sheetVal(f.value))}</b></div>`;
+    // the cloud's settings: tags and the note of the user's layer, the plugins as their containers
+    const keep = f => (HC.tags || f.id !== "tags") && (HC.note || f.id !== "note");
+    const secs = sheet.sections.map(x => ({ ...x, fields: x.fields.filter(keep) }))
+      .filter(x => x.fields.length && x.id !== "plugins" || x.id === "plugins" && HC.plugins && !plugins.length && x.fields.length);
     cloud.innerHTML = `<h4>${esc(sheet.name)}<small>${esc(sheet.separator || "")}</small></h4>` +
       (sheet.signals.length ? `<div class="csig">${sheet.signals.map(field).join("")}</div>` : "") +
-      sheet.sections.filter(x => x.fields.length).map(x => `<div class="csec"><i>${esc(SHEET_NAMES[x.id] || x.id)}</i>${x.fields.map(field).join("")}</div>`).join("");
+      (plugins.length ? `<div class="csec"><i>Плагины · ${plugins.length}</i><div class="cpl">${plugins.map(plRow).join("")}</div></div>` : "") +
+      secs.map(x => `<div class="csec"><i>${esc(SHEET_NAMES[x.id] || x.id)}</i>${x.fields.map(field).join("")}</div>`).join("");
     const b = el.getBoundingClientRect();
     cloud.hidden = false;
     const w = cloud.offsetWidth, h = cloud.offsetHeight;
     cloud.style.left = Math.max(8, Math.min(b.left, innerWidth - w - 8)) + "px";
     cloud.style.top = (b.bottom + 6 + h < innerHeight ? b.bottom + 6 : Math.max(8, b.top - h - 6)) + "px";
-  }, 650);
+  }, HC.delay);
 });
 list.addEventListener("mouseleave", ev => { if (!cloud.contains(ev.relatedTarget)) cloudHide(); });
 cloud.addEventListener("mouseleave", cloudHide);
@@ -1862,6 +1953,311 @@ async function prClick(ev) {
 $("prBtn").onclick = () => procs();
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("prBox") && !$("prBox").hidden) { ev.stopPropagation(); procs(false); } }, true);
 GUIDES.processors = ["Процессоры", "Генераторы сборки — Pandora, Nemesis, BodySlide, DynDOLOD, xLODGen, TexGen, Synthesis — как шаги фиксации.\n\nИнструмент берётся из зарегистрированных в MO2 (пути — на этой машине, в проекте только имя). Входы — моды, в которых есть нужные папки (или плагины); выход — свой мод, куда собирается всё, что инструмент записал в Overwrite за запуск.\n\nГрязный — входы, инструмент или настройки изменились с последней сборки, или выхода нет. Фиксация (только с --write, при закрытом MO2) запускает грязные по порядку «после»; старый выход уходит в deleted/ фиксации."];
+// ---------------------------------------------------------------- plugins (`@sat:app.plugins`)
+/** One plugin truth, many projections: the plugin window (the whole list by load order, index or colour, casts to
+ *  show, the chosen plugin's card — its copies in mods with their toggles, masters and why one is missing,
+ *  dependents), the mod's «Плагины» block, the mod indicator, the hover cloud. A toggle anywhere is the same command,
+ *  so every projection shows it. States stack on the container (CSS «plugins»); the indicator shows the priority. */
+const PL = { data: null, stale: true, sort: "order", q: "", sel: null, hide: new Set(), loading: null };
+const PL_COL = { black: "var(--pl-black)", red: "var(--pl-red)", yellow: "var(--pl-yellow)", grey: "var(--pl-grey)", blue: "var(--pl-base)",
+  esm: "var(--pl-esm)", esp: "var(--pl-esp)", esl: "var(--pl-esl)" };
+// the state → its colour on the ring, its name
+const ST = {
+  missing: ["transparent", "нет файла — призрак"], "owner-off": ["var(--pl-black)", "мод-владелец выключен"], hidden: ["#475569", "скрыт (игнор)"],
+  "master-absent": ["var(--pl-red)", "нет мастер-плагина"], "master-owner-off": ["#f87171", "мастер в выключенном моде"],
+  "master-unchecked": ["#fca5a5", "мастер выключен"], overflow: ["var(--pl-yellow)", "за пределом индекса"], unchecked: ["#94a3b8", "выключен"],
+  unlisted: ["#f8fafc", "нет в списках MO2"], versioned: ["#a78bfa", "несколько копий"],
+};
+const GAP_NAME = { absent: "нет такого плагина", "mod-off": "лежит в выключенном моде", "not-loaded": "выключен" };
+// which state gave the priority colour (the rest ring the indicator)
+const plTopState = p => p.colour === "black" ? "owner-off" : p.colour === "red" ? p.states.find(s => s.startsWith("master-"))
+  : p.colour === "yellow" ? "overflow" : p.colour === "grey" ? p.states.find(s => s === "hidden" || s === "unchecked") : null;
+const plColour = p => p.colour === "green" ? PL_COL[p.caste] : PL_COL[p.colour] || "transparent";
+function ring(colours) {
+  const c = [...new Set(colours)];
+  if (!c.length) return "none";
+  return `conic-gradient(${c.map((x, i) => `${x} ${Math.round(i * 360 / c.length)}deg ${Math.round((i + 1) * 360 / c.length)}deg`).join(",")})`;
+}
+function plDot(p) {
+  if (p.colour === "ghost") return `<span class="pd ghost"></span>`;
+  const top = plTopState(p);
+  const rest = p.states.filter(s => s !== top && s !== "missing").map(s => ST[s][0]);
+  const off = p.listed === "disabled" || p.states.includes("hidden");
+  // no other state: the priority fills the whole indicator (a ring only when there is something to ring)
+  const c = plColour(p), rg = rest.length ? ring(rest) : off ? "none" : `linear-gradient(${c},${c})`;
+  return `<span class="pd${off ? " hollow" : ""}" data-pltog style="--c:${c};--ring:${rg}" title="${p.listed === "disabled" ? "включить" : "выключить"}"></span>`;
+}
+const plTitle = p => [p.name, p.caste + (p.index ? " · " + p.index : ""), ...p.states.map(s => ST[s][1]),
+  ...p.missing_masters.map((m, i) => `${m}: ${GAP_NAME[p.gaps[i]] || ""}`), p.owner ? "грузится из " + p.owner : ""].filter(Boolean).join("\n");
+function plRow(p) {
+  const cls = ["pl", "c-" + p.caste, ...p.states.map(s => "st-" + s)];
+  if (p.origin === "base") cls.push("base");
+  if (PL.sel === p.name.toLowerCase()) cls.push("on");
+  return `<div class="${cls.join(" ")}" data-pl="${esc(p.name)}" title="${esc(plTitle(p))}">${plDot(p)}<span class="pn">${esc(p.name)}</span>` +
+    `${p.versions > 1 ? `<span class="pv" title="копий в модах: ${p.versions}">v${p.versions}</span>` : "<span></span>"}<span class="pk">${p.caste}</span>` +
+    `<span class="pdp" title="мастеров : зависимых">${p.masters.length}:${p.dependents.length}</span>` +
+    `<span class="pi" title="место в порядке загрузки · индекс"><b>${p.order + 1}</b><i>${p.index ?? "—"}</i></span></div>`;
+}
+const ghostRow = g => `<div class="pl ghost${PL.sel === g.name.toLowerCase() ? " on" : ""}" data-pl="${esc(g.name)}" title="${esc(g.name + "\nнет ни в одном моде; нужен: " + g.needed_by.join(", "))}">` +
+  `<span class="pd ghost"></span><span class="pn">${esc(g.name)}</span><span class="gn">нужен: ${esc(g.needed_by.join(", "))}</span></div>`;
+async function plPage(force) {
+  if (PL.data && !PL.stale && !force) return PL.data;
+  if (!PL.loading) PL.loading = query({ type: "plugins" }).then(r => { PL.data = r.page; PL.stale = false; return PL.data; }).finally(() => { PL.loading = null; });
+  return PL.loading;
+}
+// the cast a plugin is shown under (monolith `getPluginCastFilterKey`): its priority
+function plCast(p) {
+  if (p.origin === "base") return "sky";
+  switch (p.colour) {
+    case "ghost": return "ghost"; case "black": return "non"; case "red": return "pbm"; case "yellow": return "que";
+    case "grey": return p.states.includes("hidden") ? "hid" : "off";
+  }
+  return p.caste;
+}
+const PL_CASTS = [["ghost", "призраки", "transparent", "мастер, которого нет ни в одном моде"], ["non", "мод выкл", "var(--pl-black)", "все моды-владельцы выключены"],
+  ["pbm", "без мастера", "var(--pl-red)", "мастер отсутствует, выключен или в выключенном моде"], ["que", "переполнение", "var(--pl-yellow)", "за пределом индекса"],
+  ["off", "выключены", "var(--pl-grey)", "сняты в plugins.txt"], ["hid", "скрытые", "#475569", "игнор: не грузятся и не считаются чужими мастерами"],
+  ["sky", "база", "var(--pl-base)", "мастера самой игры"], ["esm", "esm", "var(--pl-esm)", ""], ["esp", "esp", "var(--pl-esp)", ""], ["esl", "esl", "var(--pl-esl)", ""]];
+const COLOUR_RANK = { ghost: 0, black: 1, red: 2, yellow: 3, grey: 4, blue: 5, green: 6 };
+/** The list as the window shows it: ghosts stand before their first dependent in the load order. */
+function plItems(d) {
+  const at = new Map(d.plugins.map(p => [p.name.toLowerCase(), p.order]));
+  const items = d.plugins.map(p => ({ p, order: p.order, key: p.order * 2 + 1 }));
+  for (const g of d.ghosts) { const o = Math.min(...g.needed_by.map(n => at.get(n.toLowerCase()) ?? 1e9)); items.push({ g, order: o, key: o * 2 }); }
+  const q = PL.q.trim().toLowerCase();
+  const shown = items.filter(x => {
+    if (PL.hide.has(x.g ? "ghost" : plCast(x.p))) return false;
+    if (!q) return true;
+    return x.g ? x.g.name.toLowerCase().includes(q) : x.p.name.toLowerCase().includes(q) || (x.p.owner || "").toLowerCase().includes(q);
+  });
+  const indexRank = x => x.g ? 0 : x.p.states.includes("owner-off") || x.p.states.includes("missing") ? 0 : x.p.states.includes("hidden") ? 1
+    : !x.p.active ? 2 : x.p.caste === "esl" ? 4 : 3;
+  if (PL.sort === "index") shown.sort((a, b) => indexRank(a) - indexRank(b) || a.key - b.key);
+  else if (PL.sort === "colour") shown.sort((a, b) => (a.g ? 0 : COLOUR_RANK[a.p.colour]) - (b.g ? 0 : COLOUR_RANK[b.p.colour]) || a.key - b.key);
+  else shown.sort((a, b) => a.key - b.key);
+  return shown;
+}
+async function pluginsPanel(open, select) {
+  let box = $("plBox");
+  if (!box) {
+    box = document.createElement("div"); box.id = "plBox"; box.hidden = true; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Плагины");
+    document.body.appendChild(box);
+    box.onclick = plClick; box.oninput = ev => { if (ev.target.matches("[data-plq]")) { PL.q = ev.target.value; plList(); } };
+    box.oncontextmenu = plMenu;
+  }
+  if (open === false || (open === undefined && !box.hidden && !select)) { box.hidden = true; return; }
+  if (select) PL.sel = select.toLowerCase();
+  try { await plPage(true); } catch (e) { $("err").textContent = e.message; return; }
+  box.hidden = false; plDraw();
+}
+function plDraw() {
+  const box = $("plBox"), d = PL.data, s = d.stats;
+  const stats = `${num(s.plugins)} плагинов · full ${s.active_full}${s.overflow_full ? ` (+${s.overflow_full} сверх)` : ""} · light ${s.active_light}${s.overflow_light ? ` (+${s.overflow_light} сверх)` : ""}` +
+    ` · без мастера ${s.with_missing_masters} (ждут выключенный мод ${s.waiting_for_mods_off}) · выключены ${s.unchecked} · мод выкл ${s.owner_disabled} · скрыты ${s.blacklisted}` +
+    ` · копий >1 ${s.versioned} · призраков ${s.ghosts}`;
+  box.innerHTML = `<header><b>Плагины</b>${guideBtn("plugins")}<span class="pls" title="${esc(stats)}">${esc(stats)}</span>` +
+    `<button data-plcasc title="Каскадно: отметить слоями от мастеров игры вверх, остальные снять">⛓ Каскад</button>` +
+    `<button data-plcopy title="Скопировать показанный список">⧉</button><button data-plx title="Закрыть"><svg class="si"><use href="#ic-x"/></svg></button></header>` +
+    `<div class="plt"><input type="search" data-plq placeholder="Плагин или мод" value="${esc(PL.q)}">` +
+    `<span class="tooth" role="radiogroup" aria-label="Сортировка">${[["order", "Порядок"], ["index", "Индекс"], ["colour", "Цвет"]].map(([v, t]) =>
+      `<button data-plsort="${v}" class="${PL.sort === v ? "on" : ""}">${t}</button>`).join("")}</span>` +
+    `<span class="chips">${PL_CASTS.map(([k, t, c, tip]) => `<button data-plcast="${k}" class="${PL.hide.has(k) ? "off" : ""}" style="--c:${c}" title="${esc(tip || t)} — показать / скрыть"><i></i>${t}</button>`).join("")}</span></div>` +
+    `<div class="plb"><div class="plm" id="plList"></div><div class="plc" id="plCard"></div></div>`;
+  plList(); plCard();
+}
+function plList() {
+  const items = plItems(PL.data);
+  $("plList").innerHTML = items.length ? items.map(x => x.g ? ghostRow(x.g) : plRow(x.p)).join("") : `<div class="muted">Ничего не показано.</div>`;
+}
+const plFind = name => PL.data && PL.data.plugins.find(p => p.name.toLowerCase() === name.toLowerCase());
+function plCard() {
+  const box = $("plCard"); if (!box) return;
+  const p = PL.sel && plFind(PL.sel);
+  const g = !p && PL.sel && PL.data.ghosts.find(x => x.name.toLowerCase() === PL.sel);
+  if (g) {
+    box.innerHTML = `<h4><span class="pd ghost"></span>${esc(g.name)}</h4><div class="facts">Призрак: этого плагина нет ни в одном моде и в игре.</div>` +
+      `<div class="sec"><i>Нужен плагинам</i>${g.needed_by.map(n => { const x = plFind(n); return x ? plRow(x) : ""; }).join("")}</div>`;
+    return;
+  }
+  if (!p) { box.innerHTML = `<div class="muted">Выбери плагин: его копии в модах, мастера и зависимые.</div>`; return; }
+  const top = plTopState(p);
+  const states = p.states.length ? `<div class="sts">${p.states.map(s => `<span class="${s === top ? "top" : ""}" style="--c:${ST[s][0] === "transparent" ? "var(--subtle)" : ST[s][0]}">${ST[s][1]}</span>`).join("")}</div>`
+    : `<div class="sts"><span class="top" style="--c:${plColour(p)}">${p.origin === "base" ? "мастер игры" : "грузится"}</span></div>`;
+  const owners = p.owners.map(o => `<div class="own${o.enabled ? " on" : ""}${o.winner ? " win" : ""}">` +
+    (o.key !== undefined && o.key !== null ? `<span class="toggle" data-plmod="${o.key}" title="вкл/выкл мод"></span>` : `<span></span>`) +
+    `<span class="on-name" ${o.key !== undefined && o.key !== null ? `data-plgo="${o.key}"` : ""} title="${esc(o.name)}">${esc(o.name)}</span>` +
+    `<em>${o.winner ? (o.enabled ? "грузится" : "победит, когда включён") : "перекрыт"}</em></div>`).join("");
+  const masters = p.masters.map(m => {
+    const i = p.missing_masters.findIndex(x => x.toLowerCase() === m.toLowerCase());
+    const x = plFind(m), gh = !x && PL.data.ghosts.find(g => g.name.toLowerCase() === m.toLowerCase());
+    return (x ? plRow(x) : gh ? ghostRow(gh) : `<div class="pl ghost"><span class="pd ghost"></span><span class="pn">${esc(m)}</span></div>`) +
+      (i >= 0 ? `<div class="why">${esc(GAP_NAME[p.gaps[i]] || "")}</div>` : "");
+  }).join("");
+  // the base masters have thousands of dependents: the first ones as containers, the rest counted
+  const deps = p.dependents.slice(0, 150).map(n => { const x = plFind(n); return x ? plRow(x) : ""; }).join("") +
+    (p.dependents.length > 150 ? `<div class="muted">… и ещё ${p.dependents.length - 150}</div>` : "");
+  const rec = p.records;
+  box.innerHTML = `<h4>${plDot(p)}${esc(p.name)}</h4>${states}` +
+    `<div class="facts">${p.caste}${p.index ? " · индекс " + p.index : " · без индекса"} · место ${p.order + 1}${p.listed === "unlisted" ? " · нет в списках MO2" : ""}` +
+    (rec ? `<br>записей ${num(rec.records)} · новых ${num(rec.new_records)} · правит ${num(rec.overrides)} · выигрывает ${num(rec.wins)} · теряет ${num(rec.loses)}` : "") + `</div>` +
+    `<div class="act">${p.origin !== "base" && p.colour !== "ghost" ? `<button data-plcheck>${p.listed === "disabled" ? "Включить" : "Выключить"}</button>` : ""}` +
+    `${p.origin !== "base" ? `<button data-plhide>${p.states.includes("hidden") ? "Вернуть из игнора" : "В игнор"}</button>` : ""}` +
+    `${rec && rec.wins + rec.loses + rec.overridden ? `<button data-plrec>Цепочки записей</button>` : ""}</div>` +
+    (owners ? `<div class="sec"><i>Копии в модах${p.owners.length > 1 ? " — грузится одна" : ""}</i>${owners}</div>` : "") +
+    (masters ? `<div class="sec"><i>Мастера</i>${masters}</div>` : "") +
+    (deps ? `<div class="sec"><i>Зависимые · ${p.dependents.length}</i>${deps}</div>` : "");
+}
+/** Check or uncheck a plugin: checking one whose mods are all off turns its mod on (the core decides, monolith). */
+async function plToggle(name) {
+  const p = plFind(name) || (PL.data ? null : (await plPage(), plFind(name)));
+  if (!p || p.colour === "ghost" || p.origin === "base") return;
+  await run({ type: "set-plugin-checked", name: p.name, checked: p.listed === "disabled" || p.states.includes("owner-off") });
+  await plRefresh();
+}
+async function plRefresh() {
+  PL.stale = true;
+  if ($("plBox") && !$("plBox").hidden) { await plPage(true); const sc = $("plList").scrollTop; plDraw(); $("plList").scrollTop = sc; }
+}
+async function plClick(ev) {
+  const t = ev.target;
+  if (t.closest("[data-plx]")) return pluginsPanel(false);
+  if (t.closest("[data-plcasc]")) { await run({ type: "cascade-plugins" }); return plRefresh(); }
+  if (t.closest("[data-plcopy]")) {
+    const text = plItems(PL.data).map(x => x.g ? `[призрак] ${x.g.name} ← ${x.g.needed_by.join(", ")}` : `${x.p.order + 1}\t${x.p.index ?? "—"}\t${x.p.name}\t${x.p.caste}\t${x.p.states.join(" ")}\t${x.p.owner ?? ""}`).join("\n");
+    try { await navigator.clipboard.writeText(text); } catch (_) {}
+    return;
+  }
+  const so = t.closest("[data-plsort]"); if (so) { PL.sort = so.dataset.plsort; return plDraw(); }
+  const ca = t.closest("[data-plcast]"); if (ca) { const k = ca.dataset.plcast; PL.hide.has(k) ? PL.hide.delete(k) : PL.hide.add(k); return plDraw(); }
+  if (t.closest("[data-plcheck]")) return plToggle(PL.sel);
+  if (t.closest("[data-plhide]")) { const p = plFind(PL.sel); await run({ type: "set-plugin-hidden", name: p.name, hidden: !p.states.includes("hidden") }); return plRefresh(); }
+  if (t.closest("[data-plrec]")) { const p = plFind(PL.sel); return recOpen(p.name); }
+  const mt = t.closest("[data-plmod]"); if (mt) { await run({ type: "set-enabled", keys: [+mt.dataset.plmod], enabled: null }); return plRefresh(); }
+  const go = t.closest("[data-plgo]"); if (go) { pluginsPanel(false); return run({ type: "focus", view: VIEW, key: +go.dataset.plgo }); }
+  const row = t.closest("[data-pl]"); if (!row) return;
+  if (t.closest("[data-pltog]") || ev.altKey) return plToggle(row.dataset.pl);
+  PL.sel = row.dataset.pl.toLowerCase();
+  for (const el of $("plList").querySelectorAll(".pl.on")) el.classList.remove("on");
+  for (const el of $("plList").querySelectorAll("[data-pl]")) if (el.dataset.pl.toLowerCase() === PL.sel) el.classList.add("on");
+  plCard();
+}
+function plMenu(ev) {
+  const row = ev.target.closest("[data-pl]"); if (!row) return;
+  const p = plFind(row.dataset.pl); if (!p || p.origin === "base") return;
+  ev.preventDefault();
+  const m = $("ctx");
+  m.innerHTML = `<div class="pit" data-a="check">${p.listed === "disabled" ? "Включить" : "Выключить"} плагин</div>` +
+    `<div class="pit" data-a="hide">${p.states.includes("hidden") ? "Вернуть из игнора" : "В игнор (не грузить, не считать мастером)"}</div>`;
+  m.hidden = false; m.style.left = ev.clientX + "px"; m.style.top = ev.clientY + "px"; m.style.zIndex = 70;
+  m.onclick = async e => {
+    const a = e.target.closest(".pit[data-a]"); if (!a) return; m.hidden = true; m.onclick = null;
+    if (a.dataset.a === "check") return plToggle(p.name);
+    await run({ type: "set-plugin-hidden", name: p.name, hidden: !p.states.includes("hidden") }); plRefresh();
+  };
+}
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("plBox") && !$("plBox").hidden) { ev.stopPropagation(); pluginsPanel(false); } }, true);
+GUIDES.plugins = ["Плагины", "Весь список плагинов сборки — одна правда для окна, блока мода, индикатора и облачка.\n\nСостояния не исключают друг друга и складываются на контейнере плагина: заливка — каста (esm / esp / esl, база — синяя), чёрная вуаль — все моды-владельцы выключены, полупрозрачность — выключен в plugins.txt, левая кромка — нет мастера (сплошная — такого плагина нет, с чёрным — мастер в выключенном моде, точки — мастер выключен), правая жёлтая — за пределом индекса, пунктирный контур — в игноре, «vN» — копии в нескольких модах (грузится одна), «новый» — нет в списках MO2. Призрак — мастер, которого нет нигде: без индикатора и контура, стоит перед первым, кому нужен.\n\nИндикатор — приоритетное состояние: залит, когда плагин отмечен, кольцом — когда снят; остальные состояния — цветным ободком вокруг.\n\nКлик по индикатору или Alt+клик — включить / выключить. Включение плагина выключенного мода включает мод. Правый клик — игнор.\n\nМод в списке берёт цвет от своих плагинов, которые грузятся: красный — один из них без мастера, жёлтый — переполнение, иначе сильнейшая каста. Необязательный патч (снятый плагин без мастера) не красит мод — он в ободке."];
+
+// ---------------------------------------------------------------- effects (`@sat:app.effects`)
+/** The list's visual layers (monolith «Эффекты»): a switch each, settings below the open one; the project keeps them. */
+let EFXS = {
+  tags: { enabled: true, area: "all", opacity: 100 }, badges: { enabled: true, model: "classic", density: 6, opacity: 100 },
+  statistics: { enabled: true, conflicts: true, plugins: true }, counter: { enabled: true },
+  indicator: { enabled: true, size: 10, plugin_colours: true, stack: true },
+  hover_cloud: { enabled: true, delay: 450, tags: true, plugins: true, note: true },
+  colour_focus: { enabled: false, dim_saturation: 16, dim_brightness: 88 },
+};
+const EFX_DEF = [
+  ["tags", "Теги", "Полоски тегов на контуре контейнера."],
+  ["badges", "Бейджи", "Бейджи перезаписи: коллекция цепочек по контекстам или одна сводка OW N."],
+  ["statistics", "Статистика", "Счётчики мода: W / L / M / + по конфликтам файлов и число плагинов."],
+  ["counter", "Счётчик", "Номер мода в порядке (приоритет MO2)."],
+  ["indicator", "Индикатор", "Переключатель мода. Цвет — от его плагинов, которые грузятся; кольцо — остальные их состояния."],
+  ["hover_cloud", "Облачко", "Наведи и подожди: карточка мода — сигналы, теги, плагины, заметка."],
+  ["colour_focus", "Цветовой фокус", "Приглушает цвета вне объекта под курсором и выделенных."],
+];
+let efxOpen = "";
+function efxSummary(id, e) {
+  const pct = v => v + "%";
+  if (id === "tags") return `${{ all: "везде", mods: "моды", separators: "разделители" }[e.area]} · ${pct(e.opacity)}`;
+  if (id === "badges") return `${e.model === "summary" ? "OW N" : "цепочки"} · ${{ 3: "плотно", 6: "обычно", 12: "свободно" }[e.density]} · ${pct(e.opacity)}`;
+  if (id === "statistics") return [e.conflicts && "W/L/M/+", e.plugins && "плагины"].filter(Boolean).join(" · ") || "пусто";
+  if (id === "indicator") return `${e.size}px${e.plugin_colours ? " · цвета плагинов" : ""}${e.stack ? " · кольцо" : ""}`;
+  if (id === "hover_cloud") return `${e.delay} мс · ${[e.tags && "теги", e.plugins && "плагины", e.note && "заметка"].filter(Boolean).join(", ")}`;
+  if (id === "colour_focus") return `насыщенность ${pct(e.dim_saturation)} · яркость ${pct(e.dim_brightness)}`;
+  return "";
+}
+function efxSettings(id, e) {
+  const range = (k, lo, hi, step, label, unit = "%") => `<label><span>${label}</span><input type="range" data-fxk="${id}.${k}" min="${lo}" max="${hi}" step="${step}" value="${e[k]}"><output>${e[k]}${unit}</output></label>`;
+  const ck = (k, label) => `<label class="ck"><input type="checkbox" data-fxk="${id}.${k}"${e[k] ? " checked" : ""}><span>${label}</span></label>`;
+  const sel = (k, label, opts) => `<label><span>${label}</span><select data-fxk="${id}.${k}">${opts.map(([v, t]) => `<option value="${v}"${String(e[k]) === String(v) ? " selected" : ""}>${t}</option>`).join("")}</select><span></span></label>`;
+  if (id === "tags") return sel("area", "Где", [["all", "везде"], ["mods", "моды"], ["separators", "разделители"]]) + range("opacity", 20, 100, 5, "Непрозрачность");
+  if (id === "badges") return sel("model", "Модель", [["classic", "коллекция цепочек"], ["summary", "OW N"]]) + sel("density", "Плотность", [[3, "плотно · 3"], [6, "обычно · 6"], [12, "свободно · 12"]]) + range("opacity", 25, 100, 5, "Непрозрачность");
+  if (id === "statistics") return ck("conflicts", "W / L / M / + по файлам") + ck("plugins", "число плагинов");
+  if (id === "indicator") return range("size", 8, 16, 1, "Размер", "px") + ck("plugin_colours", "цвет от плагинов мода") + ck("stack", "кольцо остальных состояний плагинов");
+  if (id === "hover_cloud") return range("delay", 100, 1500, 50, "Задержка", " мс") + ck("tags", "теги") + ck("plugins", "плагины") + ck("note", "заметка");
+  if (id === "colour_focus") return range("dim_saturation", 0, 65, 1, "Насыщенность вне фокуса") + range("dim_brightness", 65, 100, 1, "Яркость вне фокуса");
+  return "";
+}
+function efxBlock() {
+  const box = $("bFx"); if (!box) return;
+  box.className = "block ok";
+  box.innerHTML = `<h3>Эффекты${guideBtn("effects")}</h3><div class="fxs">${EFX_DEF.map(([id, t]) =>
+    `<div class="fxi${EFXS[id].enabled ? " on" : ""}${efxOpen === id ? " open" : ""}"><button data-fxt="${id}" title="${EFXS[id].enabled ? "Выключить" : "Включить"}"><i></i>${t}</button>` +
+    `<button data-fxe="${id}" title="Настройки">${efxOpen === id ? "⌃" : "⌄"}</button></div>`).join("")}</div>` +
+    (efxOpen ? (() => { const [id, t, about] = EFX_DEF.find(x => x[0] === efxOpen); const e = EFXS[id];
+      return `<div class="fxd"><b>${t} · ${e.enabled ? "включён" : "выключен"}</b><div class="t">${about}</div><div class="sm">${esc(efxSummary(id, e))}</div>${efxSettings(id, e)}</div>`; })() : "");
+}
+/** Draw the effects: body flags and variables for CSS, the badge model and density for the list. */
+function efxApply() {
+  efxSig = JSON.stringify([EFXS.statistics, EFXS.counter, EFXS.indicator]);
+  const b = document.body.dataset, st = document.body.style;
+  b.fxTags = EFXS.tags.enabled ? "on" : "off"; b.fxTagsArea = EFXS.tags.area; st.setProperty("--fx-tags-op", EFXS.tags.opacity / 100);
+  b.fxBadges = EFXS.badges.enabled ? "on" : "off"; st.setProperty("--fx-badges-op", EFXS.badges.opacity / 100);
+  b.fxInd = EFXS.indicator.enabled ? "on" : "off"; st.setProperty("--fx-ind", EFXS.indicator.size + "px");
+  b.fxFocus = EFXS.colour_focus.enabled ? "on" : "off";
+  st.setProperty("--fx-dim-s", EFXS.colour_focus.dim_saturation / 100); st.setProperty("--fx-dim-b", EFXS.colour_focus.dim_brightness / 100);
+  badgeModel = EFXS.badges.model; density = EFXS.badges.enabled ? EFXS.badges.density : 0;
+  if ($("badgeModel")) $("badgeModel").value = EFXS.badges.model;
+  if ($("density")) $("density").value = String(EFXS.badges.density);
+}
+async function efxLoad() {
+  try { const { effects } = await query({ type: "effects" }); EFXS = effects; } catch (_) {}
+  efxApply(); efxBlock(); repaint();
+}
+let efxT = 0;
+function efxSave(now) {
+  clearTimeout(efxT);
+  const go = async () => { try { await command({ type: "set-effects", effects: EFXS }); } catch (e) { $("err").textContent = e.message; } };
+  if (now) go(); else efxT = setTimeout(go, 300);
+}
+document.addEventListener("click", ev => {
+  const t = ev.target.closest("#bFx [data-fxt], #bFx [data-fxe]"); if (!t) return;
+  if (t.dataset.fxt) { const e = EFXS[t.dataset.fxt]; e.enabled = !e.enabled; efxApply(); efxBlock(); repaint(); efxSave(true); }
+  else { efxOpen = efxOpen === t.dataset.fxe ? "" : t.dataset.fxe; efxBlock(); }
+});
+document.addEventListener("input", ev => {
+  const t = ev.target.closest("#bFx [data-fxk]"); if (!t) return;
+  const [id, k] = t.dataset.fxk.split("."), e = EFXS[id];
+  e[k] = t.type === "checkbox" ? t.checked : t.type === "range" || k === "density" ? +t.value : t.value;
+  if (t.type === "range") { const o = t.parentElement.querySelector("output"); if (o) o.textContent = t.value + (k === "size" ? "px" : k === "delay" ? " мс" : "%"); }
+  const sm = $("bFx").querySelector(".fxd .sm"); if (sm) sm.textContent = efxSummary(id, e);
+  efxApply(); repaint(); efxSave(false);
+});
+GUIDES.effects = ["Эффекты", "Слои вида списка — их можно выключить или настроить, сборка от этого не меняется.\n\nТеги — полоски на контуре. Бейджи — перезапись по контекстам. Статистика — W / L / M / + и число плагинов. Счётчик — номер мода. Индикатор — переключатель мода с цветом его плагинов и кольцом остальных состояний. Облачко — карточка мода при наведении. Цветовой фокус — приглушить всё вне курсора и выделенного.\n\nНастройки хранятся в проекте."];
+// the mod indicator's colours by the mark of its plugins (`@sat:plugins.mod-mark`)
+const MK = { red: ["var(--pl-red)", "плагин без мастера"], yellow: ["var(--pl-yellow)", "переполнение"], esm: ["var(--pl-esm)", "esm"], esp: ["var(--pl-esp)", "esp"],
+  esl: ["var(--pl-esl)", "esl"], optional: ["#fb7185", "необязательный патч (снят, без мастера)"], unchecked: ["#94a3b8", "выключенные плагины"],
+  overridden: ["#a78bfa", "копия перекрыта другим модом"], hidden: ["#475569", "скрытые плагины"] };
+function modToggle(r) {
+  const m = r.plugins;
+  if (!m || !EFXS.indicator.plugin_colours) return `<span class="toggle" title="вкл/выкл"></span>`;
+  const top = m.top ? MK[m.top][0] : "#5f8f6b";
+  const stack = m.stack || [];
+  const rest = EFXS.indicator.stack ? stack.map(x => MK[x][0]) : [];
+  const tip = [`вкл/выкл · плагинов ${m.plugins}`, m.top ? "главное: " + MK[m.top][1] : "ни один не грузится", ...stack.map(x => "ещё: " + MK[x][1])].join("\n");
+  return `<span class="toggle pm" style="--pt:${top};--pring:${rest.length ? ring(rest) : `linear-gradient(${top},${top})`}" title="${esc(tip)}"></span>`;
+}
 // ---------------------------------------------------------------- forks of taste (`@sat:app.forks`)
 /** An aspect of the build, its options with the facts that tell them apart, the option in force and who chose it.
  *  Claude prepares the fork and applies a reasoned default; the owner's choice here is final. Choosing an option
@@ -2178,16 +2574,14 @@ async function detail(key) {
     conf.innerHTML = `<h3>Конфликты<button class="ctbtn" data-table="${d.key}" title="Таблица контекста: моды × файлы">Таблица</button></h3><div class="chains">${chains}${hidden ? `<div class="more" data-more="1" title="показать все">+${hidden}</div>` : ""}</div>` +
       `<div class="muted" style="margin:0 2px 4px">Участники: фон — зубы по цепочкам выше (зелёный — выигрывает, красный — перекрыт). ▲ — где этот мод перекрывает участника, ▼ — где участник перекрывает его.</div>${rows}`;
   }
+  // the mod's plugins: the same containers as the plugin window (states stacked), its record layer below each
   const pl = $("bPlug");
   pl.className = d.plugins.length ? "block ok" : "block empty";
-  pl.innerHTML = `<h3>Плагины</h3>` + (d.plugins.length ? d.plugins.map(p => `<div class="plug"><span class="idx">${p.index ?? "—"}</span>` +
-    `<span><span class="dotc" style="background:var(--${p.colour})"></span>${esc(p.name)}` +
-    `${p.versions > 1 ? ` <span class="muted">· ${p.versions} версии, грузится из ${esc(p.owner ?? "")}</span>` : ""}` +
-    `${p.missing_masters.length ? ` <span style="color:var(--l-txt)">· нет: ${esc(p.missing_masters.join(", "))}</span>` : ""}</span>` +
-    (p.records ? `<span class="rs">записей ${num(p.records.records)} · новых ${num(p.records.new_records)}${p.records.overridden ? ` (перекрыто ${num(p.records.overridden)})` : ""} · правит ${num(p.records.overrides)} · ` +
+  pl.innerHTML = `<h3>Плагины<button class="ctbtn" data-plopen="" title="Весь список плагинов">Список</button></h3>` + (d.plugins.length ? `<div class="mpl">` + d.plugins.map(p => plRow(p) +
+    (p.records ? `<div class="rs">записей ${num(p.records.records)} · новых ${num(p.records.new_records)}${p.records.overridden ? ` (перекрыто ${num(p.records.overridden)})` : ""} · правит ${num(p.records.overrides)} · ` +
       `<span style="color:var(--w-txt)">выигрывает ${num(p.records.wins)}</span> · <span style="color:var(--l-txt)">теряет ${num(p.records.loses)}</span>` +
       `${p.records.unchanged ? ` · без изменений (ITM) ${num(p.records.unchanged)}` : ""}` +
-      `${p.records.wins + p.records.loses + p.records.overridden ? ` · <a data-recplug="${esc(p.name)}">цепочки</a>` : ""}</span>` : "") + `</div>`).join("")
+      `${p.records.wins + p.records.loses + p.records.overridden ? ` · <a data-recplug="${esc(p.name)}">цепочки</a>` : ""}</div>` : "")).join("") + `</div>`
     : `<div class="muted">Нет плагинов.</div>`);
   treeDraw();
 }
@@ -3660,6 +4054,7 @@ async function run(c) {
   $("err").textContent = "";
   try {
     const ev = await command(c);
+    PL.stale = true;
     if (ev.type === "decided") { cards.forEach(el => { el._sig = null; }); await sync(false); if (shownKey !== null) detail(shownKey); return; }
     if (ev.type === "changed") {
       await sync(true);
@@ -3844,8 +4239,9 @@ loadTagColors().then(() => { if (cols < 0) { cards.forEach(el => { el._sig = nul
 list.classList.toggle("bricks", cols < 0);
 // fonts arrive late: measure again with the real ones
 if (document.fonts) document.fonts.ready.then(() => { if (brickM) { brickM = null; if (cols < 0) sync(false); } });
-$("badgeModel").onchange = ev => { badgeModel = ev.target.value; try { localStorage.setItem("sat-badges", badgeModel); } catch (_) {} repaint(); };
-$("density").onchange = ev => { density = +ev.target.value; try { localStorage.setItem("sat-density", density); } catch (_) {} repaint(); };
+// the badge model and density are settings of the «Бейджи» effect (`@sat:app.effects`)
+$("badgeModel").onchange = ev => { EFXS.badges.model = ev.target.value; efxApply(); efxBlock(); repaint(); efxSave(true); };
+$("density").onchange = ev => { EFXS.badges.density = +ev.target.value; efxApply(); efxBlock(); repaint(); efxSave(true); };
 $("theme").onclick = () => {
   const r = document.documentElement;
   r.dataset.theme = r.dataset.theme === "light" ? "dark" : "light";
@@ -3889,7 +4285,14 @@ $("recBtn").onclick = () => openFiles();
 $("recClose").onclick = () => { $("rec").hidden = true; clearTimeout(recTimer); list.focus({ preventScroll: true }); };
 $("recPlugin").oninput = () => { clearTimeout(recTimer); recTimer = setTimeout(recLoad, 250); };
 $("recOnly").onchange = () => recLoad();
-$("bPlug").addEventListener("click", ev => { const a = ev.target.closest("[data-recplug]"); if (a) openRecords(a.dataset.recplug); });
+$("bPlug").addEventListener("click", async ev => {
+  const a = ev.target.closest("[data-recplug]"); if (a) return openRecords(a.dataset.recplug);
+  if (ev.target.closest("[data-plopen]")) return pluginsPanel(true);
+  const row = ev.target.closest("[data-pl]"); if (!row) return;
+  if (ev.target.closest("[data-pltog]") || ev.altKey) { await plPage(); await plToggle(row.dataset.pl); if (shownKey !== null) detail(shownKey); return; }
+  pluginsPanel(true, row.dataset.pl);
+});
+$("plBtn").onclick = () => pluginsPanel();
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("rec").hidden) { ev.stopPropagation(); $("recClose").onclick(); } }, true);
 
 // ---------------------------------------------------------------- the run (пробег, `@sat:app.pass`)
@@ -4153,7 +4556,7 @@ async function projSave() {
 $("saveBtn").onclick = projSave;
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") { ev.preventDefault(); projSave(); } }, true);
 
-(async () => { await sync(false); await Promise.all([totals(), tiles(), decor(), passPoll(), syLoad(), projPoll()]); list.focus({ preventScroll: true }); })();
+(async () => { await sync(false); await Promise.all([totals(), tiles(), decor(), passPoll(), syLoad(), projPoll(), efxLoad()]); list.focus({ preventScroll: true }); })();
 </script>
 <script id="sat-ui-dust-runtime">
 (() => {

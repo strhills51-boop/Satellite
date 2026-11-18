@@ -98,37 +98,49 @@ impl App {
         tags.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
         raw.push(("tags", "Теги", tags));
         raw.push(("stickers", "Стикеры", stickers));
-        // plugins: mods that bring a plugin (the winning copy), and disabled mods that would
-        let mut with = Vec::new();
+        // plugins: mods that bring a plugin, and by what their plugins put on the indicator (`@sat:plugins.mod-mark`):
+        // the functional focus groups of the plugin truth
         {
+            use sat_core::plugins::Mark;
             let names: std::collections::HashMap<String, Key> =
                 mods.iter().map(|(k, n, _)| (n.to_lowercase(), *k)).collect();
             let table = self.session().table().clone();
             let plugins = self.session().plugins();
-            let mut seen = std::collections::HashSet::new();
-            for p in &plugins.plugins {
-                for v in &p.versions {
-                    let n = table.mod_names()[v.owner.idx()].to_lowercase();
-                    if let Some(&k) = names.get(&n)
-                        && seen.insert(k)
-                    {
-                        with.push(k);
-                    }
-                }
-            }
-        }
-        {
+            let marks = plugins.mod_marks(table.mod_count());
+            let mut with: Vec<(Key, &sat_core::plugins::ModMark)> = table
+                .mod_names()
+                .iter()
+                .zip(&marks)
+                .filter(|(_, mk)| mk.plugins > 0)
+                .filter_map(|(n, mk)| names.get(&n.to_lowercase()).map(|&k| (k, mk)))
+                .collect();
             let b = self.session().book();
-            with.sort_by_key(|&k| b.pos(k));
-            let off: Vec<Key> = with.iter().copied().filter(|&k| !b.enabled(k)).collect();
-            raw.push((
-                "plugins",
-                "Плагины",
-                vec![
-                    ("с плагинами".into(), with),
-                    ("выключенные с плагинами".into(), off),
-                ],
-            ));
+            with.sort_by_key(|(k, _)| b.pos(*k));
+            let pick = |f: &dyn Fn(&sat_core::plugins::ModMark) -> bool| -> Vec<Key> {
+                with.iter().filter(|(_, mk)| f(mk)).map(|(k, _)| *k).collect()
+            };
+            let has =
+                |m: Mark| move |mk: &sat_core::plugins::ModMark| mk.top == Some(m) || mk.stack.contains(&m);
+            let groups: Vec<(String, Vec<Key>)> = vec![
+                ("с плагинами".into(), pick(&|_| true)),
+                (
+                    "выключенные с плагинами".into(),
+                    with.iter()
+                        .filter(|(k, _)| !b.enabled(*k))
+                        .map(|(k, _)| *k)
+                        .collect(),
+                ),
+                ("плагин без мастера".into(), pick(&has(Mark::Red))),
+                ("переполнение".into(), pick(&has(Mark::Yellow))),
+                ("необязательные патчи".into(), pick(&has(Mark::Optional))),
+                ("выключенные плагины".into(), pick(&has(Mark::Unchecked))),
+                ("копия перекрыта".into(), pick(&has(Mark::Overridden))),
+                ("скрытые плагины".into(), pick(&has(Mark::Hidden))),
+                ("esm".into(), pick(&|mk| mk.top == Some(Mark::Esm))),
+                ("esp".into(), pick(&|mk| mk.top == Some(Mark::Esp))),
+                ("esl".into(), pick(&|mk| mk.top == Some(Mark::Esl))),
+            ];
+            raw.push(("plugins", "Плагины", groups));
         }
         let muted: Vec<Key> = {
             let b = self.session().book();
