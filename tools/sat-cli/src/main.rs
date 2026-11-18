@@ -1683,40 +1683,20 @@ fn analyze(args: &[String]) -> Result<(), String> {
         // @sat:cli.plugins.sort
         // the load order sorted by a LOOT masterlist (and userlist) and the record overlap (`@sat:plugins.sort`); the
         // project receives it, `sat-cli commit --apply` writes `loadorder.txt` / `plugins.txt`
-        if let Some(ml) = flag_value(args, "--sort-plugins") {
-            let Some((ix, _)) = &record_ix else {
-                return Err("--sort-plugins needs --records (the overlap of records)".into());
-            };
-            let read = |f: &str| -> Result<sat_core::plugin_sort::SortRules, String> {
-                let text = std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))?;
-                sat_core::plugin_sort::SortRules::from_yaml(&text).map_err(|e| format!("{f}: {e}"))
-            };
-            let master = read(ml)?;
-            let user = flag_value(args, "--userlist")
-                .map(read)
-                .transpose()?
-                .unwrap_or_default();
+        if let Some(ml) = flag_value(args, "--sort-plugins")
+            && let Some((ix, _)) = &record_ix
+        {
             let (counts, overlap) = sat_core::plugin_sort::overlaps(ix);
-            let sorted = sat_core::plugin_sort::sort(
-                &plugin_list,
-                &project.plugins.load_order,
-                &master,
-                &user,
-                &counts,
-                &overlap,
-            );
-            println!(
-                "plugin sort: {} active plugin(s) moved; rules kept: {} load-after, {} overlap; {} skipped",
-                sorted.moved,
-                sorted.kept.0,
-                sorted.kept.1,
-                sorted.skipped.len()
-            );
-            for k in sorted.skipped.iter().filter(|k| k.rule != "overlap").take(40) {
-                println!("  skipped {}: {} before {}", k.rule, k.before, k.after);
-            }
-            project.plugins.load_order = sorted.order;
+            sort_plugins(args, ml, &plugin_list, &mut project, &counts, &overlap)?;
         }
+    }
+
+    // without --records the sort keeps to the masters and the LOOT rules (no record overlap): cheap enough for a
+    // build of thousands of plugins on a 4 GB machine
+    if !has(args, "--records")
+        && let Some(ml) = flag_value(args, "--sort-plugins")
+    {
+        sort_plugins(args, ml, &plugin_list, &mut project, &Default::default(), &[])?;
     }
 
     // @sat:cli.conflicts
@@ -2564,4 +2544,46 @@ impl SafeMove<'_> {
         }
         Ok(changed)
     }
+}
+
+// @sat:cli.plugins.sort.run
+/// The load order sorted by a LOOT masterlist (and `--userlist`), the masters and `overlap` (`@sat:plugins.sort`),
+/// into the project.
+fn sort_plugins(
+    args: &[String],
+    ml: &str,
+    plugin_list: &sat_core::plugins::PluginList,
+    project: &mut sat_core::project::Project,
+    counts: &rustc_hash::FxHashMap<String, u32>,
+    overlap: &[(String, String)],
+) -> Result<(), String> {
+    let read = |f: &str| -> Result<sat_core::plugin_sort::SortRules, String> {
+        let text = std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))?;
+        sat_core::plugin_sort::SortRules::from_yaml(&text).map_err(|e| format!("{f}: {e}"))
+    };
+    let master = read(ml)?;
+    let user = flag_value(args, "--userlist")
+        .map(read)
+        .transpose()?
+        .unwrap_or_default();
+    let sorted = sat_core::plugin_sort::sort(
+        plugin_list,
+        &project.plugins.load_order,
+        &master,
+        &user,
+        counts,
+        overlap,
+    );
+    println!(
+        "plugin sort: {} active plugin(s) moved; rules kept: {} load-after, {} overlap; {} skipped",
+        sorted.moved,
+        sorted.kept.0,
+        sorted.kept.1,
+        sorted.skipped.len()
+    );
+    for k in sorted.skipped.iter().filter(|k| k.rule != "overlap").take(40) {
+        println!("  skipped {}: {} before {}", k.rule, k.before, k.after);
+    }
+    project.plugins.load_order = sorted.order;
+    Ok(())
 }

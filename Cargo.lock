@@ -536,6 +536,7 @@ dependencies = [
  "memory-stats",
  "mimalloc",
  "rayon",
+ "rustc-hash",
  "sat-core",
  "sat-formats",
  "sat-home",

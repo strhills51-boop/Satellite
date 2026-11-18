@@ -18,6 +18,7 @@ serde_json.workspace = true
 rayon.workspace = true
 mimalloc.workspace = true
 memory-stats.workspace = true
+rustc-hash.workspace = true
 
 [lints]
 workspace = true
