@@ -983,17 +983,40 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 .iter()
                 .filter_map(|&k| index.get(&book.name(k).to_lowercase()).copied())
                 .collect();
-            let old = prio_of(&book);
-            let mut trial = book.clone();
-            if let Err(e) = trial.move_keys(&keys, before) {
-                failed += 1;
-                row(format!("cannot move: {e}"), String::new());
-                continue;
+            // the move tried on a plain list of entries first (cloning the book per line is too heavy for thousands
+            // of entries); the book changes only when the move is safe
+            let entries: Vec<(String, EntryKind, bool)> =
+                book.entries().map(|(n, k, e)| (n.to_string(), k, e)).collect();
+            let names: std::collections::HashSet<&str> = keys.iter().map(|&k| book.name(k)).collect();
+            let before_name = before.map(|b| book.name(b).to_string());
+            let mut taken = Vec::new();
+            let mut rest = Vec::with_capacity(entries.len());
+            for e in &entries {
+                if names.contains(e.0.as_str()) {
+                    taken.push(e.clone());
+                } else {
+                    rest.push(e.clone());
+                }
             }
-            let new = prio_of(&trial);
+            let at = before_name
+                .as_deref()
+                .and_then(|b| rest.iter().position(|e| e.0 == b))
+                .unwrap_or(rest.len());
+            rest.splice(at..at, taken);
+            let old = prio_of(&book);
+            let new = sat_core::canon::priorities(
+                rest.iter().map(|(n, k, e)| (n.as_str(), *k, *e)),
+                table.mod_count(),
+                |n| index.get(&n.to_lowercase()).copied(),
+                ow,
+            );
             let changed = sat_core::safe_move::changed_winners(&table, &old, &new, &moved, same, 5);
             if changed.is_empty() {
-                book = trial;
+                if let Err(e) = book.move_keys(&keys, before) {
+                    failed += 1;
+                    row(format!("cannot move: {e}"), String::new());
+                    continue;
+                }
                 done += 1;
                 row(
                     format!(
