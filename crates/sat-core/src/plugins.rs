@@ -68,7 +68,8 @@ pub enum Listed {
     Enabled,
     /// Unchecked in `plugins.txt`.
     Disabled,
-    /// In `loadorder.txt` only (base game, Creation Club): loads without a check mark.
+    /// In `loadorder.txt` only, the game's own content (base game, Creation Club): loads without a check mark. A
+    /// mod's plugin in `loadorder.txt` without a mark is [`Listed::Disabled`].
     Implicit,
     /// Found in a mod, absent from the manager's lists (changed since the manager last ran).
     Unlisted,
@@ -441,9 +442,13 @@ impl PluginList {
                 } else {
                     Origin::Missing
                 };
+                // a line in loadorder.txt without a mark in plugins.txt: the game's own content loads (base masters,
+                // Creation Club); a mod's plugin is off — MO2 keeps every plugin it knows in loadorder.txt and marks
+                // the active ones in plugins.txt (the list format names only those)
                 let listed = match (checked.get(&key), order.contains_key(&key)) {
                     (Some(true), _) => Listed::Enabled,
                     (Some(false), _) => Listed::Disabled,
+                    (None, true) if origin == Origin::Mod => Listed::Disabled,
                     (None, true) => Listed::Implicit,
                     (None, false) if origin == Origin::Base => Listed::Implicit,
                     (None, false) => Listed::Unlisted,
@@ -928,6 +933,24 @@ mod tests {
         assert_eq!(a.missing_masters, ["Lib.esm"]);
         assert_eq!(a.master_gaps, [MasterGap::ModOff]);
         assert_eq!(l.stats.waiting_for_mods_off, 1);
+    }
+
+    #[test]
+    fn a_mod_plugin_in_loadorder_without_a_mark_is_off() {
+        // MO2 lists every plugin it knows in loadorder.txt; plugins.txt (the list format) names the active ones
+        let v = PluginVersions::build(&[mod_with(
+            "M",
+            vec![plugin("On.esp", &[], false), plugin("Off.esp", &[], true)],
+        )]);
+        let c = canon(&["Skyrim.esm", "On.esp", "Off.esp"], &[("On.esp", true)]);
+        let l = PluginList::compute(&v, &c, &Priorities(vec![0]));
+        let off = l.get("Off.esp").unwrap();
+        assert_eq!(
+            (off.listed, off.active, off.states.as_slice()),
+            (Listed::Disabled, false, [PluginState::Unchecked].as_slice())
+        );
+        assert!(l.get("On.esp").unwrap().active);
+        assert_eq!(l.get("Skyrim.esm").unwrap().listed, Listed::Implicit);
     }
 
     #[test]

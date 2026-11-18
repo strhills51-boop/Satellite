@@ -123,7 +123,7 @@
 | Структура конфликтов (только факты): спорные пути, мод → спорные пути, пути одного мода | `@sat:overwrite.conflicts` (`ConflictIndex`) | порядок здесь не участвует |
 | Победитель пути, стеки, цепочки, контексты, W/L/M/X | `@sat:overwrite.projection` | — |
 | Инкрементальный пересчёт перезаписи по затронутым модам; модельный тест «инкремент = полный» | `@sat:overwrite.update`, `@sat:overwrite.tests.incremental` | — |
-| Канон плагинов: `loadorder.txt` + отметки `plugins.txt` (своё пространство ключей, `Truth::PluginCanon`) | `@sat:plugins.canon` | порядок модов — `@sat:canon.priorities` |
+| Канон плагинов: `loadorder.txt` + отметки `plugins.txt` (своё пространство ключей, `Truth::PluginCanon`); строка `loadorder.txt` без отметки грузится только у содержимого игры (база, Creation Club) — плагин мода без отметки выключен (MO2 держит в `loadorder.txt` все известные плагины) | `@sat:plugins.canon` | порядок модов — `@sat:canon.priorities` |
 | Версии плагина: одно имя в нескольких модах («ловушка версионности» монолита) | `@sat:plugins.versions` | — |
 | Список плагинов: победившая версия, состояние, индекс `00…FD` / `FE:000…FFF`, переполнение, недостающие мастера, цвет | `@sat:plugins.list`; в сессии — `@sat:session.plugins` | чтение заголовка — `@sat:formats.plugin.kind` |
 | Таблица провайдеров (тёплый ярус) | `@sat:table.provider-table`; сборка по модам — `@sat:table.builder`; остальное о моде (метрики, нет папки, ошибка скана) — `@sat:table.summary` | — |
