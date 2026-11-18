@@ -770,3 +770,40 @@ fn mods_are_filed_into_a_group_and_taken_out() {
     b.undo();
     assert_eq!(members(&b), ["a2", "a3"]);
 }
+
+#[test]
+fn a_new_group_never_takes_the_id_of_a_loaded_one() {
+    // a project saved after a group was dissolved: two groups, ids lg-1 and lg-2 (slot 0 is gone)
+    let list = Modlist::new(
+        ["a", "b", "c", "d", "e", "f"]
+            .iter()
+            .map(|n| Entry {
+                name: n.to_string(),
+                kind: EntryKind::Mod,
+                enabled: true,
+            })
+            .collect(),
+    );
+    let mut b = OrderBook::from_modlist(&list);
+    let k = |b: &OrderBook, n: &str| b.key_of(n).unwrap();
+    b.create_group("one", &[k(&b, "a"), k(&b, "b")]).unwrap();
+    b.create_group("two", &[k(&b, "c"), k(&b, "d")]).unwrap();
+    b.create_group("three", &[k(&b, "e"), k(&b, "f")]).unwrap();
+    let mut d = b.decor();
+    d.groups.remove(0);
+    let mut c = OrderBook::from_modlist(&list);
+    let (_, issues) = c.apply_decor(&d);
+    assert!(issues.is_empty(), "{issues:?}");
+    c.create_group("new", &[k(&c, "a"), k(&c, "b")]).unwrap();
+    let ids: Vec<String> = c.decor().groups.into_iter().map(|g| g.id).collect();
+    let unique: std::collections::HashSet<&String> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len(), "{ids:?}");
+    // a project that already has two groups under one id: the second gets a new one on load
+    let mut dup = c.decor();
+    dup.groups[1].id = dup.groups[0].id.clone();
+    let mut e = OrderBook::from_modlist(&list);
+    e.apply_decor(&dup);
+    let ids: Vec<String> = e.decor().groups.into_iter().map(|g| g.id).collect();
+    let unique: std::collections::HashSet<&String> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len(), "{ids:?}");
+}

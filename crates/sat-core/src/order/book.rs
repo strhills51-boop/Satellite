@@ -1043,7 +1043,8 @@ impl OrderBook {
         }
         let members = self.group_rule(keys, true).map_err(OrderError::Group)?;
         let id = self.groups.len() as GroupId;
-        self.group_ids.push(format!("lg-{id}"));
+        let ext = self.fresh_group_id(id as usize);
+        self.group_ids.push(ext);
         let fwd = Op::MakeGroup {
             id,
             name: name.to_string(),
@@ -1052,6 +1053,15 @@ impl OrderBook {
         };
         let change = self.apply_recorded(fwd)?.expect("group creation changes rows");
         Ok((id, change))
+    }
+
+    /// An external group id not in use: `lg-N` from `from` up. Slots of dissolved groups are dropped when the
+    /// project is saved, so the slot count alone can name an id a loaded group already has.
+    fn fresh_group_id(&self, from: usize) -> String {
+        (from..)
+            .map(|n| format!("lg-{n}"))
+            .find(|s| !self.group_ids.contains(s))
+            .expect("an unused id")
     }
 
     // @sat:order.book.regroup
@@ -1853,7 +1863,14 @@ impl OrderBook {
                     if !g.collapsed {
                         open_groups.insert(id);
                     }
-                    self.group_ids.push(g.id.clone());
+                    // a project saved with two groups under one id (before ids were made unique) gets a new id
+                    // for the second: ids are how the window and the project tell groups apart
+                    let ext = if g.id.is_empty() || self.group_ids.contains(&g.id) {
+                        self.fresh_group_id(id as usize)
+                    } else {
+                        g.id.clone()
+                    };
+                    self.group_ids.push(ext);
                     self.recheck_group(id);
                 }
             }
