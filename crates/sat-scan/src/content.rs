@@ -26,83 +26,141 @@ pub fn hash_file(path: &Path) -> std::io::Result<u64> {
     Ok(h.digest())
 }
 
-fn stamp(path: &Path) -> Option<(u64, u128)> {
+/// Size and modification time (nanoseconds since 1970: a `u64` holds them until 2554).
+fn stamp(path: &Path) -> Option<(u64, u64)> {
     let md = std::fs::metadata(path).ok()?;
     let t = md.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos();
-    Some((md.len(), t))
+    Some((md.len(), u64::try_from(t).ok()?))
 }
 
 // @sat:scan.content-hash.cache
 /// Hashes kept between runs: files by path, archive entries as `archive::entry` with the archive's size and time;
-/// `None` — an entry that cannot be compared (kept too, so the archive is not read again for it).
+/// an entry that cannot be compared is kept too (so the archive is not read again for it).
+///
+/// Millions of lines on a big build: the cache keeps a 64-bit hash of each path's text, not the path (a 4 GB machine
+/// cannot hold the paths twice), and reads the file line by line. Saving streams the old file and writes the lines
+/// set this run after the ones they replace are dropped.
 #[derive(Debug, Default)]
 pub struct HashCache {
-    entries: HashMap<PathBuf, (Option<u64>, u64, u128)>,
+    entries: HashMap<u64, Entry>,
+    /// Entries set this run, with their path text (the save writes them).
+    fresh: Vec<(String, Entry)>,
     dirty: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Entry {
+    /// `None` — not comparable.
+    hash: Option<u64>,
+    size: u64,
+    time: u64,
+}
+
+fn key(path: &str) -> u64 {
+    xxhash_rust::xxh3::xxh3_64(path.as_bytes())
+}
+
+/// A cache line: `hash size mtime path` (`x` for a hash: not comparable); `None` — not a line of the cache (or a
+/// `-` line from before entry paths were matched normalized: such an entry is read again).
+fn parse_line(line: &str) -> Option<(&str, Entry)> {
+    let mut it = line.splitn(4, ' ');
+    let (h, s, t, p) = (it.next()?, it.next()?, it.next()?, it.next()?);
+    let hash = match h {
+        "x" => None,
+        "-" => return None,
+        _ => Some(u64::from_str_radix(h, 16).ok()?),
+    };
+    Some((
+        p,
+        Entry {
+            hash,
+            size: s.parse().ok()?,
+            time: t.parse().ok()?,
+        },
+    ))
+}
+
+fn write_line(out: &mut impl std::io::Write, p: &str, e: &Entry) -> std::io::Result<()> {
+    match e.hash {
+        Some(h) => writeln!(out, "{h:016x} {} {} {p}", e.size, e.time),
+        None => writeln!(out, "x {} {} {p}", e.size, e.time),
+    }
 }
 
 impl HashCache {
     pub fn load(file: &Path) -> Self {
+        use std::io::BufRead;
         let mut entries = HashMap::new();
-        if let Ok(text) = std::fs::read_to_string(file) {
-            for line in text.lines() {
-                let mut it = line.splitn(4, ' ');
-                let (Some(h), Some(s), Some(t), Some(p)) = (it.next(), it.next(), it.next(), it.next())
-                else {
-                    continue;
-                };
-                // `x` — not comparable; `-` is the same mark from before entry paths were matched normalized
-                // (an archive entry in the author's case was never found then): such a line is read again
-                let h = match h {
-                    "x" => Ok(None),
-                    "-" => continue,
-                    _ => u64::from_str_radix(h, 16).map(Some),
-                };
-                if let (Ok(h), Ok(s), Ok(t)) = (h, s.parse(), t.parse()) {
-                    entries.insert(PathBuf::from(p), (h, s, t));
+        if let Ok(f) = std::fs::File::open(file) {
+            for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
+                if let Some((p, e)) = parse_line(&line) {
+                    entries.insert(key(p), e);
                 }
             }
         }
         Self {
             entries,
+            fresh: Vec::new(),
             dirty: false,
         }
     }
 
+    fn get(&self, path: &str, size: u64, time: u64) -> Option<Option<u64>> {
+        self.entries
+            .get(&key(path))
+            .filter(|e| e.size == size && e.time == time)
+            .map(|e| e.hash)
+    }
+
+    fn set(&mut self, path: String, e: Entry) {
+        self.entries.insert(key(&path), e);
+        self.fresh.push((path, e));
+        self.dirty = true;
+    }
+
+    /// Writes the cache: the lines of the old file that this run did not replace, then this run's entries.
     pub fn save(&self, file: &Path) -> std::io::Result<()> {
+        use std::io::{BufRead, Write};
         if !self.dirty {
             return Ok(());
         }
-        let mut lines: Vec<String> = self
-            .entries
-            .iter()
-            .map(|(p, (h, s, t))| match h {
-                Some(h) => format!("{h:016x} {s} {t} {}", p.display()),
-                None => format!("x {s} {t} {}", p.display()),
-            })
-            .collect();
-        lines.sort_unstable();
         if let Some(d) = file.parent() {
             std::fs::create_dir_all(d)?;
         }
+        let replaced: std::collections::HashSet<u64> = self.fresh.iter().map(|(p, _)| key(p)).collect();
         let tmp = file.with_extension("tmp");
-        std::fs::write(&tmp, lines.join("\n"))?;
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+        if let Ok(f) = std::fs::File::open(file) {
+            for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
+                if let Some((p, _)) = parse_line(&line)
+                    && !replaced.contains(&key(p))
+                {
+                    writeln!(out, "{line}")?;
+                }
+            }
+        }
+        // the last entry set for a path wins
+        let mut written = std::collections::HashSet::new();
+        for (p, e) in self.fresh.iter().rev() {
+            if written.insert(key(p)) {
+                write_line(&mut out, p, e)?;
+            }
+        }
+        out.flush()?;
+        drop(out);
         std::fs::rename(tmp, file)
     }
 
     /// Hashes of `paths` (in their order; `None` — not readable), from the cache where the file is unchanged, else
     /// read in parallel. Returns how many were read.
     pub fn hash_all(&mut self, paths: &[PathBuf]) -> (Vec<Option<u64>>, usize) {
-        let stamps: Vec<Option<(u64, u128)>> = paths.par_iter().map(|p| stamp(p)).collect();
+        let stamps: Vec<Option<(u64, u64)>> = paths.par_iter().map(|p| stamp(p)).collect();
         let fresh: Vec<Option<u64>> = paths
             .iter()
             .zip(&stamps)
             .map(|(p, st)| {
                 let (s, t) = (*st)?;
-                self.entries
-                    .get(p)
-                    .filter(|e| e.1 == s && e.2 == t)
-                    .and_then(|e| e.0)
+                self.get(&p.to_string_lossy(), s, t).flatten()
             })
             .collect();
         let todo: Vec<usize> = (0..paths.len())
@@ -113,17 +171,23 @@ impl HashCache {
         let mut out = fresh;
         for (i, h) in &read {
             out[*i] = *h;
-            if let (Some(h), Some((s, t))) = (h, stamps[*i]) {
-                self.entries.insert(paths[*i].clone(), (Some(*h), s, t));
-                self.dirty = true;
+            if let (Some(h), Some((size, time))) = (h, stamps[*i]) {
+                self.set(
+                    paths[*i].to_string_lossy().into_owned(),
+                    Entry {
+                        hash: Some(*h),
+                        size,
+                        time,
+                    },
+                );
             }
         }
         (out, read.len())
     }
 }
 
-fn entry_key(archive: &Path, entry: &str) -> PathBuf {
-    PathBuf::from(format!("{}::{entry}", archive.display()))
+fn entry_key(archive: &Path, entry: &str) -> String {
+    format!("{}::{entry}", archive.display())
 }
 
 impl HashCache {
@@ -136,21 +200,22 @@ impl HashCache {
         };
         let cached: Vec<Option<Option<u64>>> = entries
             .iter()
-            .map(|e| {
-                self.entries
-                    .get(&entry_key(archive, e))
-                    .filter(|x| x.1 == s && x.2 == t)
-                    .map(|x| x.0)
-            })
+            .map(|e| self.get(&entry_key(archive, e), s, t))
             .collect();
         if cached.iter().all(Option::is_some) {
             return (cached.into_iter().map(Option::flatten).collect(), false);
         }
         let got = read_archive_hashes(archive, entries);
         for (e, h) in entries.iter().zip(&got) {
-            self.entries.insert(entry_key(archive, e), (*h, s, t));
+            self.set(
+                entry_key(archive, e),
+                Entry {
+                    hash: *h,
+                    size: s,
+                    time: t,
+                },
+            );
         }
-        self.dirty = true;
         (got, true)
     }
 }
@@ -347,6 +412,12 @@ mod tests {
         );
         std::fs::write(&c, b"changed!").unwrap();
         assert_eq!(again.hash_all(&paths).1, 1, "a changed file is read again");
+        // the save keeps the old lines it did not replace and writes the new one once
+        again.save(&file).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(text.lines().count(), 3, "{text}");
+        let mut third = HashCache::load(&file);
+        assert_eq!(third.hash_all(&paths).1, 0, "all three come back from the file");
         std::fs::remove_dir_all(&d).unwrap();
     }
 }
