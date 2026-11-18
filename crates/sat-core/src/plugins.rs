@@ -443,12 +443,13 @@ impl PluginList {
                     Origin::Missing
                 };
                 // a line in loadorder.txt without a mark in plugins.txt: the game's own content loads (base masters,
-                // Creation Club); a mod's plugin is off — MO2 keeps every plugin it knows in loadorder.txt and marks
-                // the active ones in plugins.txt (the list format names only those)
+                // Creation Club — also when a mod folder carries its files: MO2 loads what the game's list names); a
+                // mod's plugin is off — MO2 keeps every plugin it knows in loadorder.txt and marks the active ones in
+                // plugins.txt (the list format names only those)
                 let listed = match (checked.get(&key), order.contains_key(&key)) {
                     (Some(true), _) => Listed::Enabled,
                     (Some(false), _) => Listed::Disabled,
-                    (None, true) if origin == Origin::Mod => Listed::Disabled,
+                    (None, true) if origin == Origin::Mod && !is_creation_club(&name) => Listed::Disabled,
                     (None, true) => Listed::Implicit,
                     (None, false) if origin == Origin::Base => Listed::Implicit,
                     (None, false) => Listed::Unlisted,
@@ -951,6 +952,12 @@ mod tests {
         );
         assert!(l.get("On.esp").unwrap().active);
         assert_eq!(l.get("Skyrim.esm").unwrap().listed, Listed::Implicit);
+        // Creation Club content a mod folder carries loads like the game's own
+        let v = PluginVersions::build(&[mod_with("CC", vec![plugin("ccBGSSSE001-Fish.esm", &[], false)])]);
+        let c = canon(&["Skyrim.esm", "ccBGSSSE001-Fish.esm"], &[]);
+        let l = PluginList::compute(&v, &c, &Priorities(vec![0]));
+        let cc = l.get("ccBGSSSE001-Fish.esm").unwrap();
+        assert_eq!((cc.listed, cc.active), (Listed::Implicit, true));
     }
 
     #[test]
