@@ -86,6 +86,18 @@ pub enum Origin {
     Missing,
 }
 
+// @sat:plugins.master-gap
+/// Why a master of a plugin is not usable: there is no such plugin in the build, it lies only in disabled mods
+/// (the plugin exists — "what if that mod were on"), or it is present but not loaded (unchecked, or itself lacking
+/// a master).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MasterGap {
+    Absent,
+    ModOff,
+    NotLoaded,
+}
+
 /// Diagnostic colour (monolith semantics).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -214,6 +226,8 @@ pub struct Plugin {
     /// Hidden by the user (`PluginCanon::blacklist`).
     pub blacklisted: bool,
     pub missing_masters: Vec<String>,
+    /// Why each of [`Plugin::missing_masters`] is missing (same order).
+    pub master_gaps: Vec<MasterGap>,
     pub colour: Colour,
 }
 
@@ -258,6 +272,9 @@ pub struct PluginStats {
     pub missing: usize,
     #[serde(default)]
     pub blacklisted: usize,
+    /// Present plugins whose every missing master lies in a disabled mod: they would load with those mods on.
+    #[serde(default)]
+    pub waiting_for_mods_off: usize,
 }
 
 // @sat:plugins.list
@@ -362,6 +379,7 @@ impl PluginList {
                     index: None,
                     blacklisted,
                     missing_masters: Vec::new(),
+                    master_gaps: Vec::new(),
                     colour: Colour::Green,
                 }
             })
@@ -408,6 +426,12 @@ impl PluginList {
         }
         let usable: FxHashMap<String, bool> =
             plugins.iter().map(|p| (plugin_key(&p.name), p.active)).collect();
+        // a plugin some mod has: (present — an owner is on, any version at all)
+        let known: FxHashMap<String, bool> = plugins
+            .iter()
+            .filter(|p| !p.versions.is_empty() || p.origin == Origin::Base)
+            .map(|p| (plugin_key(&p.name), p.present))
+            .collect();
         for p in &mut plugins {
             p.missing_masters = p
                 .masters
@@ -416,6 +440,15 @@ impl PluginList {
                     !hidden.contains(&plugin_key(m)) && !usable.get(&plugin_key(m)).copied().unwrap_or(false)
                 })
                 .cloned()
+                .collect();
+            p.master_gaps = p
+                .missing_masters
+                .iter()
+                .map(|m| match known.get(&plugin_key(m)) {
+                    None => MasterGap::Absent,
+                    Some(false) => MasterGap::ModOff,
+                    Some(true) => MasterGap::NotLoaded,
+                })
                 .collect();
             let overflow = p.index.is_some_and(RuntimeIndex::overflow);
             p.colour = if p.origin == Origin::Base {
@@ -444,6 +477,11 @@ impl PluginList {
             }
             st.versioned += usize::from(p.versions.len() > 1);
             st.with_missing_masters += usize::from(p.present && !p.missing_masters.is_empty());
+            st.waiting_for_mods_off += usize::from(
+                p.present
+                    && !p.master_gaps.is_empty()
+                    && p.master_gaps.iter().all(|g| *g == MasterGap::ModOff),
+            );
             st.owner_disabled += usize::from(p.origin == Origin::Mod && !p.present);
             st.missing += usize::from(p.origin == Origin::Missing);
             st.blacklisted += usize::from(p.blacklisted);
@@ -613,6 +651,25 @@ mod tests {
             (Origin::Missing, false, Colour::Black)
         );
         assert_eq!(l.get("A.esp").unwrap().missing_masters, ["Gone.esm"]);
+        assert_eq!(l.get("A.esp").unwrap().master_gaps, [MasterGap::Absent]);
         assert_eq!(l.stats.missing, 1);
+    }
+
+    #[test]
+    fn a_master_in_a_disabled_mod_is_told_apart_from_an_absent_one() {
+        let v = PluginVersions::build(&[
+            mod_with("Lib", vec![plugin("Lib.esm", &["Skyrim.esm"], true)]),
+            mod_with("Addon", vec![plugin("Addon.esp", &["Lib.esm"], false)]),
+        ]);
+        let c = canon(
+            &["Skyrim.esm", "Lib.esm", "Addon.esp"],
+            &[("Lib.esm", true), ("Addon.esp", true)],
+        );
+        // Lib (0) is off, Addon (1) is on
+        let l = PluginList::compute(&v, &c, &Priorities(vec![-1, 1]));
+        let a = l.get("Addon.esp").unwrap();
+        assert_eq!(a.missing_masters, ["Lib.esm"]);
+        assert_eq!(a.master_gaps, [MasterGap::ModOff]);
+        assert_eq!(l.stats.waiting_for_mods_off, 1);
     }
 }

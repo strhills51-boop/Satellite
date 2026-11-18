@@ -152,10 +152,21 @@ pub fn plugins(args: &[String]) -> Result<(), String> {
                 .and_then(|m| project.canon.entries.iter().filter(|e| e.is_mod()).nth(m.idx()))
                 .map_or_else(String::new, |e| format!("   ({})", e.name));
             let hidden = if p.blacklisted { " [hidden]" } else { "" };
+            // each missing master with why: no such plugin, its mod is off, or not loaded
             let missing = if p.missing_masters.is_empty() {
                 String::new()
             } else {
-                format!(" → {}", p.missing_masters.join(", "))
+                let why: Vec<String> = p
+                    .missing_masters
+                    .iter()
+                    .zip(&p.master_gaps)
+                    .map(|(m, g)| match g {
+                        sat_core::plugins::MasterGap::Absent => m.clone(),
+                        sat_core::plugins::MasterGap::ModOff => format!("{m} [mod off]"),
+                        sat_core::plugins::MasterGap::NotLoaded => format!("{m} [not loaded]"),
+                    })
+                    .collect();
+                format!(" → {}", why.join(", "))
             };
             println!(
                 "{index} {}{} {}{owner}{hidden}  {colour}{missing}",
@@ -167,13 +178,14 @@ pub fn plugins(args: &[String]) -> Result<(), String> {
     }
     let s = list.stats;
     println!(
-        "plugins={} full={} light={} overflow={}/{} missing-masters={} hidden={}",
+        "plugins={} full={} light={} overflow={}/{} missing-masters={} (waiting only for mods that are off: {}) hidden={}",
         s.plugins,
         s.active_full,
         s.active_light,
         s.overflow_full,
         s.overflow_light,
         s.with_missing_masters,
+        s.waiting_for_mods_off,
         s.blacklisted
     );
     Ok(())
