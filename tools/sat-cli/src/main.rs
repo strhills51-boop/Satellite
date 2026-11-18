@@ -1182,8 +1182,14 @@ fn analyze(args: &[String]) -> Result<(), String> {
         for p in &plugin_list.plugins {
             for v in &p.versions {
                 let owner = table.mod_name(v.owner).to_lowercase();
+                // [L] light (no full slot), [F] full — the full slots (254) are what a sweep runs out of
+                let slot = if v.kind == sat_formats::PluginKind::Esl {
+                    "L"
+                } else {
+                    "F"
+                };
                 let state = if p.missing_masters.is_empty() {
-                    format!("{}:ok", p.name)
+                    format!("{}[{slot}]:ok", p.name)
                 } else {
                     let why: Vec<String> = p
                         .missing_masters
@@ -1191,13 +1197,18 @@ fn analyze(args: &[String]) -> Result<(), String> {
                         .zip(&p.master_gaps)
                         .map(|(m, g)| format!("{m}({g:?})"))
                         .collect();
-                    format!("{}:needs {}", p.name, why.join("+"))
+                    format!("{}[{slot}]:needs {}", p.name, why.join("+"))
                 };
                 plugin_state.entry(owner).or_default().push(state);
             }
         }
+        // what is in the mod, by the tag rules (`--tags`): SKSE plugin, OAR, SPID, … — what turning it on would bring
+        let tags_of: std::collections::HashMap<String, &Vec<String>> = outcomes
+            .iter()
+            .map(|o| (o.name.to_lowercase(), &o.tags))
+            .collect();
         let mut text = String::from(
-            "mod\tposition\tseparator\tfiles\tmb\tshared\tmet\twould_win\twould_win_mb\twould_lose\tsame\tvictims\tnexus\tenabled_same_nexus\tplugins\n",
+            "mod\tposition\tseparator\tfiles\tmb\tshared\tmet\twould_win\twould_win_mb\twould_lose\tsame\tvictims\tnexus\tenabled_same_nexus\tplugins\ttags\n",
         );
         for w in &rows {
             let name = table.mod_name(w.m);
@@ -1216,7 +1227,7 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 .map(|(m, n)| format!("{}={n}", table.mod_name(*m)))
                 .collect();
             text.push_str(&format!(
-                "{name}\t{pos}\t{sep}\t{}\t{:.1}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{same_nexus}\t{}\n",
+                "{name}\t{pos}\t{sep}\t{}\t{:.1}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{same_nexus}\t{}\t{}\n",
                 w.files,
                 w.bytes as f64 / 1048576.0,
                 w.shared,
@@ -1230,6 +1241,10 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 plugin_state
                     .get(&name.to_lowercase())
                     .map(|v| v.join(" ; "))
+                    .unwrap_or_default(),
+                tags_of
+                    .get(name.to_lowercase().as_str())
+                    .map(|t| t.join(", "))
                     .unwrap_or_default()
             ));
         }
