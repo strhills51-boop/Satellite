@@ -905,135 +905,105 @@ fn analyze(args: &[String]) -> Result<(), String> {
     // @sat:cli.safe-moves
     // moves that change no file's winner (`@sat:order.safe-move`): a file of lines `MOD<TAB>SEPARATOR` (to the end of
     // that separator's block) or `MOD<TAB>before:ENTRY`, taken in order, each against the order the earlier ones left;
-    // a mod in a logical group moves with its whole group. A move that would give a path another winner (other
-    // bytes) is refused and reported with its paths. With --apply-moves the safe ones go into the project.
+    // a mod in a logical group moves with its whole group. Lines in a row with the same target are tried first as one
+    // block (their order kept): mods that overwrite each other can move only together. A move that would give a path
+    // another winner (other bytes) is refused and reported with its paths; paths of the project's ignore rules do not
+    // count. With --apply-moves the safe ones go into the project.
     if let Some(file) = flag_value(args, "--safe-moves") {
-        use sat_core::canon::{EntryKind, SEPARATOR_SUFFIX};
         let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+        let lines: Vec<(String, String)> = text
+            .lines()
+            .map(|l| l.trim_end_matches('\r'))
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .map(|l| {
+                let (m, t) = l.split_once('\t').unwrap_or((l, ""));
+                (m.to_string(), t.to_string())
+            })
+            .collect();
         let (mut book, _) = project.book();
-        let ow = index.get(&OVERWRITE.to_lowercase()).copied();
-        let prio_of = |b: &sat_core::order::OrderBook| {
-            sat_core::canon::priorities(
-                b.entries(),
-                table.mod_count(),
-                |n| index.get(&n.to_lowercase()).copied(),
-                ow,
-            )
-        };
-        let same = |a: usize, b: usize| {
-            content_hashes
-                .as_ref()
-                .and_then(|h| sat_core::identical::same(&table, h, a, b))
+        let mv = SafeMove {
+            table: &table,
+            index: &index,
+            top: index.get(&OVERWRITE.to_lowercase()).copied(),
+            same: &|a, b| {
+                content_hashes
+                    .as_ref()
+                    .and_then(|h| sat_core::identical::same(&table, h, a, b))
+            },
+            skip: &|p| project.conflict_ignore.matches(&table.path_string(p)),
         };
         let mut report = String::from("mod\ttarget\tresult\tpaths\n");
         let (mut done, mut refused, mut failed) = (0usize, 0usize, 0usize);
-        for line in text.lines().map(|l| l.trim_end_matches('\r')) {
-            if line.trim().is_empty() || line.starts_with('#') {
-                continue;
+        let mut i = 0;
+        while i < lines.len() {
+            let target = &lines[i].1;
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].1 == *target {
+                j += 1;
             }
-            let (m, target) = line.split_once('\t').unwrap_or((line, ""));
-            let mut row = |result: String, paths: String| {
-                report.push_str(&format!("{m}\t{target}\t{result}\t{paths}\n"));
-            };
-            let Some(k) = book.key_of(m) else {
-                failed += 1;
-                row("unknown mod".into(), String::new());
-                continue;
-            };
-            // the place: right before an entry, or the end of a separator's block (before the next separator)
-            let before = if let Some(e) = target.strip_prefix("before:") {
-                match book.key_of(e) {
-                    Some(b) => Some(b),
-                    None => {
-                        failed += 1;
-                        row(format!("unknown entry {e:?}"), String::new());
+            // the whole run as one block first
+            if j - i > 1 {
+                let keys: Option<Vec<Vec<sat_core::order::Key>>> = lines[i..j]
+                    .iter()
+                    .map(|(m, _)| book.key_of(m).map(|k| mv.with_group(&book, k)))
+                    .collect();
+                if let (Some(keys), Ok(before)) = (keys, mv.target(&book, target)) {
+                    let mut all: Vec<sat_core::order::Key> = keys.into_iter().flatten().collect();
+                    all.sort_by_key(|&k| book.pos(k));
+                    all.dedup();
+                    if let Ok(changed) = mv.attempt(&mut book, &all, before)
+                        && changed.is_empty()
+                    {
+                        for (m, t) in &lines[i..j] {
+                            report.push_str(&format!("{m}\t{t}\tmoved (as one block of {})\t\n", j - i));
+                        }
+                        done += j - i;
+                        i = j;
                         continue;
                     }
                 }
-            } else {
-                let full = if target.to_lowercase().ends_with(SEPARATOR_SUFFIX) {
-                    target.to_string()
-                } else {
-                    format!("{target}{SEPARATOR_SUFFIX}")
-                };
-                let names: Vec<(String, EntryKind)> =
-                    book.entries().map(|(n, k, _)| (n.to_string(), k)).collect();
-                let Some(at) = names
-                    .iter()
-                    .position(|(n, k)| *k == EntryKind::Separator && n.eq_ignore_ascii_case(&full))
-                else {
-                    failed += 1;
-                    row(format!("no separator {target:?}"), String::new());
-                    continue;
-                };
-                names[at + 1..]
-                    .iter()
-                    .find(|(_, k)| *k == EntryKind::Separator)
-                    .and_then(|(n, _)| book.key_of(n))
-            };
-            let keys: Vec<sat_core::order::Key> = if book.group_id_of(k).is_some() {
-                book.group_members()
-                    .into_iter()
-                    .find(|(_, _, ks)| ks.contains(&k))
-                    .map_or_else(|| vec![k], |(_, _, ks)| ks)
-            } else {
-                vec![k]
-            };
-            let moved: Vec<ModId> = keys
-                .iter()
-                .filter_map(|&k| index.get(&book.name(k).to_lowercase()).copied())
-                .collect();
-            // the move tried on a plain list of entries first (cloning the book per line is too heavy for thousands
-            // of entries); the book changes only when the move is safe
-            let entries: Vec<(String, EntryKind, bool)> =
-                book.entries().map(|(n, k, e)| (n.to_string(), k, e)).collect();
-            let names: std::collections::HashSet<&str> = keys.iter().map(|&k| book.name(k)).collect();
-            let before_name = before.map(|b| book.name(b).to_string());
-            let mut taken = Vec::new();
-            let mut rest = Vec::with_capacity(entries.len());
-            for e in &entries {
-                if names.contains(e.0.as_str()) {
-                    taken.push(e.clone());
-                } else {
-                    rest.push(e.clone());
-                }
             }
-            let at = before_name
-                .as_deref()
-                .and_then(|b| rest.iter().position(|e| e.0 == b))
-                .unwrap_or(rest.len());
-            rest.splice(at..at, taken);
-            let old = prio_of(&book);
-            let new = sat_core::canon::priorities(
-                rest.iter().map(|(n, k, e)| (n.as_str(), *k, *e)),
-                table.mod_count(),
-                |n| index.get(&n.to_lowercase()).copied(),
-                ow,
-            );
-            let changed = sat_core::safe_move::changed_winners(&table, &old, &new, &moved, same, 5);
-            if changed.is_empty() {
-                if let Err(e) = book.move_keys(&keys, before) {
+            // one by one
+            for (m, t) in &lines[i..j] {
+                let Some(k) = book.key_of(m) else {
                     failed += 1;
-                    row(format!("cannot move: {e}"), String::new());
+                    report.push_str(&format!("{m}\t{t}\tunknown mod\t\n"));
                     continue;
-                }
-                done += 1;
-                row(
-                    format!(
-                        "moved{}",
-                        if keys.len() > 1 {
+                };
+                let before = match mv.target(&book, t) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        failed += 1;
+                        report.push_str(&format!("{m}\t{t}\t{e}\t\n"));
+                        continue;
+                    }
+                };
+                let keys = mv.with_group(&book, k);
+                match mv.attempt(&mut book, &keys, before) {
+                    Err(e) => {
+                        failed += 1;
+                        report.push_str(&format!("{m}\t{t}\tcannot move: {e}\t\n"));
+                    }
+                    Ok(changed) if changed.is_empty() => {
+                        done += 1;
+                        let with = if keys.len() > 1 {
                             format!(" with its group ({})", keys.len())
                         } else {
                             String::new()
-                        }
-                    ),
-                    String::new(),
-                );
-            } else {
-                refused += 1;
-                let paths: Vec<String> = changed.iter().map(|&p| table.path_string(p)).collect();
-                row("refused: changes winners".into(), paths.join(" | "));
+                        };
+                        report.push_str(&format!("{m}\t{t}\tmoved{with}\t\n"));
+                    }
+                    Ok(changed) => {
+                        refused += 1;
+                        let paths: Vec<String> = changed.iter().map(|&p| table.path_string(p)).collect();
+                        report.push_str(&format!(
+                            "{m}\t{t}\trefused: changes winners\t{}\n",
+                            paths.join(" | ")
+                        ));
+                    }
+                }
             }
+            i = j;
         }
         let out = format!("{file}.result.tsv");
         std::fs::write(&out, report).map_err(|e| format!("{out}: {e}"))?;
@@ -2348,5 +2318,108 @@ fn print_contexts(
         for (pos, sep, en, name) in &rows {
             println!("      {pos:>5} {} [{sep}] {name}", if *en { "+" } else { "-" });
         }
+    }
+}
+
+/// Moving mods without changing a winner (`@sat:cli.safe-moves`): the facts a move is checked against.
+struct SafeMove<'a> {
+    table: &'a sat_core::table::ProviderTable,
+    index: &'a BTreeMap<String, ModId>,
+    top: Option<ModId>,
+    same: &'a dyn Fn(usize, usize) -> Option<bool>,
+    skip: &'a dyn Fn(sat_core::ids::PathId) -> bool,
+}
+
+impl SafeMove<'_> {
+    fn prio<'e>(
+        &self,
+        entries: impl Iterator<Item = (&'e str, sat_core::canon::EntryKind, bool)>,
+    ) -> sat_core::overwrite::Priorities {
+        sat_core::canon::priorities(
+            entries,
+            self.table.mod_count(),
+            |n| self.index.get(&n.to_lowercase()).copied(),
+            self.top,
+        )
+    }
+
+    /// The place: right before an entry (`before:ENTRY`), or the end of a separator's block (before the next one).
+    fn target(
+        &self,
+        book: &sat_core::order::OrderBook,
+        target: &str,
+    ) -> Result<Option<sat_core::order::Key>, String> {
+        use sat_core::canon::{EntryKind, SEPARATOR_SUFFIX};
+        if let Some(e) = target.strip_prefix("before:") {
+            return book
+                .key_of(e)
+                .map(Some)
+                .ok_or_else(|| format!("unknown entry {e:?}"));
+        }
+        let full = if target.to_lowercase().ends_with(SEPARATOR_SUFFIX) {
+            target.to_string()
+        } else {
+            format!("{target}{SEPARATOR_SUFFIX}")
+        };
+        let names: Vec<(&str, EntryKind)> = book.entries().map(|(n, k, _)| (n, k)).collect();
+        let at = names
+            .iter()
+            .position(|(n, k)| *k == EntryKind::Separator && n.eq_ignore_ascii_case(&full))
+            .ok_or_else(|| format!("no separator {target:?}"))?;
+        Ok(names[at + 1..]
+            .iter()
+            .find(|(_, k)| *k == EntryKind::Separator)
+            .and_then(|(n, _)| book.key_of(n)))
+    }
+
+    /// A mod with its logical group, in list order.
+    fn with_group(
+        &self,
+        book: &sat_core::order::OrderBook,
+        k: sat_core::order::Key,
+    ) -> Vec<sat_core::order::Key> {
+        if book.group_id_of(k).is_none() {
+            return vec![k];
+        }
+        book.group_members()
+            .into_iter()
+            .find(|(_, _, ks)| ks.contains(&k))
+            .map_or_else(|| vec![k], |(_, _, ks)| ks)
+    }
+
+    /// Tries the move on a plain list of entries (cloning the book per move is too heavy for thousands of entries);
+    /// moves the book only when no winner changes. Returns the paths that would change (empty — moved).
+    fn attempt(
+        &self,
+        book: &mut sat_core::order::OrderBook,
+        keys: &[sat_core::order::Key],
+        before: Option<sat_core::order::Key>,
+    ) -> Result<Vec<sat_core::ids::PathId>, String> {
+        let names: std::collections::HashSet<&str> = keys.iter().map(|&k| book.name(k)).collect();
+        let before_name = before.map(|b| book.name(b));
+        let (mut taken, mut rest) = (Vec::new(), Vec::new());
+        for e in book.entries() {
+            if names.contains(e.0) {
+                taken.push(e);
+            } else {
+                rest.push(e);
+            }
+        }
+        let at = before_name
+            .and_then(|b| rest.iter().position(|e| e.0 == b))
+            .unwrap_or(rest.len());
+        rest.splice(at..at, taken);
+        let old = self.prio(book.entries());
+        let new = self.prio(rest.into_iter());
+        let moved: Vec<ModId> = keys
+            .iter()
+            .filter_map(|&k| self.index.get(&book.name(k).to_lowercase()).copied())
+            .collect();
+        let changed =
+            sat_core::safe_move::changed_winners(self.table, &old, &new, &moved, self.same, self.skip, 5);
+        if changed.is_empty() {
+            book.move_keys(keys, before).map_err(|e| e.to_string())?;
+        }
+        Ok(changed)
     }
 }
