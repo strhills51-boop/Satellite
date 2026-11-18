@@ -1,7 +1,7 @@
 //! `sat-cli` — developer tool for NG-D001 evidence. @sat:cli
 //!
 //! ```text
-//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]]
+//! sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--records] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]] [--what-if FILE]
 //! sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]
 //! sat-cli inspect <file.bsa|.ba2|.esp|.esm|.esl|.dds>...
 //! sat-cli bench-synth [--mods N] [--files F] [--rounds R]
@@ -132,7 +132,7 @@ fn main() {
         Some("bench-synth") => bench_synth(&args[1..]),
         Some("bench-order") => bench_order::run(&args[1..]),
         other => Err(format!(
-            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
+            "{}usage: sat-cli analyze <instance> | --mods DIR --profiles DIR [--overwrite DIR]  [--profile NAME] [--listed-only] [--find EXPR [--limit N]] [--content] [--identical] [--extensions] [--no-hashes] [--min-size SIZE] [--records [--limit N]] [--conflicts] [--contexts [--real [--loose]]] [--compact-contexts N [--real] [--group]] [--chains N] [--game DIR] [--out FILE] [--project FILE] [--reimport] [--no-save] [--io-threads N] [--cache DIR] [--force] [--report FILE] [--facegen-fix NAME] [--sort-plugins MASTERLIST [--userlist FILE]] [--what-if FILE]\n       sat-cli donor <instance> --donor-mods DIR [--donor-modlist FILE] [--as NAME] [--list] [--report FILE] [--take NAME]... [--take-ready] [--separator SEP | --after MOD] [--move]\n       sat-cli sync <instance> [--profile NAME] [--decide N ANSWER]...\n       sat-cli commit <instance> [--profile NAME] [--apply] [--confirm OUTPUT]...\n       sat-cli ignore <instance> [--add RULE]... [--remove RULE]...\n       sat-cli plugins <instance> [--move NAME]... [--before NAME | --last] [--check NAME]... [--uncheck NAME]... [--hide NAME]... [--show NAME]... [--drop-broken] [--cascade] [--list]\n       sat-cli stickers <instance> [--add \"STICKER=EXPR\"]... [--remove STICKER]...\n       sat-cli counters <instance> [--add \"ID=TEMPLATE\"]... [--case \"ID|CONDITION|TONE\"]... [--show-if \"ID|CONDITION\"]... [--remove ID]...\n       sat-cli group <instance> [--add NAME --from MOD --to MOD] [--remove NAME]\n       sat-cli factory <instance> [--add \"GROUP=OUTPUT\" [--link] [--keep-members] [--seal] [--pack] [--downscale N]] [--remove OUTPUT]\n       sat-cli order <instance> [--add-separator NAME [--before ENTRY]] [--rename-separator OLD NEW]... [--remove-separator NAME]... [--enable MOD]... [--disable MOD]... [--note MOD TEXT]... [--tag MOD TAG]... [--show MOD]... [--group-families] [--move MOD]... (--under SEPARATOR | --before ENTRY) [--into-group MOD --join MEMBER]... [--out-of-group MOD]... [--separators]\n       sat-cli processors <instance> [--detect] [--enable ID]... [--disable ID]...\n       sat-cli patch <instance> [--mod MOD --file PATH [--set \"SECTION/KEY=VALUE\"]... [--unset \"SECTION/KEY\"]... [--rebase] [--drop]]\n       sat-cli plan-install <instance> --archive FILE [--name NAME] [--after MOD] [--disabled] [--choose STEP/GROUP/OPTION]... [--show]\n       sat-cli inspect <file>...\n       sat-cli verify-formats <dir> [--dds N] [--all] [--out FILE]\n       sat-cli bench-synth [--mods N] [--files F] [--rounds R]\n       sat-cli bench-order [--entries N] [--block B]",
             other.map_or_else(String::new, |o| format!("unknown command {o:?}\n"))
         )),
     };
@@ -1139,6 +1139,109 @@ fn analyze(args: &[String]) -> Result<(), String> {
     let plugin_canon = project.plugins.clone();
     let plugin_list = PluginList::compute(&plugin_versions, &plugin_canon, proj.priorities());
     timings.insert("plugins", t.elapsed().as_millis());
+    // @sat:cli.what-if
+    // "what if it were on" (`@sat:what-if`): the theoretical part of every disabled mod at its place, against the
+    // build as it is; a table to a file (tab-separated), the strongest to the screen. Not in any real metric.
+    if let Some(out) = flag_value(args, "--what-if") {
+        let rank = sat_core::canon::priorities(
+            list.entries.iter().map(|e| (e.name.as_str(), e.kind, true)),
+            table.mod_count(),
+            |n| index.get(&n.to_lowercase()).copied(),
+            index.get(&OVERWRITE.to_lowercase()).copied(),
+        );
+        let real = proj.priorities();
+        let rows = sat_core::what_if::what_if(&table, real, &rank, |a, b| {
+            content_hashes
+                .as_ref()
+                .and_then(|h| sat_core::identical::same(&table, h, a, b))
+        });
+        // where each entry stands: (position, separator)
+        let mut place: std::collections::HashMap<String, (usize, String)> = Default::default();
+        let mut sep = String::from("(no separator)");
+        for (i, e) in project.canon.entries.iter().enumerate() {
+            if e.is_mod() {
+                place.insert(e.name.to_lowercase(), (i, sep.clone()));
+            } else {
+                sep = e
+                    .name
+                    .trim_end_matches(sat_core::canon::SEPARATOR_SUFFIX)
+                    .to_string();
+            }
+        }
+        // enabled mods by Nexus id: an older or other file of something already on
+        let mut by_nexus: std::collections::HashMap<u64, Vec<&str>> = Default::default();
+        for (mi, n) in table.mod_names().iter().enumerate() {
+            if real.is_active(ModId::from_idx(mi))
+                && let Some(id) = sources.get(&n.to_lowercase()).and_then(|s| s.mod_id)
+            {
+                by_nexus.entry(id).or_default().push(n.as_str());
+            }
+        }
+        // each plugin of a mod: loads if turned on, or what it waits for
+        let mut plugin_state: std::collections::HashMap<String, Vec<String>> = Default::default();
+        for p in &plugin_list.plugins {
+            for v in &p.versions {
+                let owner = table.mod_name(v.owner).to_lowercase();
+                let state = if p.missing_masters.is_empty() {
+                    format!("{}:ok", p.name)
+                } else {
+                    let why: Vec<String> = p
+                        .missing_masters
+                        .iter()
+                        .zip(&p.master_gaps)
+                        .map(|(m, g)| format!("{m}({g:?})"))
+                        .collect();
+                    format!("{}:needs {}", p.name, why.join("+"))
+                };
+                plugin_state.entry(owner).or_default().push(state);
+            }
+        }
+        let mut text = String::from(
+            "mod\tposition\tseparator\tshared\tmet\twould_win\twould_win_mb\twould_lose\tsame\tvictims\tnexus\tenabled_same_nexus\tplugins\n",
+        );
+        for w in &rows {
+            let name = table.mod_name(w.m);
+            let (pos, sep) = place
+                .get(&name.to_lowercase())
+                .cloned()
+                .unwrap_or((usize::MAX, "?".into()));
+            let nexus = sources.get(&name.to_lowercase()).and_then(|s| s.mod_id);
+            let same_nexus = nexus
+                .and_then(|id| by_nexus.get(&id))
+                .map(|v| v.join(" | "))
+                .unwrap_or_default();
+            let victims: Vec<String> = w
+                .victims
+                .iter()
+                .map(|(m, n)| format!("{}={n}", table.mod_name(*m)))
+                .collect();
+            text.push_str(&format!(
+                "{name}\t{pos}\t{sep}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{same_nexus}\t{}\n",
+                w.shared,
+                w.met,
+                w.would_win,
+                w.would_win_bytes as f64 / 1048576.0,
+                w.would_lose,
+                w.same,
+                victims.join(" | "),
+                nexus.map(|i| i.to_string()).unwrap_or_default(),
+                plugin_state
+                    .get(&name.to_lowercase())
+                    .map(|v| v.join(" ; "))
+                    .unwrap_or_default()
+            ));
+        }
+        std::fs::write(out, text).map_err(|e| format!("{out}: {e}"))?;
+        let disabled = (0..table.mod_count())
+            .filter(|&i| !real.is_active(ModId::from_idx(i)) && rank.is_active(ModId::from_idx(i)))
+            .count();
+        println!(
+            "what if: {} of {disabled} disabled mod(s) would meet enabled ones; {} would take paths; table → {out}",
+            rows.len(),
+            rows.iter().filter(|w| w.would_win > 0).count()
+        );
+    }
+
     let ps = plugin_list.stats;
     eprintln!(
         "plugins={} full={} light={} overflow={}/{} versioned={} missing-masters={} owner-off={} missing={}",
