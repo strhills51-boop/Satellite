@@ -1188,8 +1188,27 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 } else {
                     "F"
                 };
+                // its masters beyond the base game: a plugin whose masters are all on is a patch or an addon for them
+                let base = [
+                    "skyrim.esm",
+                    "update.esm",
+                    "dawnguard.esm",
+                    "hearthfires.esm",
+                    "dragonborn.esm",
+                ];
+                let deps: Vec<&str> = v
+                    .masters
+                    .iter()
+                    .filter(|m| !base.contains(&m.to_lowercase().as_str()))
+                    .map(String::as_str)
+                    .collect();
+                let deps = if deps.is_empty() {
+                    String::new()
+                } else {
+                    format!("<-{}", deps.join("+"))
+                };
                 let state = if p.missing_masters.is_empty() {
-                    format!("{}[{slot}]:ok", p.name)
+                    format!("{}[{slot}]:ok{deps}", p.name)
                 } else {
                     let why: Vec<String> = p
                         .missing_masters
