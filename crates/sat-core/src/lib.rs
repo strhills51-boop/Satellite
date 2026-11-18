@@ -59,6 +59,7 @@ pub mod records;
 pub mod resource;
 pub mod routes;
 pub mod run;
+pub mod safe_move;
 pub mod session;
 pub mod source;
 pub mod space;
