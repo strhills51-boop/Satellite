@@ -3,15 +3,17 @@
 //! What a file is: compressed or not, one file with another path or not. What Satellite does: a link in place of an
 //! identical copy, WOF compression and back.
 //!
-//! Owns: the storage facts read from the disk (a WOF-compressed file is a reparse point; two paths are one file when
-//! the volume and file index match — `same-file`), replacing a copy by a hard link to its keeper (same size, same
+//! Owns: the storage facts read from the disk (a WOF-compressed file takes less on disk than its size — the WOF
+//! filter hides its reparse point from every listing and query, so the space it takes is the one sign; two paths
+//! are one file when the volume and file index match — `same-file`), replacing a copy by a hard link to its keeper (same size, same
 //! bytes checked byte for byte, an atomic rename over the copy), making a linked copy a file of its own again,
 //! compressing and decompressing through Windows' own `compact.exe /exe` in batches, and the journal of all of it
 //! (`<profile>/satellite/storage-journal.tsv`).
 //! Not here: what should happen (`@sat:storage`), the command (`@sat:cli.store`).
 //!
-//! ADR 0022. No `unsafe` here: links are `std::fs::hard_link`, WOF goes through the system tool. The disk is the
-//! truth; the journal only says what Satellite did and how to undo it.
+//! ADR 0022. No `unsafe` here: links are `std::fs::hard_link`, WOF goes through the system tool, the space on disk
+//! comes from `filesize` (`GetCompressedFileSizeW`). The disk is the truth; the journal only says what Satellite did
+//! and how to undo it.
 
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
@@ -20,51 +22,20 @@ use std::process::Command;
 use sat_core::storage::Codec;
 
 // @sat:mo2.storage.facts
-/// Whether a file is compressed by WOF (or otherwise backed by a reparse point — Satellite leaves those alone).
+/// What a file takes on disk (`None` — not readable). On Windows the compressed size; elsewhere the allocated blocks.
+pub fn on_disk(path: &Path) -> Option<u64> {
+    filesize::file_real_size(path).ok()
+}
+
+/// Whether a file of `size` bytes is compressed: it takes less on disk than its size. (Checked on Windows on the
+/// owner's disk 2026-11-19: a WOF file shows no reparse point, no attribute — only its size on disk is smaller.)
+pub fn compressed_at(path: &Path, size: u64) -> bool {
+    on_disk(path).is_some_and(|d| d < size)
+}
+
+/// Whether a file is compressed (its size read from the disk).
 pub fn is_compressed(path: &Path) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        std::fs::symlink_metadata(path)
-            .map(|m| m.is_file() && m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
-            .unwrap_or(false)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = path;
-        false
-    }
-}
-
-/// The WOF-compressed files among the entries of one folder, by name in lower case — read from the folder listing,
-/// which on Windows carries each file's attributes, so no file is opened (thousands of folders a minute on an
-/// external disk, where opening each file runs at a few hundred a second).
-pub fn compressed_in(dir: &Path) -> Vec<String> {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    rd.flatten()
-        .filter(entry_compressed)
-        .map(|e| e.file_name().to_string_lossy().to_lowercase())
-        .collect()
-}
-
-fn entry_compressed(e: &std::fs::DirEntry) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        // on Windows a listing's metadata comes with the listing (no extra system call)
-        e.metadata()
-            .map(|m| m.is_file() && m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
-            .unwrap_or(false)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = e;
-        false
-    }
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && compressed_at(path, m.len()))
 }
 
 /// The file a path is on disk, as a number: equal numbers — one file (hard links); `0` — not readable.
@@ -168,7 +139,8 @@ pub fn unlink_copy(copy: &Path) -> Result<(), String> {
 
 // @sat:mo2.storage.compact
 /// Compress (`Some(codec)`) or decompress (`None`) files with `compact.exe /exe`, in batches that keep the command
-/// line short. Returns each file and whether it ended up as asked (read back from the disk).
+/// line short. Returns each file and whether it ended up as asked (read back from the disk: compressed — it takes
+/// less than its size; a file compression does not shrink stays as it was, and WOF leaves it so).
 pub fn compact(files: &[PathBuf], codec: Option<Codec>) -> Result<Vec<(PathBuf, bool)>, String> {
     if !cfg!(windows) {
         return Err("WOF compression is Windows-only (compact.exe)".into());
@@ -281,7 +253,7 @@ pub fn compressed_under(dir: &Path) -> Vec<PathBuf> {
             let p = e.path();
             match e.file_type() {
                 Ok(t) if t.is_dir() => stack.push(p),
-                Ok(t) if t.is_file() && entry_compressed(&e) => out.push(p),
+                Ok(t) if t.is_file() && is_compressed(&p) => out.push(p),
                 _ => {}
             }
         }
@@ -337,6 +309,8 @@ mod tests {
         assert_ne!(file_id(&k), file_id(&c), "a file of its own again");
         assert_eq!(std::fs::read(&c).unwrap(), b"same bytes");
         assert_eq!(file_id(&d.path().join("none")), 0);
+        assert!(!is_compressed(&k), "a plain file takes at least its size");
+        assert!(!compressed_at(&d.path().join("none"), 10));
     }
 
     #[test]

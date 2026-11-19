@@ -185,38 +185,31 @@ pub fn store(args: &[String]) -> Result<(), String> {
             .map(|(i, f)| (i, set_tier.get(&i).copied().unwrap_or(tier_of[f.m as usize])))
             .filter(|(_, t)| tiers.contains(t))
             .collect();
-        // what is compressed already: one listing per folder, not one open per file
-        let mut dirs: FxHashSet<PathBuf> = FxHashSet::default();
-        for &(i, _) in &todo {
-            if let Some(d) = path_of(&files[i]).parent() {
-                dirs.insert(d.to_path_buf());
+        // files compression left as they were last time (it did not shrink them): not tried again at the same size
+        let kept: FxHashMap<String, u64> = {
+            let mut last: FxHashMap<String, disk::JournalLine> = FxHashMap::default();
+            for l in disk::journal_read(&journal) {
+                last.insert(l.path.to_lowercase(), l);
             }
-        }
-        eprintln!(
-            "compression: checking {} files in {} folders on disk",
-            todo.len(),
-            dirs.len()
-        );
-        let packed: FxHashSet<PathBuf> = dirs
-            .into_par_iter()
-            .flat_map_iter(|d| {
-                disk::compressed_in(&d)
-                    .into_iter()
-                    .map(move |n| d.join(n))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        let lower = |p: PathBuf| -> PathBuf {
-            match (p.parent(), p.file_name()) {
-                (Some(d), Some(n)) => d.join(n.to_string_lossy().to_lowercase()),
-                _ => p,
-            }
+            last.into_iter()
+                .filter(|(_, l)| l.op == "kept")
+                .map(|(p, l)| (p, l.size))
+                .collect()
         };
+        eprintln!(
+            "compression: checking {} files on disk ({} left as they were before)",
+            todo.len(),
+            kept.len()
+        );
         let found: Vec<(usize, Tier, Option<Codec>)> = todo
             .par_iter()
             .map(|&(i, t)| {
                 let f = &files[i];
-                let done = !packed.is_empty() && packed.contains(&lower(path_of(f)));
+                if kept.get(&rel_of(f).to_lowercase()) == Some(&f.size) {
+                    return (i, t, None);
+                }
+                // the WOF filter hides the reparse point: a compressed file is one smaller on disk than its size
+                let done = disk::compressed_at(&path_of(f), f.size);
                 (
                     i,
                     t,
@@ -366,7 +359,7 @@ pub fn store(args: &[String]) -> Result<(), String> {
         .num_threads(jobs)
         .build()
         .map_err(|e| e.to_string())?;
-    let mut compressed = 0u64;
+    let (mut compressed, mut left) = (0u64, 0u64);
     'codecs: for (name, list) in by_codec {
         let codec = Codec::from_name(name).expect("a known codec");
         for round in list.chunks(200 * jobs) {
@@ -387,32 +380,35 @@ pub fn store(args: &[String]) -> Result<(), String> {
                 let r = r?;
                 for (&i, (_, ok)) in b.iter().zip(r) {
                     let f = &files[i];
+                    // every file tried counts toward the limit, shrunk or not
+                    done_bytes += f.size;
                     if ok {
                         compressed += 1;
-                        done_bytes += f.size;
-                        j.write(&disk::JournalLine {
-                            time: disk::now(),
-                            op: "compress".into(),
-                            codec: name.to_string(),
-                            path: rel_of(f),
-                            keeper: String::new(),
-                            size: f.size,
-                        })
-                        .map_err(|e| e.to_string())?;
                     } else {
-                        failed.push(format!("{}: not compressed", rel_of(f)));
+                        left += 1;
                     }
+                    // `kept`: compression did not shrink it (or could not touch it) — the plan skips it next time
+                    j.write(&disk::JournalLine {
+                        time: disk::now(),
+                        op: if ok { "compress" } else { "kept" }.into(),
+                        codec: name.to_string(),
+                        path: rel_of(f),
+                        keeper: String::new(),
+                        size: f.size,
+                    })
+                    .map_err(|e| e.to_string())?;
                 }
             }
             eprintln!(
-                "  compressed {compressed} files ({:.1} GB processed) in {:.0} s",
+                "  compressed {compressed} files, {left} left as they were ({:.1} GB processed) in {:.0} s",
                 done_bytes as f64 / GB,
                 t.elapsed().as_secs_f64()
             );
         }
     }
     println!(
-        "applied: {linked} links, {compressed} files compressed, {:.1} GB processed in {:.0} min; {} failed",
+        "applied: {linked} links, {compressed} files compressed, {left} left as they were, {:.1} GB processed in \
+         {:.0} min; {} failed",
         done_bytes as f64 / GB,
         t.elapsed().as_secs_f64() / 60.0,
         failed.len()

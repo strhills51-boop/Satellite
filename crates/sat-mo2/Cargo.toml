@@ -14,6 +14,7 @@ serde_json.workspace = true
 zip.workspace = true
 sevenz-rust2.workspace = true
 same-file.workspace = true
+filesize.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
