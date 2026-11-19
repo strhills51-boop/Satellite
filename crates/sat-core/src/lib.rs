@@ -44,6 +44,7 @@ pub mod ignore;
 pub mod intent;
 pub mod interner;
 pub mod jobs;
+pub mod kin;
 pub mod layout;
 pub mod lineage;
 pub mod metrics;
