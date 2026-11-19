@@ -185,12 +185,38 @@ pub fn store(args: &[String]) -> Result<(), String> {
             .map(|(i, f)| (i, set_tier.get(&i).copied().unwrap_or(tier_of[f.m as usize])))
             .filter(|(_, t)| tiers.contains(t))
             .collect();
-        eprintln!("compression: checking {} files on disk", todo.len());
+        // what is compressed already: one listing per folder, not one open per file
+        let mut dirs: FxHashSet<PathBuf> = FxHashSet::default();
+        for &(i, _) in &todo {
+            if let Some(d) = path_of(&files[i]).parent() {
+                dirs.insert(d.to_path_buf());
+            }
+        }
+        eprintln!(
+            "compression: checking {} files in {} folders on disk",
+            todo.len(),
+            dirs.len()
+        );
+        let packed: FxHashSet<PathBuf> = dirs
+            .into_par_iter()
+            .flat_map_iter(|d| {
+                disk::compressed_in(&d)
+                    .into_iter()
+                    .map(move |n| d.join(n))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let lower = |p: PathBuf| -> PathBuf {
+            match (p.parent(), p.file_name()) {
+                (Some(d), Some(n)) => d.join(n.to_string_lossy().to_lowercase()),
+                _ => p,
+            }
+        };
         let found: Vec<(usize, Tier, Option<Codec>)> = todo
             .par_iter()
             .map(|&(i, t)| {
                 let f = &files[i];
-                let done = disk::is_compressed(&path_of(f));
+                let done = !packed.is_empty() && packed.contains(&lower(path_of(f)));
                 (
                     i,
                     t,

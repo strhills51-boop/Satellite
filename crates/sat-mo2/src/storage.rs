@@ -37,6 +37,36 @@ pub fn is_compressed(path: &Path) -> bool {
     }
 }
 
+/// The WOF-compressed files among the entries of one folder, by name in lower case — read from the folder listing,
+/// which on Windows carries each file's attributes, so no file is opened (thousands of folders a minute on an
+/// external disk, where opening each file runs at a few hundred a second).
+pub fn compressed_in(dir: &Path) -> Vec<String> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    rd.flatten()
+        .filter(entry_compressed)
+        .map(|e| e.file_name().to_string_lossy().to_lowercase())
+        .collect()
+}
+
+fn entry_compressed(e: &std::fs::DirEntry) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        // on Windows a listing's metadata comes with the listing (no extra system call)
+        e.metadata()
+            .map(|m| m.is_file() && m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = e;
+        false
+    }
+}
+
 /// The file a path is on disk, as a number: equal numbers — one file (hard links); `0` — not readable.
 pub fn file_id(path: &Path) -> u128 {
     use std::hash::{Hash, Hasher};
@@ -251,7 +281,7 @@ pub fn compressed_under(dir: &Path) -> Vec<PathBuf> {
             let p = e.path();
             match e.file_type() {
                 Ok(t) if t.is_dir() => stack.push(p),
-                Ok(t) if t.is_file() && is_compressed(&p) => out.push(p),
+                Ok(t) if t.is_file() && entry_compressed(&e) => out.push(p),
                 _ => {}
             }
         }
