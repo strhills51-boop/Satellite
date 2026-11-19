@@ -21,66 +21,73 @@ use sat_mo2::commit::Layout;
 
 use crate::{flag_value, open_instance};
 
-/// One loose file the measurement keeps.
-struct File {
-    m: u32,
-    rel: Box<str>,
-    size: u64,
+/// One loose file a pass keeps.
+pub(crate) struct File {
+    pub(crate) m: u32,
+    pub(crate) rel: Box<str>,
+    pub(crate) size: u64,
 }
 
-/// One mod: its name, whether it is on, its separator.
-struct Mod {
-    name: String,
-    on: bool,
-    sep: String,
+/// One mod: its name, whether it is on, its separator, its tags.
+pub(crate) struct Mod {
+    pub(crate) name: String,
+    pub(crate) on: bool,
+    pub(crate) sep: String,
+    pub(crate) tags: Vec<String>,
 }
 
-/// The class of a file by its extension (what it costs and how it compresses).
+/// The class of a file as the measurement writes it.
 fn class(rel: &str) -> &'static str {
-    let ext = rel.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    match ext.as_str() {
-        "dds" | "png" | "tga" => "textures",
-        "nif" | "tri" | "btr" | "bto" => "meshes",
-        "hkx" => "animations",
-        "wav" | "xwm" | "fuz" | "lip" | "mp3" | "ogg" => "sound",
-        "bsa" | "ba2" => "archives",
-        "pex" | "psc" => "scripts",
-        "esp" | "esm" | "esl" => "plugins",
-        "osd" | "osp" => "bodyslide",
-        "7z" | "zip" | "rar" => "packed",
-        _ => "other",
+    use sat_core::storage::Class;
+    match sat_core::storage::class(rel) {
+        Class::Textures => "textures",
+        Class::Meshes => "meshes",
+        Class::Animations => "animations",
+        Class::Sound => "sound",
+        Class::Archives => "archives",
+        Class::Scripts | Class::Interface => "scripts",
+        Class::BodySlide => "bodyslide",
+        Class::Plugins => "plugins",
+        Class::Packed => "packed",
+        Class::Config | Class::Other => "other",
     }
 }
 
-/// Files a hard link may share: assets nothing writes in place (plugins, configs and texts are left alone).
+/// Files a hard link may share (`@sat:storage.class`).
 fn linkable(rel: &str) -> bool {
-    !matches!(class(rel), "plugins" | "other" | "packed")
+    sat_core::storage::class(rel).linkable()
 }
 
-// @sat:cli.space.run
-/// `sat-cli space <instance> [--identical FILE] [--min-size SIZE] [--dds FILE] [--distributors FILE]`
-pub fn space(args: &[String]) -> Result<(), String> {
-    let inst = open_instance(args)?;
-    let (mut stll, project) = sat_home::project::require(&Layout::of(&inst).project_file)?;
-    let min = flag_value(args, "--min-size").map_or(Ok(64 * 1024), crate::parse_size)?;
+/// What `load` gives: the mods, the files, and the plugins each mod carries.
+pub(crate) type Loaded = (Vec<Mod>, Vec<File>, FxHashMap<String, Vec<u32>>);
 
-    // mods in list order with their separator (a mod belongs to the separator above it)
+// @sat:cli.space.load
+/// The project's mods (list order, separator, tags) and the loose files `keep(rel in lower case, size)` takes, from
+/// the stored facts — no scan; with the plugins each mod carries.
+pub(crate) fn load(inst: &Instance, keep: impl Fn(&str, u64) -> bool) -> Result<Loaded, String> {
+    let (mut stll, project) = sat_home::project::require(&Layout::of(inst).project_file)?;
+    let (book, _) = project.book();
     let mut mods: Vec<Mod> = Vec::new();
     let mut by_name: FxHashMap<String, u32> = FxHashMap::default();
     let mut sep = String::new();
     for e in &project.canon.entries {
         if e.is_mod() {
+            let tags = book
+                .key_of(&e.name)
+                .and_then(|k| book.marks(k))
+                .map(|m| m.tags.clone())
+                .unwrap_or_default();
             by_name.insert(e.name.to_lowercase(), mods.len() as u32);
             mods.push(Mod {
                 name: e.name.clone(),
                 on: e.enabled,
                 sep: sep.clone(),
+                tags,
             });
         } else {
             sep = e.name.trim_end_matches("_separator").to_string();
         }
     }
-    // the files: one pass over the stored facts
     let ids: Vec<(String, String)> = project
         .entities
         .iter()
@@ -109,9 +116,7 @@ pub fn space(args: &[String]) -> Result<(), String> {
                 } else {
                     format!("{}/{}", d.rel, x.name)
                 };
-                let low = rel.to_ascii_lowercase();
-                let keep = x.size >= min || low.ends_with(".dds") || distributor(&low);
-                if keep {
+                if keep(&rel.to_ascii_lowercase(), x.size) {
                     files.push(File {
                         m,
                         rel: rel.into_boxed_str(),
@@ -121,13 +126,23 @@ pub fn space(args: &[String]) -> Result<(), String> {
             }
         }
     }
-    drop(stll);
     eprintln!(
-        "facts: {} mods, {all_files} loose files, {:.1} GB; kept {} for the measurement",
+        "facts: {} mods, {all_files} loose files, {:.1} GB; kept {}",
         mods.len(),
         all_bytes as f64 / GB,
         files.len()
     );
+    Ok((mods, files, plugin_owners))
+}
+
+// @sat:cli.space.run
+/// `sat-cli space <instance> [--identical FILE] [--min-size SIZE] [--dds FILE] [--distributors FILE]`
+pub fn space(args: &[String]) -> Result<(), String> {
+    let inst = open_instance(args)?;
+    let min = flag_value(args, "--min-size").map_or(Ok(64 * 1024), crate::parse_size)?;
+    let (mods, files, plugin_owners) = load(&inst, |low, size| {
+        size >= min || low.ends_with(".dds") || distributor(low)
+    })?;
     let path_of = |f: &File| -> PathBuf { inst.mods_dir.join(&mods[f.m as usize].name).join(&*f.rel) };
 
     if let Some(out) = flag_value(args, "--identical") {
@@ -142,7 +157,7 @@ pub fn space(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+pub(crate) const GB: f64 = 1024.0 * 1024.0 * 1024.0;
 
 /// A distributor's config: SPID, BOS, KID, SkyPatcher.
 fn distributor(low: &str) -> bool {

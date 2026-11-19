@@ -66,6 +66,7 @@ pub mod session;
 pub mod source;
 pub mod space;
 pub mod sticker_rules;
+pub mod storage;
 pub mod sync;
 pub mod table;
 pub mod tag_rules;

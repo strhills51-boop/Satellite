@@ -21,6 +21,7 @@ pub mod meta;
 pub mod patches;
 pub mod processors;
 pub mod profile;
+pub mod storage;
 
 pub use instance::Instance;
 pub use meta::ModMeta;
