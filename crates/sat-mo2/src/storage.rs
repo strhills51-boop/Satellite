@@ -94,14 +94,7 @@ fn temp_beside(target: &Path, tag: &str) -> PathBuf {
 
 /// Replace `tmp` over `target` (a read-only target is made writable first: Windows does not rename over one).
 fn replace(tmp: &Path, target: &Path) -> Result<(), String> {
-    if let Ok(m) = std::fs::metadata(target) {
-        let mut p = m.permissions();
-        if p.readonly() {
-            #[allow(clippy::permissions_set_readonly_false)]
-            p.set_readonly(false);
-            let _ = std::fs::set_permissions(target, p);
-        }
-    }
+    let _ = set_locked(target, false);
     std::fs::rename(tmp, target).map_err(|e| {
         let _ = std::fs::remove_file(tmp);
         format!("{}: {e}", target.display())
@@ -129,12 +122,50 @@ pub fn link_copy(keeper: &Path, copy: &Path) -> Result<(), String> {
     replace(&tmp, copy)
 }
 
-/// Make a linked copy a file of its own again (its bytes copied out of the shared file).
-pub fn unlink_copy(copy: &Path) -> Result<(), String> {
+/// Make a linked name a file of its own again (its bytes copied out of the shared file); the new file carries no
+/// lock. Replacing the name lifts the shared file's lock for its other names too, so a `partner` — another name of
+/// the shared file — is locked again when it was locked.
+pub fn unlink_copy(copy: &Path, partner: Option<&Path>) -> Result<(), String> {
+    let locked = is_locked(copy);
     let tmp = temp_beside(copy, "satunlink");
     let _ = std::fs::remove_file(&tmp);
     std::fs::copy(copy, &tmp).map_err(|e| format!("{}: {e}", copy.display()))?;
-    replace(&tmp, copy)
+    let _ = set_locked(&tmp, false);
+    replace(&tmp, copy)?;
+    if let (true, Some(p)) = (locked, partner) {
+        let _ = set_locked(p, true);
+    }
+    Ok(())
+}
+
+// @sat:mo2.storage.lock
+/// The lock on a shared file: Windows' read-only attribute. It belongs to the file, not to a name, so every name of
+/// a linked file is locked at once: an editor that would save over it in place fails loudly instead of changing the
+/// copies in other mods. MO2 installs, merges and removes over it (checked on the owner's MO2 2026-11-19: a merge
+/// over a linked mod replaced its files — the copy kept its bytes — and a merge and a removal over a locked one went
+/// through); `compact.exe` compresses and decompresses it.
+pub fn set_locked(path: &Path, on: bool) -> std::io::Result<()> {
+    let mut p = std::fs::metadata(path)?.permissions();
+    if p.readonly() == on {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        // elsewhere the owner's write bit (tests): never everyone's
+        use std::os::unix::fs::PermissionsExt;
+        p.set_mode(if on { p.mode() & !0o222 } else { p.mode() | 0o200 });
+    }
+    #[cfg(not(unix))]
+    {
+        #[allow(clippy::permissions_set_readonly_false)]
+        p.set_readonly(on);
+    }
+    std::fs::set_permissions(path, p)
+}
+
+/// Whether a file is locked (read from the file itself: a folder listing may show another name's stale attributes).
+pub fn is_locked(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.permissions().readonly())
 }
 
 // @sat:mo2.storage.compact
@@ -305,8 +336,16 @@ mod tests {
         assert_eq!(file_id(&k), file_id(&c), "one file now");
         assert_eq!(std::fs::read(&c).unwrap(), b"same bytes");
         assert!(!temp_beside(&c, "satlink").exists());
-        unlink_copy(&c).unwrap();
+        set_locked(&c, true).unwrap();
+        assert!(
+            is_locked(&k),
+            "the lock belongs to the file: every name is locked"
+        );
+        unlink_copy(&c, Some(&k)).unwrap();
         assert_ne!(file_id(&k), file_id(&c), "a file of its own again");
+        assert!(!is_locked(&c), "a file of its own carries no lock");
+        assert!(is_locked(&k), "the partner is locked again");
+        set_locked(&k, false).unwrap();
         assert_eq!(std::fs::read(&c).unwrap(), b"same bytes");
         assert_eq!(file_id(&d.path().join("none")), 0);
         assert!(!is_compressed(&k), "a plain file takes at least its size");

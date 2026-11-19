@@ -2,7 +2,8 @@
 //!
 //! Owns: building the plan from the stored facts and the disk (identical copies through the shared content-hash
 //! cache, which copy is already one file with which, what is compressed), writing it, applying it — links first
-//! (byte for byte), then compression in parallel batches — with the journal, and undoing a mod by the journal.
+//! (byte for byte, each new link locked), then compression in parallel batches — with the journal; undoing a mod,
+//! freeing a mod for editing by hand, keeping the locks of shared files.
 //! Not here: the rules (`@sat:storage`), the disk work (`@sat:mo2.storage`), finding the files (`@sat:cli.space.load`).
 //!
 //! ADR 0022. `--scope disabled` (the default) never touches a file of an enabled mod: copies of disabled mods become
@@ -37,7 +38,7 @@ enum Op {
 
 // @sat:cli.store.run
 /// `sat-cli store <instance> [--scope disabled|all] [--tiers cold,warm,hot] [--no-links] [--no-compress]
-/// [--plan FILE] [--apply [--limit-gb N] [--jobs N]] [--undo MOD]...`
+/// [--plan FILE] [--apply [--limit-gb N] [--jobs N] [--no-lock]] [--undo MOD]... [--free MOD]... [--lock | --unlock]`
 pub fn store(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let policy = Policy::default();
@@ -47,7 +48,16 @@ pub fn store(args: &[String]) -> Result<(), String> {
     for m in &undo_mods {
         undo(&inst.mods_dir, &journal, m)?;
     }
-    if !undo_mods.is_empty() && !has(args, "--plan") && !has(args, "--apply") {
+    let free_mods = flag_values(args, "--free");
+    for m in &free_mods {
+        free(&inst.mods_dir, &journal, m)?;
+    }
+    if has(args, "--lock") || has(args, "--unlock") {
+        locks(&inst.mods_dir, &journal, has(args, "--lock"));
+    }
+    let upkeep =
+        !undo_mods.is_empty() || !free_mods.is_empty() || has(args, "--lock") || has(args, "--unlock");
+    if upkeep && !has(args, "--plan") && !has(args, "--apply") {
         return Ok(());
     }
 
@@ -311,8 +321,9 @@ pub fn store(args: &[String]) -> Result<(), String> {
     let mut done_bytes = 0u64;
     let mut failed: Vec<String> = Vec::new();
 
+    let lock = !has(args, "--no-lock");
     let mut j = disk::Journal::open(&journal).map_err(|e| format!("{}: {e}", journal.display()))?;
-    // links: one by one, each checked byte for byte and journaled as soon as it is made
+    // links: one by one, each checked byte for byte, locked and journaled as soon as it is made
     let mut linked = 0u64;
     for op in &ops {
         let Op::Link { keeper, copy } = op else {
@@ -326,6 +337,9 @@ pub fn store(args: &[String]) -> Result<(), String> {
             Ok(()) => {
                 linked += 1;
                 done_bytes += c.size;
+                if lock {
+                    let _ = disk::set_locked(&path_of(c), true);
+                }
                 j.write(&disk::JournalLine {
                     time: disk::now(),
                     op: "link".into(),
@@ -425,14 +439,7 @@ pub fn store(args: &[String]) -> Result<(), String> {
 /// (their newest line is a link), and every WOF-compressed file of the mod is decompressed — the disk says which,
 /// so a run cut short before its journal line is undone too.
 fn undo(mods_dir: &std::path::Path, journal: &std::path::Path, name: &str) -> Result<(), String> {
-    // one mod folder by its name: never the mods folder itself or a path out of it
-    if name.trim().is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
-        return Err(format!("--undo {name:?}: the name of one mod folder"));
-    }
-    let dir = mods_dir.join(name);
-    if !dir.is_dir() {
-        return Err(format!("--undo {name}: no such mod folder"));
-    }
+    let dir = mod_dir(mods_dir, name, "--undo")?;
     let prefix = format!("{}/", name.to_lowercase());
     let mut last: FxHashMap<String, disk::JournalLine> = FxHashMap::default();
     for l in disk::journal_read(journal) {
@@ -443,7 +450,7 @@ fn undo(mods_dir: &std::path::Path, journal: &std::path::Path, name: &str) -> Re
     let mut j = disk::Journal::open(journal).map_err(|e| format!("{}: {e}", journal.display()))?;
     let mut unlinked = 0u32;
     for l in last.into_values().filter(|l| l.op == "link") {
-        match disk::unlink_copy(&mods_dir.join(&l.path)) {
+        match disk::unlink_copy(&mods_dir.join(&l.path), Some(&mods_dir.join(&l.keeper))) {
             Ok(()) => {
                 unlinked += 1;
                 j.write(&disk::JournalLine {
@@ -483,4 +490,125 @@ fn undo(mods_dir: &std::path::Path, journal: &std::path::Path, name: &str) -> Re
     }
     println!("{name}: {unlinked} links made files again, {back} files decompressed");
     Ok(())
+}
+
+/// One mod folder by its name: never the mods folder itself or a path out of it.
+fn mod_dir(mods_dir: &std::path::Path, name: &str, flag: &str) -> Result<PathBuf, String> {
+    if name.trim().is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+        return Err(format!("{flag} {name:?}: the name of one mod folder"));
+    }
+    let dir = mods_dir.join(name);
+    if !dir.is_dir() {
+        return Err(format!("{flag} {name}: no such mod folder"));
+    }
+    Ok(dir)
+}
+
+/// The links the journal says are standing: the newest line of each path is a link.
+fn links_now(journal: &std::path::Path) -> Vec<disk::JournalLine> {
+    let mut last: FxHashMap<String, disk::JournalLine> = FxHashMap::default();
+    for l in disk::journal_read(journal) {
+        last.insert(l.path.to_lowercase(), l);
+    }
+    last.into_values().filter(|l| l.op == "link").collect()
+}
+
+// @sat:cli.store.free
+/// Free mod `name` for editing by hand: every file of it that shares its bytes with another mod becomes a file of
+/// its own, without a lock — a copy here leaves its keeper; a keeper here leaves its copies (they stay one file among
+/// themselves, locked). Compression stays: writing to a WOF file decompresses it. The next pass decides anew.
+fn free(mods_dir: &std::path::Path, journal: &std::path::Path, name: &str) -> Result<(), String> {
+    mod_dir(mods_dir, name, "--free")?;
+    let prefix = format!("{}/", name.to_lowercase());
+    let mine = |p: &str| p.to_lowercase().starts_with(&prefix);
+    let mut j = disk::Journal::open(journal).map_err(|e| format!("{}: {e}", journal.display()))?;
+    let (mut copies, mut keepers) = (0u32, 0u32);
+    let mut kept_by: FxHashMap<String, (String, Vec<String>)> = FxHashMap::default();
+    for l in links_now(journal) {
+        if mine(&l.path) {
+            match disk::unlink_copy(&mods_dir.join(&l.path), Some(&mods_dir.join(&l.keeper))) {
+                Ok(()) => {
+                    copies += 1;
+                    j.write(&disk::JournalLine {
+                        time: disk::now(),
+                        op: "unlink".into(),
+                        ..l
+                    })
+                    .map_err(|e| e.to_string())?;
+                }
+                Err(e) => eprintln!("  {e}"),
+            }
+        } else if mine(&l.keeper) {
+            let e = kept_by
+                .entry(l.keeper.to_lowercase())
+                .or_insert_with(|| (l.keeper.clone(), Vec::new()));
+            e.1.push(l.path);
+        }
+    }
+    for (keeper, others) in kept_by.into_values() {
+        let path = mods_dir.join(&keeper);
+        // only while the keeper is still one file with its copies
+        let id = disk::file_id(&path);
+        let Some(partner) = others
+            .iter()
+            .map(|o| mods_dir.join(o))
+            .find(|o| id != 0 && disk::file_id(o) == id)
+        else {
+            continue;
+        };
+        match disk::unlink_copy(&path, Some(&partner)) {
+            Ok(()) => {
+                keepers += 1;
+                j.write(&disk::JournalLine {
+                    time: disk::now(),
+                    op: "free".into(),
+                    codec: String::new(),
+                    path: keeper,
+                    keeper: String::new(),
+                    size: std::fs::metadata(&path).map_or(0, |m| m.len()),
+                })
+                .map_err(|e| e.to_string())?;
+            }
+            Err(e) => eprintln!("  {e}"),
+        }
+    }
+    println!("{name}: free for editing — {copies} copies and {keepers} keepers are files of their own now");
+    Ok(())
+}
+
+// @sat:cli.store.lock
+/// Keep the locks true to the disk: every name of a file shared by two or more names the journal knows is locked
+/// (`--lock`); a name no longer shared is unlocked. `--unlock` lifts every lock the journal's links could carry.
+fn locks(mods_dir: &std::path::Path, journal: &std::path::Path, on: bool) {
+    let mut names: FxHashSet<String> = FxHashSet::default();
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for l in links_now(journal) {
+        for p in [&l.path, &l.keeper] {
+            if names.insert(p.to_lowercase()) {
+                paths.push(mods_dir.join(p));
+            }
+        }
+    }
+    let ids: Vec<u128> = paths.par_iter().map(|p| disk::file_id(p)).collect();
+    let mut count: FxHashMap<u128, u32> = FxHashMap::default();
+    for &id in ids.iter().filter(|&&id| id != 0) {
+        *count.entry(id).or_default() += 1;
+    }
+    let (locked, unlocked) = paths
+        .par_iter()
+        .zip(&ids)
+        .filter(|(_, id)| **id != 0)
+        .map(|(p, id)| {
+            let want = on && count[id] > 1;
+            match (disk::is_locked(p), want) {
+                (false, true) => (u32::from(disk::set_locked(p, true).is_ok()), 0),
+                (true, false) => (0, u32::from(disk::set_locked(p, false).is_ok())),
+                _ => (0, 0),
+            }
+        })
+        .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+    println!(
+        "locks: {} names known, {locked} locked now, {unlocked} unlocked",
+        paths.len()
+    );
 }
