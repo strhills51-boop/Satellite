@@ -425,6 +425,10 @@ pub fn store(args: &[String]) -> Result<(), String> {
 /// (their newest line is a link), and every WOF-compressed file of the mod is decompressed — the disk says which,
 /// so a run cut short before its journal line is undone too.
 fn undo(mods_dir: &std::path::Path, journal: &std::path::Path, name: &str) -> Result<(), String> {
+    // one mod folder by its name: never the mods folder itself or a path out of it
+    if name.trim().is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+        return Err(format!("--undo {name:?}: the name of one mod folder"));
+    }
     let dir = mods_dir.join(name);
     if !dir.is_dir() {
         return Err(format!("--undo {name}: no such mod folder"));
