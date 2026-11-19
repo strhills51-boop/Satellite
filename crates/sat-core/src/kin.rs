@@ -170,11 +170,30 @@ const MARKS: &[&str] = &[
     "replacer",
 ];
 
-/// A Nexus id confirmed by an archive or folder name of the Nexus kind (`Name-12604-5-2-…`): MO2 also writes ids
-/// it guessed or the owner picked by hand, and those join unrelated mods.
+/// A Nexus id confirmed by an archive or folder name of the Nexus kind — `Name-12604-5-2-1588887280`: the id, the
+/// version's numbers and a download timestamp. MO2 also writes ids it guessed (from a date in the archive name:
+/// `Rutah-nordic-2014-08-10.7z` got id 2014) or the owner picked by hand, and those join unrelated mods.
 fn id_confirmed(s: &Side, id: u64) -> bool {
     let mark = format!("-{id}-");
-    s.name.contains(&mark) || s.file.as_deref().is_some_and(|f| f.contains(&mark))
+    let nexus = |text: &str| {
+        text.match_indices(&mark).any(|(i, _)| {
+            let tail = &text[i + mark.len()..];
+            // the archive's extension off
+            let tail = match tail.rsplit_once('.') {
+                Some((t, ext)) if ext.chars().all(|c| c.is_ascii_alphanumeric()) && !ext.is_empty() => t,
+                _ => tail,
+            };
+            let parts: Vec<&str> = tail.split('-').collect();
+            parts.len() >= 2
+                && parts
+                    .iter()
+                    .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
+                && parts
+                    .last()
+                    .is_some_and(|t| t.len() >= 9 && t.chars().all(|c| c.is_ascii_digit()))
+        })
+    };
+    nexus(&s.name) || s.file.as_deref().is_some_and(nexus)
 }
 
 // @sat:kin.link
@@ -731,8 +750,13 @@ mod tests {
         let mut hair = side("ApachiiSkyHairFemale_v_1_5_1", 1100 << 20);
         let mut tats = side("Rutah-nordic", 320 << 20);
         hair.mod_id = Some(2014);
-        hair.file = Some("ApachiiSkyHairFemale-2014-1-5-1.7z".into());
+        hair.file = Some("C:/Users/x/Downloads/ApachiiSkyHairFemale_v_1_5_1-2014-1-5-1-1588887280.7z".into());
         tats.mod_id = Some(2014);
+        assert!(classify(0, &hair, 1, &tats, &Surface::default()).is_none());
+        // ... even when its archive name holds the number, as a date: MO2 read the year as the id
+        tats.file = Some("C:/Users/x/Downloads/Rutah-nordic-2014-08-10.7z".into());
+        assert!(!id_confirmed(&tats, 2014));
+        assert!(id_confirmed(&hair, 2014));
         assert!(classify(0, &hair, 1, &tats, &Surface::default()).is_none());
         // a browser's download folders share a generic name, not an origin
         let d1 = side("drive-download-20260830T115523Z-1-0041", 3000 << 20);
