@@ -56,6 +56,7 @@ pub(crate) fn report(
                 enabled: prio.is_active(m),
                 mod_id: src.and_then(|s| s.mod_id),
                 version: src.and_then(|s| s.version.clone()),
+                file: src.and_then(|s| s.file.clone()),
                 name,
                 ..Side::default()
             }

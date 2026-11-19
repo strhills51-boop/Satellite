@@ -27,8 +27,12 @@ pub enum Kind {
     Version,
     /// The same origin and version, another option (2K / 4K, "– BOS"): the same paths, other bytes. One of them on.
     Variant,
-    /// `a` adds to `b` (an addon, a patch, a fix of the same origin): both on, `a` after `b`.
+    /// `a` adds to `b` (an addon, a patch, a fix of the same origin — its plugin needs `b`'s, or it overlays part
+    /// of `b`, or its name says so): both on, `a` after `b`.
     Addon,
+    /// From one mod page, side by side: few or no shared files, neither needs the other (a pack's other animations,
+    /// an example config, a preset beside a replacer).
+    Sibling,
     /// `a` translates `b`: the same plugin by name, few assets; `a`'s plugin instead of `b`'s.
     Translation,
     /// Not kin: `a` covers most of `b` with its own bytes (a pack over a single mod).
@@ -50,6 +54,7 @@ impl Kind {
             Kind::Version => "версия",
             Kind::Variant => "вариант",
             Kind::Addon => "дополнение",
+            Kind::Sibling => "с одной страницы",
             Kind::Translation => "перевод",
             Kind::Covers => "перекрывает",
         }
@@ -66,6 +71,8 @@ pub struct Side {
     pub mod_id: Option<u64>,
     /// The version the source records (`meta.ini`); else none — the name may still carry one.
     pub version: Option<String>,
+    /// The archive it was installed from (`meta.ini`).
+    pub file: Option<String>,
     /// Bytes of the game's files (no `meta.ini`, fomod, readme, pictures in the root).
     pub bytes: u64,
     /// Plugin file names at the root, lower case.
@@ -91,7 +98,7 @@ pub struct Surface {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Why {
-    /// The same Nexus mod.
+    /// The same Nexus mod, confirmed by an archive or folder name (`Name-ID-version-…`).
     NexusId(u64),
     /// The same name once versions, dates, Nexus numbers and copy marks are gone.
     Name,
@@ -105,6 +112,69 @@ pub enum Why {
     PluginName,
     /// The bytes were compared.
     Bytes,
+    /// The name says so (patch, addon, fix, compatibility).
+    Marked,
+}
+
+/// Name bases too generic to tell an origin (a browser's download folder, an archive's default name).
+const GENERIC: &[&str] = &[
+    "drive download",
+    "new folder",
+    "data",
+    "archive",
+    "files",
+    "main",
+    "main file",
+    "mod",
+    "mods",
+    "patch",
+    "patches",
+    "fix",
+    "fixes",
+    "update",
+    "optional",
+    "optional files",
+    "textures",
+    "meshes",
+    "plugin",
+    "plugins",
+    "esp",
+    "esl version",
+    "test",
+    "temp",
+    "download",
+    "downloads",
+    "sse",
+    "skyrim",
+    "skse",
+    "addon",
+    "hotfix",
+];
+
+/// Words that mark a patch or an addon in a name.
+const MARKS: &[&str] = &[
+    "patch",
+    "patches",
+    "addon",
+    "add",
+    "fix",
+    "fixes",
+    "compat",
+    "compatibility",
+    "tweak",
+    "tweaks",
+    "plugin",
+    "extension",
+    "expansion",
+    "integration",
+    "replacer",
+];
+
+/// A Nexus id confirmed by an archive or folder name of the Nexus kind (`Name-12604-5-2-…`): MO2 also writes ids
+/// it guessed or the owner picked by hand, and those join unrelated mods.
+fn id_confirmed(s: &Side, id: u64) -> bool {
+    let mark = format!("-{id}-");
+    s.name.contains(&mark) || s.file.as_deref().is_some_and(|f| f.contains(&mark))
 }
 
 // @sat:kin.link
@@ -202,7 +272,8 @@ pub fn base_name(name: &str) -> String {
     words.join(" ")
 }
 
-/// Names close: every word of the shorter base in the longer, or at least half the words shared.
+/// Names close: every word of the shorter base in the longer, at least half the words shared, or the same first
+/// two words (10 letters or more: `medieval markets …`, `utenlands nordic tents …`).
 pub fn names_near(a: &str, b: &str) -> bool {
     let (wa, wb): (Vec<&str>, Vec<&str>) = (a.split(' ').collect(), b.split(' ').collect());
     if a.is_empty() || b.is_empty() || a.len().min(b.len()) < 5 {
@@ -215,7 +286,8 @@ pub fn names_near(a: &str, b: &str) -> bool {
     };
     let inter = s.iter().filter(|w| l.contains(w)).count();
     let union = wa.len() + wb.len() - inter;
-    inter == s.len() || inter * 2 >= union
+    let lead = wa.len() >= 2 && wb.len() >= 2 && wa[..2] == wb[..2] && wa[0].len() + wa[1].len() >= 10;
+    inter == s.len() || inter * 2 >= union || lead
 }
 
 // @sat:kin.version
@@ -304,13 +376,21 @@ pub fn classify(ia: u32, a: &Side, ib: u32, b: &Side, s: &Surface) -> Option<Lin
     let (contain, sim) = (cover_ab.max(cover_ba), cover_ab.min(cover_ba));
 
     let mut why = Vec::new();
-    let id_same = matches!((a.mod_id, b.mod_id), (Some(x), Some(y)) if x == y);
+    let (ba, bb) = (base_name(&a.name), base_name(&b.name));
+    let generic = |x: &str| x.is_empty() || GENERIC.contains(&x);
+    let name_same = !generic(&ba) && ba == bb;
+    let near = !name_same && !generic(&ba) && !generic(&bb) && names_near(&ba, &bb);
+    // one Nexus id, confirmed by the names of both, or of one when the names are close too
+    let id_same = match (a.mod_id, b.mod_id) {
+        (Some(x), Some(y)) if x == y => {
+            let (ca, cb) = (id_confirmed(a, x), id_confirmed(b, x));
+            (ca && cb) || ((ca || cb) && (name_same || near))
+        }
+        _ => false,
+    };
     if let (true, Some(id)) = (id_same, a.mod_id) {
         why.push(Why::NexusId(id));
     }
-    let (ba, bb) = (base_name(&a.name), base_name(&b.name));
-    let name_same = !ba.is_empty() && ba == bb;
-    let near = !name_same && names_near(&ba, &bb);
     if name_same {
         why.push(Why::Name);
     } else if near {
@@ -348,10 +428,17 @@ pub fn classify(ia: u32, a: &Side, ib: u32, b: &Side, s: &Surface) -> Option<Lin
         return link(Kind::Copy, known >= 0.9, false, false, why);
     }
     let small_is_a = a.bytes <= b.bytes;
+    let marked = {
+        let small = if small_is_a { &ba } else { &bb };
+        small.split(' ').any(|w| MARKS.contains(&w))
+    };
     if origin {
-        if contain >= 0.5 {
-            // most of the smaller one is in the other: another version or another option
-            let (va, vb) = (version_of(a), version_of(b));
+        let (va, vb) = (version_of(a), version_of(b));
+        let versions_differ =
+            matches!((&va, &vb), (Some(x), Some(y)) if compare_versions(x, y).is_some_and(Ordering::is_ne));
+        // another version or another option: each holds much of the other — or one name, other versions (a new
+        // version that grew)
+        if (contain >= 0.5 && sim >= 0.5) || (contain >= 0.5 && name_same && versions_differ) {
             if let (Some(x), Some(y)) = (&va, &vb) {
                 why.push(Why::Versions(x.clone(), y.clone()));
                 match compare_versions(x, y) {
@@ -370,18 +457,28 @@ pub fn classify(ia: u32, a: &Side, ib: u32, b: &Side, s: &Surface) -> Option<Lin
             }
             return link(Kind::Version, false, false, false, why);
         }
-        // the smaller one is mostly its own files: it adds to the other
         let (small, big) = if small_is_a { (a, b) } else { (b, a) };
         let masters = if small_is_a { masters_ab } else { masters_ba };
         if masters {
             why.push(Why::Masters);
         }
+        if marked {
+            why.push(Why::Marked);
+        }
+        // the smaller one lies over part of the other: an overlay of the base (a replacer, an option patch)
+        if contain >= 0.5 {
+            return link(Kind::Addon, strong, true, !small_is_a, why);
+        }
+        // the smaller one is mostly its own files
         if plugin_name && small.bytes * 10 <= big.bytes && !masters {
             why.push(Why::PluginName);
             return link(Kind::Translation, false, true, !small_is_a, why);
         }
-        if strong || masters {
-            return link(Kind::Addon, true, true, !small_is_a, why);
+        if masters || (marked && origin) {
+            return link(Kind::Addon, strong || masters, true, !small_is_a, why);
+        }
+        if strong {
+            return link(Kind::Sibling, id_same, false, false, why);
         }
         // names only close and few shared files: not enough to call it kin
         return None;
@@ -586,8 +683,14 @@ mod tests {
             "8.1 → 9.0"
         );
         // an addon of the same Nexus mod: mostly its own files, toward the base
-        let mut base = side("Utenlands Nordic Tents - BOS Color Variance", 300 << 20);
-        let mut add = side("Utenlands Nordic Tents - Campfire Addon", 30 << 20);
+        let mut base = side(
+            "Utenlands Nordic Tents - BOS Color Variance-7-1-0-1700000000",
+            300 << 20,
+        );
+        let mut add = side(
+            "Utenlands Nordic Tents - Campfire Addon-7-1-0-1700000001",
+            30 << 20,
+        );
         base.mod_id = Some(7);
         add.mod_id = Some(7);
         let l = classify(0, &base, 1, &add, &surf(2 << 20, 2 << 20, 2 << 20, 0)).unwrap();
@@ -612,6 +715,42 @@ mod tests {
                 &surf(1 << 20, 1 << 20, 0, 0)
             )
             .is_none()
+        );
+    }
+
+    #[test]
+    fn a_guessed_nexus_id_a_generic_name_and_an_overlay_are_read_right() {
+        let surf = |a: u64, b: u64, differ: u64| Surface {
+            files: 3,
+            bytes_a: a,
+            bytes_b: b,
+            same: 0,
+            differ,
+        };
+        // MO2 wrote the same id to unrelated mods: no name confirms it, the names differ — not kin
+        let mut hair = side("ApachiiSkyHairFemale_v_1_5_1", 1100 << 20);
+        let mut tats = side("Rutah-nordic", 320 << 20);
+        hair.mod_id = Some(2014);
+        hair.file = Some("ApachiiSkyHairFemale-2014-1-5-1.7z".into());
+        tats.mod_id = Some(2014);
+        assert!(classify(0, &hair, 1, &tats, &Surface::default()).is_none());
+        // a browser's download folders share a generic name, not an origin
+        let d1 = side("drive-download-20260830T115523Z-1-0041", 3000 << 20);
+        let d2 = side("drive-download-20260625T020010Z-3-001", 900 << 20);
+        assert!(classify(0, &d1, 1, &d2, &Surface::default()).is_none());
+        // a small patch lying over part of the main mod: an addon after it, not a version
+        let main = side("Medieval Markets ESL", 900 << 20);
+        let patch = side("Medieval Markets - ALT Crates Patch", 9 << 20);
+        let l = classify(0, &main, 1, &patch, &surf(9 << 20, 9 << 20, 9 << 20)).unwrap();
+        assert_eq!((l.kind, l.a, l.b), (Kind::Addon, 1, 0));
+        // two files of one page that share nothing: side by side
+        let mut a = side("Graceful woman Jump_legs apart-163117-1-0-1761839000", 1 << 20);
+        let mut b = side("Cute girl jump_legs apart-163117-1-0-1761839700", 1 << 20);
+        a.mod_id = Some(163117);
+        b.mod_id = Some(163117);
+        assert_eq!(
+            classify(0, &a, 1, &b, &Surface::default()).unwrap().kind,
+            Kind::Sibling
         );
     }
 
