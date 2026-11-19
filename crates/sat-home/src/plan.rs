@@ -348,7 +348,7 @@ pub(crate) fn plugin_files(
     let (pt, lo) = (read("plugins.txt"), read("loadorder.txt"));
     let disk = sat_core::plugins::PluginCanon {
         load_order: profile::parse_loadorder(&lo),
-        checked: profile::parse_plugins(&pt)
+        checked: profile::parse_plugins(&pt, sat_core::game::active().plugins.stars)
             .into_iter()
             .map(|l| (l.name, l.enabled))
             .collect(),
@@ -382,7 +382,7 @@ pub(crate) fn plugin_files(
         }
     }
     Some(PluginWrite {
-        plugins: profile::serialize_plugins(&lines, &pt),
+        plugins: profile::serialize_plugins(&lines, &pt, sat_core::game::active().plugins.stars),
         loadorder: profile::serialize_loadorder(&order, &lo),
         written: sat_core::plugins::PluginCanon {
             load_order: order,

@@ -382,7 +382,7 @@ pub fn scan<'a>(
         let read = |f: &str| std::fs::read(inst.profile_dir().join(f)).unwrap_or_default();
         let disk = PluginCanon {
             load_order: profile::parse_loadorder(&read("loadorder.txt")),
-            checked: profile::parse_plugins(&read("plugins.txt"))
+            checked: profile::parse_plugins(&read("plugins.txt"), sat_core::game::active().plugins.stars)
                 .into_iter()
                 .map(|l| (l.name, l.enabled))
                 .collect(),

@@ -31,6 +31,11 @@ pub struct PluginRules {
     /// Creation Club plugins start with it (shipped in the game's data, listed in `loadorder.txt` only).
     #[serde(default)]
     pub creation_club_prefix: Option<String>,
+    /// `plugins.txt` marks active plugins with `*` and lists inactive ones bare (Skyrim SE, Fallout 4): a line without
+    /// a star is off, a file without a single star has every plugin off. Without it — the older list format, where
+    /// every listed plugin is active.
+    #[serde(default)]
+    pub stars: bool,
     /// How many full plugins load (runtime indexes `00`…`limit-1`).
     pub full_limit: u32,
     /// How many light plugins load.

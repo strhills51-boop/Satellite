@@ -43,6 +43,7 @@
       }
     ],
     "creation_club_prefix": "cc",
+    "stars": true,
     "full_limit": 254,
     "light_limit": 4096,
     "min_header": 1.7,
