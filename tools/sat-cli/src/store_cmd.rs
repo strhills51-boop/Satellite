@@ -38,7 +38,8 @@ enum Op {
 
 // @sat:cli.store.run
 /// `sat-cli store <instance> [--scope disabled|all] [--tiers cold,warm,hot] [--no-links] [--no-compress]
-/// [--plan FILE] [--apply [--limit-gb N] [--jobs N] [--no-lock]] [--undo MOD]... [--free MOD]... [--lock | --unlock]`
+/// [--plan FILE] [--apply [--limit-gb N] [--jobs N] [--no-lock]] [--undo MOD]... [--free MOD]... [--lock | --unlock]
+/// [--verify N [--against FILE]]`
 pub fn store(args: &[String]) -> Result<(), String> {
     let inst = open_instance(args)?;
     let policy = Policy::default();
@@ -55,8 +56,20 @@ pub fn store(args: &[String]) -> Result<(), String> {
     if has(args, "--lock") || has(args, "--unlock") {
         locks(&inst.mods_dir, &journal, has(args, "--lock"));
     }
-    let upkeep =
-        !undo_mods.is_empty() || !free_mods.is_empty() || has(args, "--lock") || has(args, "--unlock");
+    if let Some(n) = flag_value(args, "--verify") {
+        let n: usize = n
+            .parse()
+            .map_err(|_| format!("--verify {n}: a number of files"))?;
+        let against = flag_value(args, "--against")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| inst.profile_dir().join("satellite").join("content-hashes.txt"));
+        verify(&inst.mods_dir, &journal, &against, n)?;
+    }
+    let upkeep = !undo_mods.is_empty()
+        || !free_mods.is_empty()
+        || has(args, "--lock")
+        || has(args, "--unlock")
+        || has(args, "--verify");
     if upkeep && !has(args, "--plan") && !has(args, "--apply") {
         return Ok(());
     }
@@ -611,4 +624,74 @@ fn locks(mods_dir: &std::path::Path, journal: &std::path::Path, on: bool) {
         "locks: {} names known, {locked} locked now, {unlocked} unlocked",
         paths.len()
     );
+}
+
+// @sat:cli.store.verify
+/// Byte for byte proof: `n` files the journal says were compressed or linked, read now and hashed, against the hashes
+/// recorded before (`against`: the content-hash cache or a copy of it from before the pass); a record counts only
+/// while the file's size and time are the recorded ones (WOF compression keeps them).
+fn verify(
+    mods_dir: &std::path::Path,
+    journal: &std::path::Path,
+    against: &std::path::Path,
+    n: usize,
+) -> Result<(), String> {
+    let mut last: FxHashMap<String, disk::JournalLine> = FxHashMap::default();
+    for l in disk::journal_read(journal) {
+        last.insert(l.path.to_lowercase(), l);
+    }
+    let mut done: Vec<disk::JournalLine> = last
+        .into_values()
+        .filter(|l| l.op == "compress" || l.op == "link")
+        .collect();
+    // a fixed spread over the journal: every k-th file
+    done.sort_by(|a, b| a.path.cmp(&b.path));
+    let step = (done.len() / n.max(1)).max(1);
+    let picked: Vec<disk::JournalLine> = done.into_iter().step_by(step).take(n).collect();
+    let cache = sat_scan::content::HashCache::load(against);
+    // the cache keys a path as it was written: the mod and the rest joined, or all of it with backslashes
+    let path_of = |rel: &str| -> Vec<PathBuf> {
+        let mut v = Vec::new();
+        if let Some((m, rest)) = rel.split_once('/') {
+            v.push(mods_dir.join(m).join(rest));
+        }
+        v.push(mods_dir.join(rel.replace('/', "\\")));
+        v.push(mods_dir.join(rel));
+        v
+    };
+    let results: Vec<(String, &'static str)> = picked
+        .par_iter()
+        .map(|l| {
+            let paths = path_of(&l.path);
+            let Some((p, h)) = paths.iter().find_map(|p| cache.recorded(p).map(|h| (p, h))) else {
+                return (l.path.clone(), "no record");
+            };
+            match sat_scan::content::hash_file(p) {
+                Ok(now) if now == h => (l.path.clone(), "same"),
+                Ok(_) => (l.path.clone(), "DIFFERENT"),
+                Err(_) => (l.path.clone(), "unreadable"),
+            }
+        })
+        .collect();
+    let mut count: FxHashMap<&str, u32> = FxHashMap::default();
+    for (_, r) in &results {
+        *count.entry(r).or_default() += 1;
+    }
+    let c = |k: &str| count.get(k).copied().unwrap_or(0);
+    println!(
+        "verify: {} files of the journal read against {}: same {}, different {}, unreadable {}, no record {}",
+        results.len(),
+        against.display(),
+        c("same"),
+        c("DIFFERENT"),
+        c("unreadable"),
+        c("no record")
+    );
+    for (p, r) in results
+        .iter()
+        .filter(|(_, r)| *r == "DIFFERENT" || *r == "unreadable")
+    {
+        println!("  {r}: {p}");
+    }
+    Ok(())
 }

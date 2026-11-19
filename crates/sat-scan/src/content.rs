@@ -151,6 +151,12 @@ impl HashCache {
         std::fs::rename(tmp, file)
     }
 
+    /// The hash recorded for a file while its size and time are the ones recorded (`None` — no such record).
+    pub fn recorded(&self, path: &Path) -> Option<u64> {
+        let (s, t) = stamp(path)?;
+        self.get(&path.to_string_lossy(), s, t).flatten()
+    }
+
     /// Hashes of `paths` (in their order; `None` — not readable), from the cache where the file is unchanged, else
     /// read in parallel. Returns how many were read.
     pub fn hash_all(&mut self, paths: &[PathBuf]) -> (Vec<Option<u64>>, usize) {
